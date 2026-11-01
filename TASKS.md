@@ -206,31 +206,29 @@ work.
       through open/edit/style/reorder/connect/save and cancellation; include
       arrow controls when implementing their inspector. Do not infer
       accessibility from ARIA.
-- Keyboard editing now has canvas-scoped drawing/zoom shortcuts, native exact
-  geometry/connection controls and a complete **?** map. Browser page zoom
-  remains available when a field or toolbar control has focus; file/style Escape
-  restores the trigger. Keep the readiness gate above evidence-based:
-  implementation is not cross-browser or assistive-technology certification.
-- **Keyboard verification (2026-11-01, Brave/Chromium on macOS only):** real
-  keyboard placement of every drawing tool; arbitrary checkbox selection; exact
-  geometry/rotation and both line endpoints; bound-arrow creation, self-loops,
-  reconnect/label/delete/history; applicable Style/Paper/layout choices; Meta
-  clipboard/duplicate/history/stacking; locks; focus return and initial help
-  PageDown/PageUp; scrolling controls at 360×500 and 800×360 were exercised.
-  Actual saved/reopened JSON retained geometry, named styles, typography and
-  connection identity; Command+Shift+E produced an inspected RGBA PNG.
-  Independent file-input selection and Save copy produced real downloaded JSON,
-  left the original untouched and edits dirty. Keyboard server create/open
-  guards, genuine create/save and external-conflict refusal preserved bytes and
-  in-memory edits. Full automated checks passed (60 tests), as did
-  changed-module syntax checks and assets build.
-- **Verification limits:** browser page-zoom enlargement, physical IME/AltGraph/
-  dead-key entry, screen readers, other browsers, OS-selected writable handles
-  and their permission dialogs were not exercised. Field Command+/- left canvas
-  zoom unchanged; this is isolation proof, not browser-chrome zoom
-  certification. Reload discard/reopen passed, but automated confirm handling
-  prevented definitive reload-cancellation proof. These limits keep the gate
-  unchecked.
+- Keyboard editing uses direct canvas interactions, not a properties panel:
+  selection-preserving object/edge traversal, Space tap selection (hold+drag
+  retains panning), G handle previews, staged C bindings and existing inline
+  labels. S opens existing Style; the compact ? reference lives in the document
+  menu. Preserve canvas/field/IME/browser-key boundaries and file/style focus
+  return. This is not cross-browser or assistive-technology certification.
+- **Direct-keyboard verification (2026-11-01, Brave/Chromium on macOS only):**
+  actual keys exercised arbitrary selection; G commit/cancel, endpoints and
+  Save/Open preview lifecycle; C creation, distinct-side self-loop, reconnect,
+  inline label commit/cancel and undo; Style-open editor/mode Escape precedence;
+  drawing-tool Enter after edge selection; history cancellation of previews;
+  Space-held pointer panning with selection and clean state preserved; retained
+  pointer drawing/move/resize/rotation; stable stacking and undo; pan/zoom/fit;
+  field isolation and compact-menu scrolling/focus return. Genuine save/reopen
+  retained 11 nodes, 2 connections, authored geometry and metadata with clean
+  state and no observed application errors. Node geometry/selection/lifecycle
+  regressions and full Mix tests supplement the browser proof.
+- **Verification limits:** this session did not certify browser-chrome zoom,
+  physical IME/AltGraph/dead-key entry, screen readers, other browsers, or
+  OS-selected writable-handle permission dialogs. Preserve the existing native
+  file capability/fallback contract; local-server and downloaded-file proof is
+  not OS-dialog automation. Connected-arrow appearance and independent native
+  editor work remain the separately agreed milestones above.
 - Check short-window menus/inspectors for clipped actions, traps, and hidden
   focus.
 - Agree a representative brainstorming/diagram board and intended

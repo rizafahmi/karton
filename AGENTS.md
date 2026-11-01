@@ -32,10 +32,12 @@ and unresolved repository/technology decisions. No native app is implemented yet
   including drawing-font readiness and editor behavior, alongside
   [rotation_guides.js](assets/js/rotation_guides.js) and
   [self_loops.js](assets/js/self_loops.js).
-- [object_properties.js](assets/js/object_properties.js) supplies native form
-  alternatives for geometry, arbitrary selection and bound-edge editing, plus
-  complete in-app keyboard help. It uses public Hakushi mutation events; keep
-  Style authoritative for appearance and preserve graph locks/history/metadata.
+- [direct_keyboard.js](assets/js/direct_keyboard.js) adds selection-preserving
+  object/edge traversal, Space tap selection (Space hold still pans), G geometry
+  previews, staged C connections and the existing inline edge-label editor.
+  Keep public Hakushi mutation events/history authoritative. Save flushes geometry
+  before waiting for patches; Open retains the unsaved guard. Escape cancels a
+  mode/editor before closing Style. The compact ? map lives in the document menu.
 - [native_file.js](assets/js/native_file.js) handles browser file selection,
   native-handle persistence, and copy-download fallbacks.
 - [tokens.css](assets/css/tokens.css) holds shared design primitives;

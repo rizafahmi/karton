@@ -201,12 +201,13 @@ attributes or guarantee parent-directory power-loss durability; browser file
 permissions and filesystem write behavior are controlled by the browser.
 ### Keyboard editing
 
-The left rail's **?** opens the complete in-app command map; **Edit** opens
-**Object properties**. Both are ordinary Tab-reachable buttons. No shortcut is
-required to reach a control: use Tab/Shift+Tab, Enter/Space, and native select
-navigation. The file menu contains native open, server open/create forms, reload,
-default font and project links. Style exposes every applicable appearance choice,
-including standalone arrowheads; Paper and arrangement retain their native menus.
+The document menu contains a compact **Keyboard shortcuts (?)** disclosure; **?**
+from the focused canvas opens it. Editing stays directly on the canvas—there is
+no separate properties or replacement editor panel. Tab/Shift+Tab, Enter/Space,
+and native select navigation reach the existing controls. The file menu retains
+native open, server open/create forms, reload, default font and project links.
+Style remains authoritative for every applicable appearance choice, including
+standalone arrowheads; Paper and arrangement retain their native menus.
 
 The following shortcuts require focus on the canvas or an object, not a field,
 select, contenteditable editor or toolbar button. IME composition is left alone.
@@ -215,13 +216,15 @@ select, contenteditable editor or toolbar button. IME composition is left alone.
 | --- | --- |
 | Select; rectangle; ellipse; diamond; triangle; text; line; arrow | V; R; O; D; I; T; L; A |
 | Place the active drawing tool at viewport center | Enter |
-| Edit selected shape text | Enter or F2; Escape cancels; Command/Ctrl+Enter or blur commits |
-| Visit objects / nearest object | Tab / Shift+Tab; Alt+arrows |
-| Select all | Command/Ctrl+A |
-| Move selection / line endpoint | Arrows (1 pixel); Shift+arrows (10 pixels) |
-| Pan with no selection | Arrows; Shift+arrows for larger steps |
-| Object properties / shortcut help | P / ? |
-| Start connection; choose target; commit / cancel | C; arrows or Tab; Enter / Escape |
+| Edit selected shape text / connection label | Enter or F2; Escape cancels; blur commits |
+| Visit objects then connections without changing selection | Tab / Shift+Tab |
+| Toggle focused object or connection / select all objects | Tap Space / Command/Ctrl+A |
+| Select nearest object | Alt+arrows |
+| Move selected unlocked objects | Arrows (1 pixel); Shift+arrows (10 pixels) |
+| Geometry preview on one selected unlocked object | G; Tab cycles handles; arrows preview; Enter commits; Escape cancels |
+| Pan | Hold Space and drag; with no selection, arrows (Shift for larger steps) |
+| Existing Style / compact shortcut reference | S / ? |
+| Create / reconnect selected connection | C; arrows or Tab choose; Enter advances/commits; Escape cancels |
 | Copy / cut / paste / duplicate | Command/Ctrl+C / X / V / D |
 | Delete; undo; redo | Delete or Backspace; Command/Ctrl+Z; Shift+Command/Ctrl+Z or Ctrl+Y |
 | Bring to front / send to back | Command/Ctrl+Shift+] / [ |
@@ -229,24 +232,35 @@ select, contenteditable editor or toolbar button. IME composition is left alone.
 | Canvas zoom | + / −; Command/Ctrl+ + / − |
 
 **Save** (Command/Ctrl+S) works throughout the workspace and commits active shape
-text first. It retains the source-specific Save/Save copy contract above; there is
+text, connection labels and geometry previews before awaiting server patches.
+It retains the source-specific Save/Save copy contract above; there is
 no fake New or Save As command, nor a browser New/Reload/Find shortcut takeover.
 Keyboard activation of a drawing-tool button focuses the canvas for placement.
 Command/Ctrl+O invokes the existing native **Open…** workflow from any field;
 Command/Ctrl+Shift+E invokes the existing image **Download**. Both retain current
 unsaved guards, browser capabilities and cancellation behavior.
 
-**Object properties** offers labeled object checkboxes (Tab and Space choose any subset) followed by
-**Select objects**, exact position/size/rotation for one unlocked shape, and
-absolute start/end coordinates for standalone lines/arrows. **Apply geometry**
-commits changed values as one ordinary history edit, including combined geometry
-and rotation. Unchanged values create no history. Closing or Escape discards
-unsubmitted fields, not already applied edits.
-Its **Connections** selector reaches every bound arrow, highlights the choice,
-and provides source/target objects, named or automatic sides, reconnect, label
-and delete actions. Choose **New connection** to author one; self-loops require
-the same object with two different named sides. Reconnecting retains edge
-appearance and metadata. Style remains the only appearance inspector.
+**G geometry mode** starts at the southeast resize handle. Tab/Shift+Tab cycles
+eight resize handles and rotation; standalone lines/arrows instead expose start
+and end endpoints. The cobalt square marks the active handle and the existing
+announcer names it. Arrows preview 1 pixel or 1 degree; Shift changes the step to
+10. Resizing respects the rotated local axes and keeps the opposite anchor fixed.
+Enter commits all preview changes as one ordinary undoable action; Escape restores
+authored geometry without dirtying or history. Unchanged previews are no-ops.
+Save commits first. Open commits before its existing unsaved guard, so a changed
+preview cannot bypass refusal. Leaving the canvas or beginning a pointer gesture
+cancels; history, clipboard, selection-all and stacking commands cancel before
+running. Canvas zoom can preserve the mode. Browser-reserved keys remain native,
+and a changed preview participates in the unload warning.
+
+**C connections** defaults to the focused shape and first chooses its source
+side. Arrows/Tab cycle Automatic or named sides; Enter advances to target object,
+then target side, then commits. A selected connection starts instead at source
+object, allowing both endpoints to be reconnected while retaining appearance and
+metadata. A self-loop uses the same object and two distinct named sides.
+Tab traversal reaches existing connections; tap Space to select one, Enter/F2
+edits its label using Hakushi's existing inline editor, and Delete removes it.
+Escape cancels a label or G/C mode before a second Escape closes Style.
 
 Escape returns file/style panels to their trigger; native popovers retain their
 own dismissal behavior. Panels scroll within short/narrow windows rather than
@@ -379,7 +393,8 @@ history are session state and are not part of the file.
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test
-for file in assets/js/app.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js assets/js/object_properties.js; do
+node --test test/direct_keyboard_test.mjs
+for file in assets/js/app.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js assets/js/direct_keyboard.js; do
   node --input-type=module --check < "$file" || exit 1
 done
 mix assets.build
@@ -395,10 +410,13 @@ and stale reload/save rejection.
 Stacking regressions cover stable multi-selection ordering, empty/extreme no-ops,
 locked nodes, interleaved ordinary edits and undo/redo, redo preservation after
 no-ops, and temporary-file save/reload with unchanged object content and connections.
-The exact-properties regression also protects combined resize/rotation as one
+The geometry/reconnect regression protects combined resize/rotation as one
 history edit, reconnect/label history, saved geometry and retained node/edge
-metadata. Browser keyboard behavior needs the real-editor checks below; these
-server-event tests do not certify focus or key handling.
+metadata. Node regressions cover direct selection, preview cancellation,
+rotated fixed-anchor math, exact rotation restoration, locks, Space tap versus
+held-pointer selection, and preview lifecycle around history/browser keys.
+These tests do not certify DOM focus or actual pointer panning; use the
+real-editor checks below for browser integration.
 
 
 ### Manual browser verification
@@ -434,7 +452,7 @@ every change:
    when checking reload.
 6. For keyboard changes, use the **?** map as the workflow inventory. Place each
    drawing kind without a pointer; edit/commit/cancel text; select arbitrary
-   objects and a connection; apply exact dimensions/rotation/endpoints; create a
+   objects and a connection; preview/commit/cancel resize, rotation and endpoints; create a
    distinct-node arrow and self-loop, reconnect and label it. Exercise every
    applicable Style choice (including standalone arrowheads), Paper, all layouts,
    clipboard/history/stacking, pan/fit/reset and source-specific file actions.

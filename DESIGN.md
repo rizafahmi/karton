@@ -91,14 +91,19 @@ components:
 > collapse Download and, at the smallest width, Style to labeled icons. All drawing
 > tools remain visible.
 >
-> **Keyboard alternatives:** The rail includes **Edit** (Object properties) and
-> **?** (complete keyboard help), as ordinary focusable buttons. Properties uses
-> native labeled selects/inputs for selection, geometry and connections; it does
-> not duplicate Style. Non-modal popovers use square frames and opaque surfaces,
-> fit the viewport and scroll, without custom focus traps. Cobalt focus remains
-> visible. Keyboard-opened file/style panels enter their controls; Escape returns
-> to the trigger. Canvas-scoped character/zoom commands never hijack fields, IME
-> composition or browser chrome zoom outside the canvas.
+> **Keyboard alternatives:** Keep editing on the canvas, not in a replacement
+> properties panel. Tab traverses objects and connections without changing the
+> selected set; tapping Space toggles an item, while holding Space and dragging
+> retains native panning. G manipulates visible geometry handles with a cobalt
+> active-handle marker and the existing announcer; previews commit once on Enter
+> or Save and restore on Escape. C walks source/target bindings and named sides,
+> including self-loops; labels edit inline. S opens existing Style. The compact
+> **?** reference is a disclosure inside the document menu, not another rail or
+> help panel. Retain square frames, native controls and visible cobalt focus.
+> Keyboard-opened file/style panels enter their controls; Escape returns to the
+> trigger only after active text/geometry/connection editing has cancelled.
+> Canvas-scoped character/zoom commands never hijack fields, IME composition or
+> browser chrome zoom outside the canvas.
 
 
 ## 1. Overview
