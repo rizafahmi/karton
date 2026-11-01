@@ -42,7 +42,7 @@ passing tests or a source inspection alone is not a completed user journey.
 
 ### 1. Bring selected drawing objects to front / send to back
 
-- [ ] **Outcome:** control which overlapping drawing objects appear above others.
+- [x] **Outcome:** control which overlapping drawing objects appear above others.
 - **Scope:** Bring to front and Send to back for selected drawing nodes, using
   existing version-1 `nodes` array order (back to front).
   No full layer panel, auto-layout, or new lock semantics.
@@ -56,6 +56,14 @@ passing tests or a source inspection alone is not a completed user journey.
   Check no-selection, already-front/back, and multi-selection cases.
   Save a temporary document, inspect `nodes` order, and reopen to confirm overlap
   survives without geometry, style, or connection changes.
+- **Verified (2026-11-01):** actual Brave/Chromium 156 on macOS: overlapping
+  objects, reverse-click multi-selection, front/back, single-step undo/redo,
+  interleaved move history, empty/extreme/edge-only/locked no-ops, keyboard
+  activation, and 640×480 with Style and arrangement options open. A genuine
+  temporary server-file Save and reopen retained stacking and authored geometry,
+  styles, metadata, and connections (normal serializer defaults only).
+  Automated behavior regressions pass. Safari, Firefox, and Edge were not exercised;
+  narrow desktop checks are not mobile interaction proof.
 
 ### 2. Style connected arrows
 

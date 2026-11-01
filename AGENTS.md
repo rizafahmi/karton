@@ -24,8 +24,10 @@ and unresolved repository/technology decisions. No native app is implemented yet
 - [DrawingShapes](lib/elixir_canvas_web/drawing_shapes.ex) and
   [DrawingTypography](lib/elixir_canvas_web/drawing_typography.ex) adapt Hakushi's
   Shapes kit for unfilled Neo-Acid defaults, standalone lines, and portable font roles.
-- Hakushi owns graph operations and undo/redo; Document bridges its graph to the
-  portable file contract.
+- Hakushi owns ordinary graph operations and undo/redo.
+  [DrawingCanvas](lib/elixir_canvas_web/drawing_canvas.ex) delegates its lifecycle
+  and events, adding node stacking entries to the same history. Document bridges
+  the graph to the portable file contract.
 - [app.js](assets/js/app.js) integrates LiveView and Hakushi in the browser,
   including drawing-font readiness and editor behavior, alongside
   [rotation_guides.js](assets/js/rotation_guides.js) and

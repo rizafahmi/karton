@@ -107,8 +107,9 @@ theme from portable names; the document retains its authored geometry and style 
   Repeated adjustments keep it open; Escape or an outside click closes it.
   Opening the popover does not change zoom, and the percentage also tracks wheel
   zoom while closed.
-- Arrangement remains separate below a divider, with its options beside the
-  rail. The rail ends above the dock and scrolls vertically in short windows.
+- Arrangement remains separate below a divider, with tidy-up options beside the
+  rail and **Bring to front** / **Send to back** buttons below them. The rail ends
+  above the dock and scrolls vertically in short windows.
 - Selection alone does not open Style. Escape closes the menus and inspector.
 - Unsaved state remains visible under the filename. External changes and save
   failures appear as actionable messages rather than disappearing into a menu.
@@ -160,7 +161,15 @@ Font License notices are included in `priv/static/fonts/neo-acid`.
   zooms out instead of zooming the browser page. These work with the zoom popover
   closed or open, including while a text field has focus. Unmodified `+` and `-`
   still type normally.
-- Undo and redo are provided by Hakushi. Reloading the source resets that history.
+- Use **Bring to front** or **Send to back** in the left rail to reorder selected
+  drawing objects. Selected objects keep their relative order, as do the other
+  objects; locked objects are not reordered. Only stacking changes, using the
+  version-1 `nodes` array's back-to-front order, without changing geometry,
+  appearance, metadata, or connections. Empty selections and selections already
+  at the requested extreme leave dirty state and history unchanged.
+- Each effective stacking command is one undoable action in the same history as
+  ordinary edits; redo restores its order. Hakushi supplies ordinary undo/redo,
+  with the local drawing adapter adding stacking entries. Reload resets history.
 - Save explicitly with **Save** or **Save copy**, Command-S, or Control-S. Saving
   commits an active shape text editor and waits for Hakushi's resulting changes,
   including automatic text-box growth. Unsaved changes live in memory, not in a
@@ -326,6 +335,9 @@ permissions, and refusing to overwrite existing files. Selected-file consumer
 tests also cover validated content loading, server-path isolation, prepared-save
 metadata, snapshot acknowledgements with newer edits, copy-download dirty state,
 and stale reload/save rejection.
+Stacking regressions cover stable multi-selection ordering, empty/extreme no-ops,
+locked nodes, interleaved ordinary edits and undo/redo, redo preservation after
+no-ops, and temporary-file save/reload with unchanged object content and connections.
 
 ### Manual browser verification
 
