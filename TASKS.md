@@ -1,11 +1,42 @@
-# Backlog
+# MVP plan
 
-Plan only: the scope below is not a claim of implemented behavior.
-Priority: current web milestone (front/back → connected-arrow styling), then native macOS.
-Use the existing [document contract](README.md#document-format-version-1),
-[checks](README.md#checks), and [agent policy](AGENTS.md); do not duplicate them here.
-This promotion is planning only: no app scaffolding, toolchain installation,
-dependencies, build steps, or CI changes until implementation is requested.
+Planning only: unchecked work is not implemented behavior. Approved sequence:
+current web editing (front/back → connected-arrow styling), then independent native
+macOS. Proposed readiness additions below are **not approved scope or a new
+milestone blocking native**; decide their adoption and placement explicitly.
+No app scaffolding, toolchain installation, dependencies, build steps, or CI
+changes until implementation is requested.
+
+## Product outcome and existing baseline
+
+**MVP outcome:** turn an idea into a useful spatial diagram, preserve it as an
+ordinary local JSON document, return to it safely, and use it in a presentation.
+Completing the two web features alone is web-slice completion, not product-MVP proof.
+Choose the primary job: recommend individual brainstorming/systems diagrams →
+presentation, not four equal feature sets. Facilitated use can be single-driver,
+not multiplayer. Agree the intended user and which editor completes this journey.
+
+Keep the [version-1 contract](README.md#document-format-version-1), local-file-first
+trust boundary, and [agent policy](AGENTS.md). No database, accounts, cloud,
+collaboration, automatic merging, or full native/web parity is implied.
+Discuss format changes before implementation; preserve existing v1 files.
+
+**Source-backed baseline, not fresh runtime certification:**
+
+- Shapes/text, standalone Line/Arrow, bound arrows/self-loops, geometry editing,
+  and undo/redo form the existing [editing workflow](README.md#edit).
+- `Document.decode/prepare_save` validate v1; encoding retains metadata, stable IDs,
+  stacking, geometry, named colors, and font roles. Hakushi owns graph/history.
+- `Document.save/replace` check revisions and use a sibling file; `mountNativeFile`
+  handles source modes. `CanvasLive.selected-saved` retains newer dirty edits.
+  See [persistence behavior and limits](README.md#edit).
+- Web image Download exists (`CanvasLive.render`, `export={true}`), with font
+  readiness in `app.js`; output quality/browser behavior still need actual proof.
+- [Examples](README.md#examples) are real editable boards, not disposable fixtures.
+
+Use existing [checks](README.md#checks) and temporary documents for acceptance.
+Record commands, browsers/platforms, actual saved/exported artifacts, and limits;
+passing tests or a source inspection alone is not a completed user journey.
 
 ## Current milestone: web editing
 
@@ -84,21 +115,130 @@ dependencies, build steps, or CI changes until implementation is requested.
   multiplayer, or additional platforms. Implementation must supply native setup and
   proof instructions; current Mix/browser instructions remain web-only.
 
+### Native delivery tasks within this milestone
+
+- [ ] Resolve native decisions before project creation/implementation as applicable.
+- [ ] Agree compatibility fixtures and prove round-trips before editable saves.
+- [ ] Deliver the agreed native workflow/history and failure/conflict proof.
+  New/create/connect behavior remains unresolved, not implied by “editor.”
+- [ ] Meet the PNG/Keynote gate using actual exported files.
+- [ ] Supply audience-appropriate setup/launch/check instructions and prove runtime
+  independence; decide install/distribution needs before release infrastructure.
+
+## Proposed readiness additions — adoption and placement need approval
+
+Source-backed gaps and observed/unverified risks below do not reorder approved work.
+
+### 1. Preserve edits when the original cannot be saved
+
+- [ ] **Proposed outcome:** save a separate JSON preservation copy from any source
+  mode without discarding edits or overwriting the conflicted original.
+- **Evidence:** `Document.current_revision` refuses changed/missing sources;
+  `CanvasLive` blocks open/create while dirty and its disk warning offers Reload.
+  `native_file.js` downloads JSON only in `save_copy` mode. A separate-copy escape
+  for `server_file`/`browser_file` is absent from the current UI path; this is
+  source-backed, not a runtime-reproduced UI bug.
+- **Acceptance:** edit a temporary canvas, change/remove its source externally or
+  deny writing, then preserve elsewhere. Inspect the new JSON for the latest graph,
+  pending text, and metadata; reopen it. Original bytes remain untouched, and the
+  original source/conflict/dirty state stays truthful. Cancel/failure retain edits.
+  A downloaded copy must not imply confirmed original-file persistence.
+  No automatic merge or silent source reassignment.
+
+### 2. Start and keep a first personal document safely
+
+- [ ] **Proposed outcome:** the intended first-time user can install/launch, create
+  their own board, and choose where to keep it without editing the welcome source
+  accidentally or confusing a browser filename with a server path.
+- **Evidence:** startup opens editable `examples/welcome.json`; Create is under
+  Advanced: server file path (`CanvasLive.render`), not an ordinary New/Save As flow.
+- **Acceptance:** from the agreed starting environment, follow canonical launch
+  instructions, create/edit/save/reopen a personal document, inspect bytes/location,
+  and check cancellation/failure/existing-file protection. Decide audience and
+  improvements first, not an assumed installer or universal browser file-write API.
+
+### 3. Make resilience and recovery an explicit promise
+
+- [ ] **Proposed gate:** decide promises for transient disconnect, server restart,
+  tab reload/close, and crash. `CanvasLive.mount` loads the initial file; edits and
+  tab-scoped browser handles are in memory. `beforeunload` is not crash recovery.
+- **Acceptance:** exercise dirty graph, active text, and in-flight saves across
+  agreed interruptions; inspect disk and recovered/current state, never falsely
+  report Saved, and document retention/loss and safe continuation. Any local draft
+  mechanism or automatic autosave requires a separate decision, not implied scope.
+
+### 4. Prove usable editing on the intended setup
+
+- [ ] **Proposed gate:** keyboard access, focus, and short-window controls work
+  through open/edit/style/reorder/connect/save and cancellation; include arrow
+  controls when implementing their inspector. Do not infer accessibility from ARIA.
+- Browser Cmd/Ctrl +/- currently zooms the canvas globally, even in fields.
+  Preserve the approved shortcut intent while proving a discoverable way to
+  enlarge application chrome and reach controls with browser zoom/text scaling.
+- Restore focus to the trigger after Escape closes a panel. A headless Chromium
+  audit focused Reload then pressed Escape: the panel closed but focus became
+  `body`, not the document trigger. Observed in Chromium only, not all browsers.
+- Check short-window menus/inspectors for clipped actions, traps, and hidden focus.
+- Agree a representative brainstorming/diagram board and intended hardware/browser.
+  Exercise open, text editing, pan/zoom, save/reopen, and export; record responsiveness
+  and failures. Choose acceptance expectations with the user, not invented
+  time/node-count targets or upstream Hakushi benchmark claims. Optimize only
+  measured problems; narrow-layout checks are not mobile-interaction proof.
+
+## Product-MVP acceptance — proposed validation gate
+
+- [ ] An intended user who did not implement the feature completes a real session:
+  start → create or obtain an agreed starting board → develop a useful diagram →
+  arrange/connect/style → save → close/reopen → present the output.
+- Agree the primary scenario beforehand. Record help, lost work, persistence
+  confusion, and usefulness. Ask whether local editable JSON, returning to edit,
+  and presentation make this tool worth choosing; no source-derived market-fit
+  claims, mandated telemetry, or invented time/scale/satisfaction metrics.
+- Use actual temporary JSON and exported images as evidence; for native presentation
+  acceptance use actual light/dark Keynote slides. Inspect intended edits and retained
+  content, not just screenshots, callbacks, or a “Saved” label.
+- Include one relevant save-conflict/cancellation scenario and the agreed recovery
+  promise. A missing preservation path is an explicit release decision, not a
+  checkbox covered by successful happy-path saves.
+- Record web-slice, native-workflow, and overall product acceptance separately.
+  Proposed gates become release requirements only after explicit scope approval.
+
 ## Later
 
-- [ ] **File-menu scrolling:** make the menu compact and usable without clipping,
-  including keyboard access and short windows; do not merely hide the scrollbar.
+- [ ] **File-menu usability:** scrolling already exists (`app.css`, max-height and
+  overflow-y). Improve compactness, keyboard access, and short-window reachability;
+  do not merely hide the scrollbar. Promotion into readiness is not yet approved.
+
+Promote optional work only as ranked hypotheses grounded in observed session friction.
 
 ## Needs decision
 
-- [ ] **Connected-arrow appearance (blocks current milestone 2):** agree minimum properties
-  first. Check [node style vocabulary](README.md#nodes) against the existing
-  [edge contract](README.md#edges), including marker semantics and storage.
-  Do not assume standalone node style fields are already an edge-style contract.
-  Discuss any file-format change before code, preserving version-1 compatibility.
-- [ ] **Favicon:** the root layout already references `/images/logo.svg` and
-  `/favicon.ico`; confirm desired branding and the remaining gap before changing
-  assets or marking this complete.
+- [ ] **Connected-arrow appearance (blocks current milestone 2):** agree minimum
+  properties and storage. Recommended, not approved: color, width, and dash using
+  existing vocabulary. Agree marker semantics/mapping separately; do not mandate
+  all standalone arrowheads. Check [node styles](README.md#nodes) against the
+  [edge contract](README.md#edges); node fields are not already an edge-style contract.
+  Discuss any format change before code, preserving version-1 compatibility.
+- [ ] **Native authoring:** recommend a minimal New → draw/text → connect workflow
+  for brainstorming, but decide creation versus existing-document editing explicitly.
+  If edit-only, identify where starting boards come from and describe that boundary
+  honestly; neither decision implies full web parity.
+- [ ] **Audience and delivery:** personal/developer setup versus broader users;
+  agree first-install/launch expectations and native install/distribution needs.
+  Do not presume signing, notarization, an app store, or a packaging toolchain.
+- [ ] **Restart/local recovery:** agree supported interruption cases, loss warnings,
+  and whether recovery beyond explicit save/preservation copies is required.
+  Decide storage/lifetime/privacy implications before adding any local draft mechanism.
+- [ ] **Native repository/technology:** confirm organization before project creation;
+  decide minimum macOS, stack and UI/rendering responsibilities, supported content
+  and editing scope, shared fixtures, and independent build/check instructions.
+  The monorepo and Swift/AppKit/SwiftUI/Core Graphics proposal above is not approval.
+- [ ] **PNG output:** agree default dimensions/scale and maximum output size;
+  retain transparency, font readiness, clipping, zoom/DPR, and Keynote proof above.
+- [ ] **Proposed readiness:** decide which additions become scope, their placement
+  without silently delaying native, and the representative workload/user session.
+- [ ] **Favicon (low priority):** logo/favicon assets and layout references exist;
+  confirm a concrete branding gap before changing assets or marking work complete.
 
 ## Resolved design note
 
