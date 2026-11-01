@@ -97,11 +97,23 @@ components:
 > retains native panning. G manipulates visible geometry handles with a cobalt
 > active-handle marker and the existing announcer; previews commit once on Enter
 > or Save and restore on Escape. C walks source/target bindings and named sides,
-> including self-loops; labels edit inline. S opens existing Style. The compact
-> **?** reference is a disclosure inside the document menu, not another rail or
-> help panel. Retain square frames, native controls and visible cobalt focus.
+> including self-loops; labels edit inline. N chooses a cardinal direction from
+> a focused shape (or sole selected shape from canvas-root focus) and types an
+> independent thought directly in a cobalt-framed preview, never a properties
+> form or implicit link. Use a fresh upright default rectangle/document typography,
+> not the source's visual or identity metadata.
+> Keep the full measured 160px-wide authored box while the inline textarea
+> scrolls at the same wrap width; reserve measured header/rail/dock space for its
+> caret and screen-sized hint/error. Reveal by panning and zoom reduction only
+> for width or one usable text line plus normal padding/hint within that area;
+> never zoom in or fit the full authored height.
+> Show “Thought draft — not added” instead of the ordinary save status while a
+> preview exists, without authoring a dirty/history edit. Enter adds/focuses the
+> new thought; Shift+Enter inserts a newline; Escape cancels. S opens Style.
+> The compact **?** reference is a disclosure inside the document menu, not
+> another rail or help panel. Retain square frames, native controls and visible cobalt focus.
 > Keyboard-opened file/style panels enter their controls; Escape returns to the
-> trigger only after active text/geometry/connection editing has cancelled.
+> trigger only after active text/geometry/connection/thought editing has cancelled.
 > Canvas-scoped character/zoom commands never hijack fields, IME composition or
 > browser chrome zoom outside the canvas.
 

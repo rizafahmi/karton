@@ -2,8 +2,10 @@
 
 Planning only: unchecked work is not implemented behavior. Approved sequence:
 current web editing (front/back → connected-arrow styling), then independent
-native macOS. Proposed readiness additions below are **not approved scope or a
-new milestone blocking native**; decide their adoption and placement explicitly.
+native macOS. The separately approved adjacent-thought task below is implemented;
+connected-arrow styling and native work are not advanced by it. Proposed readiness
+additions below are **not approved scope or a new milestone blocking native**;
+decide their adoption and placement explicitly.
 No app scaffolding, toolchain installation, dependencies, build steps, or CI
 changes until implementation is requested.
 
@@ -11,7 +13,7 @@ changes until implementation is requested.
 
 **MVP outcome:** turn an idea into a useful spatial diagram, preserve it as an
 ordinary local JSON document, return to it safely, and use it in a presentation.
-Completing the two web features alone is web-slice completion, not product-MVP
+Completing web-editing slices alone is web-slice completion, not product-MVP
 proof. Choose the primary job: recommend individual brainstorming/systems
 diagrams → presentation, not four equal feature sets. Facilitated use can be
 single-driver, not multiplayer. Agree the intended user and which editor
@@ -71,6 +73,38 @@ journey.
   styles, metadata, and connections (normal serializer defaults only). Automated
   behavior regressions pass. Safari, Firefox, and Edge were not exercised;
   narrow desktop checks are not mobile interaction proof.
+
+### Adjacent thought from a focused shape
+
+- [x] **Approved outcome:** keep thinking through the keyboard: focused existing
+      text-bearing shape → N → cardinal direction → immediate inline typing →
+      Enter adds one independent thought and focuses it for the next N.
+- **Scope:** fresh upright 160×96-minimum rectangle with document-default style
+  and typography, no source clone or automatic link. Full measured text growth,
+  rotated-node bounds plus 48 world-pixel clearance, and same-ray blocker skipping
+  affect only the new box. The bounded inline editor can scroll; reveal pans or
+  reduces zoom only for width or a minimum one-line editing viewport with normal
+  padding and a screen-sized hint. No schema, dependency, properties panel, global
+  layout, connected-arrow styling, or native implementation changes.
+- **Safety:** client-only drafts cancel without graph/dirty/history/redo changes;
+  placed blank/whitespace text is allowed. Final text and geometry add in one
+  ordinary history action; redo restores identity. Save flushes before writing,
+  invalid text blocks persistence, Open/unload keep unsaved guards, and the
+  existing 2,000-grapheme limit refuses without truncating the draft.
+- **Verified (2026-11-01):** independent actual Brave (Chrome/156.0.8078.80 engine)
+  proof on macOS temporary server files covered chained N growth, all cardinal
+  directions after pan/zoom, rotated blockers, measured multiline growth,
+  bounded caret/error visibility,
+  one-step undo/redo without injected recovery focus, Save button and Mod+S,
+  disk-byte-preserving cancellation/overlong refusal, blank/whitespace additions,
+  draft status, unsaved unload refusal, guards and existing selection/pan/C/stack
+  routes. A real paused-server reply proved a sole readonly editor and intact
+  text across rapid pending-reply re-entry, then one add after acknowledgement.
+  Automated state/math and LiveView persistence/history regressions pass.
+- **Limits:** this is not screen-reader, real OS IME/focus-switch, native
+  permissions/picker, or cross-browser certification. Existing source-mode
+  persistence contracts remain unchanged; unrelated readiness/native checkboxes
+  below retain their prior state.
 
 ### 2. Style connected arrows
 

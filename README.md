@@ -222,6 +222,7 @@ select, contenteditable editor or toolbar button. IME composition is left alone.
 | Select nearest object | Alt+arrows |
 | Move selected unlocked objects | Arrows (1 pixel); Shift+arrows (10 pixels) |
 | Geometry preview on one selected unlocked object | G; Tab cycles handles; arrows preview; Enter commits; Escape cancels |
+| Grow an independent thought from a focused or singly selected unlocked text-bearing shape | N; cardinal arrow; type inline; Enter adds; Shift+Enter newline; Escape cancels |
 | Pan | Hold Space and drag; with no selection, arrows (Shift for larger steps) |
 | Existing Style / compact shortcut reference | S / ? |
 | Create / reconnect selected connection | C; arrows or Tab choose; Enter advances/commits; Escape cancels |
@@ -231,14 +232,24 @@ select, contenteditable editor or toolbar button. IME composition is left alone.
 | Tidy; fit; reset zoom | Shift+L; Shift+1; Shift+0 or Command/Ctrl+0 |
 | Canvas zoom | + / −; Command/Ctrl+ + / − |
 
-**Save** (Command/Ctrl+S) works throughout the workspace and commits active shape
-text, connection labels and geometry previews before awaiting server patches.
+**Save** (Command/Ctrl+S or the Save button) works throughout the workspace and
+commits active shape text, connection labels, geometry previews and placed
+adjacent-thought drafts before awaiting server patches. An invalid thought draft
+blocks saving rather than writing the old graph and claiming success.
 It retains the source-specific Save/Save copy contract above; there is
 no fake New or Save As command, nor a browser New/Reload/Find shortcut takeover.
 Keyboard activation of a drawing-tool button focuses the canvas for placement.
 Command/Ctrl+O invokes the existing native **Open…** workflow from any field;
 Command/Ctrl+Shift+E invokes the existing image **Download**. Both retain current
 unsaved guards, browser capabilities and cancellation behavior.
+
+**Tab traversal** keeps selection unchanged. The canvas remains a focusable entry
+point even when empty. After mouse selection leaves focus on the canvas, the first
+Tab **or Shift+Tab** focuses the selected drawing; with multiple drawings selected,
+it uses the first live selected drawing in canvas order. Direction applies on
+subsequent presses, which visit the next/previous drawing, then connections, and
+leave the canvas at the ends without wrapping. An already focused object or
+keyboard-focused connection takes precedence over selection.
 
 **G geometry mode** starts at the southeast resize handle. Tab/Shift+Tab cycles
 eight resize handles and rotation; standalone lines/arrows instead expose start
@@ -253,6 +264,59 @@ cancels; history, clipboard, selection-all and stacking commands cancel before
 running. Canvas zoom can preserve the mode. Browser-reserved keys remain native,
 and a changed preview participates in the unload warning.
 
+**N adjacent thought** grows from the focused, unlocked text-bearing shape,
+even if it is not selected. With focus on the canvas itself and no keyboard-focused
+connection, N can instead use exactly one selected drawing, provided no connections
+are selected; mouse selection needs no extra Tab. Multiple selected drawings,
+selected connections, standalone lines, fields, and active drawing tools cannot
+supply this fallback. The same unlocked text-bearing-shape eligibility applies.
+Press N, then a cardinal arrow to choose a canvas-world direction and immediately
+type in the on-canvas textarea. Enter adds the thought and focuses the new shape,
+ready for another N; Shift+Enter adds a newline. Caret keys and shortcut letters
+remain text editing inside the textarea. Escape cancels either stage before
+closing Style. Explicitly placed blank or whitespace-only thoughts are allowed;
+Save cancels a chooser only when no direction has been chosen.
+
+Each new thought is an independent, upright rectangle, initially 160×96 canvas
+pixels, with the document's default typography and ordinary unfilled drawing
+style. It does not clone the source's type, dimensions, rotation, font override,
+colors, locks, or unknown metadata. Source objects remain unchanged. No automatic
+connection is inferred from adjacency; use C separately when a link is intended.
+
+Placement starts 48 canvas pixels beyond the source's rotated axis-aligned
+bounds, centered on the perpendicular axis. If the new box would overlap another
+node's rotated bounds or their 48-pixel clearance, it skips farther along the
+chosen cardinal ray. Text growth rechecks that placement; existing nodes and
+edges are never moved or rerouted. This is local node-bound avoidance, not
+global layout. Pan and zoom do not change the world-coordinate placement.
+
+The preview's full authored height grows to fit measured text at the loaded
+document font and 160-pixel wrapping width. The inline textarea scrolls within
+the unobscured area beside the rail and between the header and dock. Its nearby
+hint/error stays screen-sized. Revealing the draft can pan and reduce zoom only
+to fit its width or a minimum editing viewport of one text line, ordinary
+padding and the hint; it never zooms in or fits the full long height. The
+committed box matches the full preview, not the smaller scrolling editor.
+
+Until commit, the preview and all text are client-only: **Thought draft — not
+added** replaces the ordinary save status without dirtying the graph or changing
+history. Escape, an external canvas pointer action, tool/history change, explicit
+departure from the canvas, or a changed/removed source cancels without leaving a
+placeholder or clearing redo. Switching applications/tabs retains the in-memory
+draft; unloading warns about pending work. During the add reply the sole editor
+is readonly and says **Adding thought…**; it cannot be re-entered as a second
+draft. The final text and box are one ordinary undoable add. Undo removes the
+whole thought and recovers canvas focus if its focused node disappeared; redo
+restores the same identity, geometry and text.
+
+Save commits the latest valid placed draft before writing; Open commits first
+and retains its unsaved guard. The existing 2,000-grapheme Shapes limit is an
+explicit inline refusal, never truncation: overlong text stays intact, and
+Enter/Save/Open cannot silently save an older graph or discard it. Shorten it or
+Escape to cancel. Browsers without `Intl.Segmenter` refuse the commit with an
+explanation rather than guessing its length. Source-specific Save/Save copy
+behavior is otherwise unchanged.
+
 **C connections** defaults to the focused shape and first chooses its source
 side. Arrows/Tab cycle Automatic or named sides; Enter advances to target object,
 then target side, then commits. A selected connection starts instead at source
@@ -260,7 +324,7 @@ object, allowing both endpoints to be reconnected while retaining appearance and
 metadata. A self-loop uses the same object and two distinct named sides.
 Tab traversal reaches existing connections; tap Space to select one, Enter/F2
 edits its label using Hakushi's existing inline editor, and Delete removes it.
-Escape cancels a label or G/C mode before a second Escape closes Style.
+Escape cancels a label or G/C/N mode before a second Escape closes Style.
 
 Escape returns file/style panels to their trigger; native popovers retain their
 own dismissal behavior. Panels scroll within short/narrow windows rather than
@@ -415,6 +479,12 @@ history edit, reconnect/label history, saved geometry and retained node/edge
 metadata. Node regressions cover direct selection, preview cancellation,
 rotated fixed-anchor math, exact rotation restoration, locks, Space tap versus
 held-pointer selection, and preview lifecycle around history/browser keys.
+Adjacent-thought regressions cover rotated cardinal placement, blocker clearance
+after growth, non-mutating cancellation and stale-source guards, composition and
+overlong-draft refusal, chooser Save cancellation, OS-focus state, and a single
+editor across pending-reply re-entry. A LiveView consumer regression proves a
+2,000-grapheme authored add, one-step undo/redo with stable identity, and temporary
+save/reload retaining the source objects and metadata.
 These tests do not certify DOM focus or actual pointer panning; use the
 real-editor checks below for browser integration.
 

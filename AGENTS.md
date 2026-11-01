@@ -34,10 +34,15 @@ and unresolved repository/technology decisions. No native app is implemented yet
   [self_loops.js](assets/js/self_loops.js).
 - [direct_keyboard.js](assets/js/direct_keyboard.js) adds selection-preserving
   object/edge traversal, Space tap selection (Space hold still pans), G geometry
-  previews, staged C connections and the existing inline edge-label editor.
-  Keep public Hakushi mutation events/history authoritative. Save flushes geometry
-  before waiting for patches; Open retains the unsaved guard. Escape cancels a
-  mode/editor before closing Style. The compact ? map lives in the document menu.
+  previews, staged C connections, inline edge labels and N adjacent thoughts.
+  Root Tab entry anchors the first live selected drawing in canvas order; N falls
+  back to one selected drawing only without selected edges or virtual edge focus.
+  Thought drafts stay client-only; commit final text/box through one public
+  `hakushi:draw`/`Change.add`, never create-then-edit/delete. Preserve native
+  `lastFocus` bookkeeping when focusing without changing selection. Save flushes
+  drafts/geometry and awaits success; invalid drafts block persistence. Open
+  retains its unsaved guard. Escape cancels a mode/editor before closing Style.
+  The compact ? map lives in the document menu.
 - [native_file.js](assets/js/native_file.js) handles browser file selection,
   native-handle persistence, and copy-download fallbacks.
 - [tokens.css](assets/css/tokens.css) holds shared design primitives;
@@ -57,6 +62,12 @@ portable named colors, and generic typography roles. Resolve theme colors and
 font families in the renderer; changing a view's theme must not dirty documents
 or rewrite their geometry or style names. Wait for the resolved drawing font
 before measuring canvas text or enabling editing.
+
+Adjacent thoughts use fresh default rectangles/document typography, not source
+metadata clones or proximity links. Keep full measured geometry independent
+from the bounded scrolling draft editor; preview placement/reveal policy is in
+[README: Keyboard editing](README.md#keyboard-editing). Pending draft status
+derives from the preview DOM, not server dirty/history.
 
 A browser-selected filename is not a server path. Never infer a server location
 from it or redirect its Save to the initial document. Keep server-path files,
