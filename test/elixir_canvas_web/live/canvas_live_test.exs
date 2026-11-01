@@ -699,7 +699,7 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     assert loop in CanvasTest.edges(view, board)
   end
 
-  test "exact object properties and reconnect preserve authored metadata through save and history",
+  test "geometry and reconnect preserve authored metadata through save and history",
        %{
          view: view,
          path: path,

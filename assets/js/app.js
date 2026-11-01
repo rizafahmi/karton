@@ -5,7 +5,7 @@ import {Hakushi} from "hakushi"
 import {mountSelfLoops} from "./self_loops"
 import {mountRotationGuides} from "./rotation_guides"
 import {mountNativeFile} from "./native_file"
-import {mountObjectProperties} from "./object_properties"
+import {mountDirectKeyboard} from "./direct_keyboard"
 
 async function loadDrawingFonts(workspace) {
   // Resolve the host's CSS mapping, not a second document-role → family registry.
@@ -405,7 +405,7 @@ const FileCanvas = {
     this.mountZoomControls()
     this.mountStackingControls()
     this.mountHeaderActions(workspace)
-    this.objectProperties = mountObjectProperties(this.canvas)
+    this.el.directKeyboard = this.directKeyboard = mountDirectKeyboard(this.canvas)
     this.toolKeyboardClick = event => {
       if (event.detail === 0 && event.target.closest("[data-tool]")) this.canvas.root.focus({preventScroll: true})
     }
@@ -421,14 +421,7 @@ const FileCanvas = {
       if (command && (event.altKey || !["z", "y", "a", "c", "x", "v", "d", "0", "+", "=", "-", "[", "]", "{", "}"].includes(event.key.toLowerCase()))) return
       if (command && event.shiftKey && !["z", "+", "=", "[", "]", "{", "}"].includes(event.key.toLowerCase())) return
       if (event.altKey && !event.key.startsWith("Arrow")) return
-      if (!command && !event.altKey && event.key === "?") {
-        event.preventDefault()
-        return this.objectProperties.help()
-      }
-      if (!command && !event.altKey && event.key.toLowerCase() === "p") {
-        event.preventDefault()
-        return this.objectProperties.open()
-      }
+      if (this.directKeyboard.key(event)) return
       if (command && event.shiftKey && ["BracketLeft", "BracketRight"].includes(event.code)) {
         event.preventDefault()
         return this.canvas.push("drawing:stack", {direction: event.code === "BracketRight" ? "front" : "back", nodes: [...this.canvas.selected]})
@@ -608,7 +601,8 @@ const FileCanvas = {
   destroyed() {
     window.removeEventListener("keydown", this.zoomKey, true)
     this.destroyLineTool?.()
-    this.objectProperties?.destroy()
+    this.directKeyboard?.destroy()
+    delete this.el.directKeyboard
     this.canvas.toolsEl?.removeEventListener("click", this.toolKeyboardClick)
     this.destroyRotationGuides?.()
     this.zoomObserver?.disconnect()
@@ -627,9 +621,10 @@ const Workspace = {
       return canvas ? (canvas.fileCanvasReady ? canvas.pendingFileEdits || 0 : 1) : 0
     }
     this.hasUnsaved = () => this.el.dataset.dirty === "true" || this.pending() > 0 ||
-      !!this.el.querySelector(".hakushi-text-editor")
+      !!this.el.querySelector(".hakushi-text-editor, .hakushi-edge-input") || this.el.directPreview === true
     this.flushWaiters = new Set()
     this.flushEdits = () => {
+      this.el.dispatchEvent(new CustomEvent("canvas:flush"))
       document.activeElement?.blur()
       if (this.pending() === 0) return Promise.resolve()
       return new Promise(resolve => this.flushWaiters.add(resolve))
@@ -641,7 +636,11 @@ const Workspace = {
     }
     this.nativeFile = mountNativeFile(this)
     this.requestSave = () => this.nativeFile.save()
-    this.requestOpen = () => this.nativeFile.open()
+    this.requestOpen = () => {
+      // Preserve changed geometry before native Open blurs and checks unsaved state.
+      this.el.dispatchEvent(new CustomEvent("canvas:flush"))
+      this.nativeFile.open()
+    }
     this.requestReload = () => this.nativeFile.reload()
     this.saveKey = event => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || (!event.metaKey && !event.ctrlKey)) return
@@ -659,7 +658,8 @@ const Workspace = {
     }
     this.closeOverlays = event => {
       if (event.key !== "Escape" || event.isComposing || this.el.querySelector(":popover-open")) return
-      if (event.target.closest(".hakushi-paper-menu, .hakushi-layout-menu, .hakushi-text-editor")) return
+      if (this.activeCanvas()?.directKeyboard?.active) return
+      if (event.target.closest(".hakushi-paper-menu, .hakushi-layout-menu, .hakushi-text-editor, .hakushi-edge-input")) return
       const menu = this.el.querySelector("#file-menu")
       const style = this.el.dataset.styleOpen === "true"
       if (menu || style) {

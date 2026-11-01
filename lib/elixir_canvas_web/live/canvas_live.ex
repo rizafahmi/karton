@@ -583,6 +583,55 @@ defmodule ElixirCanvasWeb.CanvasLive do
             else:
               "Opened as a copy. Save copy downloads JSON; it cannot overwrite the original. Reload asks you to select this file again."}
         </p>
+        <details id="keyboard-shortcuts" class="menu-section keyboard-shortcuts">
+          <summary>Keyboard shortcuts (?)</summary>
+          <p>Canvas focus only, not fields/IME. Mod = Command or Ctrl.</p>
+          <dl>
+            <dt>V R O D I</dt>
+            <dd>Select, rectangle, ellipse, diamond, triangle</dd>
+            <dt>T L A</dt>
+            <dd>Text, line, arrow</dd>
+            <dt>Enter / F2</dt>
+            <dd>Enter places tool; either edits text/edge label</dd>
+            <dt>Tab / Shift+Tab</dt>
+            <dd>Focus objects/edges; keep selection</dd>
+            <dt>Space</dt>
+            <dd>Tap toggles selection; hold+drag pans</dd>
+            <dt>Mod+A / Alt+arrows</dt>
+            <dd>Select all / nearest object</dd>
+            <dt>Arrows / Shift</dt>
+            <dd>Move 1/10px; pan without selection</dd>
+            <dt>G</dt>
+            <dd>Geometry: Tab handle; arrows adjust; Shift ×10</dd>
+            <dt>C</dt>
+            <dd>Connect/reconnect: arrows/Tab choose; Enter next</dd>
+            <dt>Enter / Escape</dt>
+            <dd>Commit/cancel G/C; Escape also cancels text</dd>
+            <dt>S / ?</dt>
+            <dd>Style / this reference</dd>
+            <dt>Delete / Backspace</dt>
+            <dd>Delete selection</dd>
+            <dt>Mod+C X V D</dt>
+            <dd>Copy, cut, paste, duplicate</dd>
+            <dt>Mod+Z / Mod+Shift+Z</dt>
+            <dd>Undo / redo (also Ctrl+Y)</dd>
+            <dt>Mod+Shift+[ / ]</dt>
+            <dd>Send back / bring front</dd>
+            <dt>Shift+L</dt>
+            <dd>Tidy; rail picker offers all layouts</dd>
+            <dt>+ − / Mod+ + −</dt>
+            <dd>Canvas zoom</dd>
+            <dt>Shift+1 / Shift+0</dt>
+            <dd>Fit / reset (also Mod+0)</dd>
+            <dt>Mod+S / Mod+O</dt>
+            <dd>Save / native Open</dd>
+            <dt>Mod+Shift+E</dt>
+            <dd>Image Download</dd>
+          </dl>
+          <p>
+            Preview: Save commits; leaving cancels. Tab reaches all existing controls; Escape exits editing before closing Style/file. Browser shortcuts stay native outside canvas.
+          </p>
+        </details>
         <div class="menu-section">
           <button
             id="open-native-file"
@@ -671,10 +720,10 @@ defmodule ElixirCanvasWeb.CanvasLive do
           </button>
         </div>
         <p class="menu-footnote">
-          Keyboard shortcuts: open the <strong>?</strong> button in the left rail for the complete
-          command map. <strong>Edit</strong> provides object selection, exact geometry, line
-          endpoints and connection editing. Single-letter shortcuts require canvas focus.
-          Command/Ctrl +/− zooms the canvas only there; focus a control to zoom the browser.
+          Open <strong>Keyboard shortcuts (?)</strong> above for the command map.
+          Tap Space to select directly; G previews geometry; C creates or reconnects arrows;
+          S opens Style. Single-letter shortcuts require canvas focus.
+          Command/Ctrl +/− zooms the canvas only there; focus a control for browser zoom.
         </p>
         <p class="menu-footnote">Local JSON. No account, no hidden database.</p>
         <div class="menu-section about-section">
