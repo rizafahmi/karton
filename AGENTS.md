@@ -32,6 +32,10 @@ and unresolved repository/technology decisions. No native app is implemented yet
   including drawing-font readiness and editor behavior, alongside
   [rotation_guides.js](assets/js/rotation_guides.js) and
   [self_loops.js](assets/js/self_loops.js).
+- [object_properties.js](assets/js/object_properties.js) supplies native form
+  alternatives for geometry, arbitrary selection and bound-edge editing, plus
+  complete in-app keyboard help. It uses public Hakushi mutation events; keep
+  Style authoritative for appearance and preserve graph locks/history/metadata.
 - [native_file.js](assets/js/native_file.js) handles browser file selection,
   native-handle persistence, and copy-download fallbacks.
 - [tokens.css](assets/css/tokens.css) holds shared design primitives;
@@ -77,6 +81,12 @@ For web interface changes, read [DESIGN.md](DESIGN.md), prioritizing its opening
 Elixir Canvas adaptation over the source kit's generic defaults. Keep the canvas
 dominant, with floating controls, square corners, and flat surfaces. Acid marks
 the active tool; hover stays neutral. Cobalt marks object selection and focus.
+
+Single-character drawing shortcuts belong only to focused canvas/objects, never
+form controls or composing text. Browser zoom must remain reachable outside canvas
+focus. File/style Escape returns focus to the trigger; native popovers own their
+dismissal. Keep the in-app **?** map and README keyboard section aligned with
+actual behavior; do not invent shortcuts for unsupported file workflows.
 
 The approved Mona Sans/Monaspace Neon project pairing overrides the vendored
 design skill's font list, not its other guardrails. See

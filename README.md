@@ -157,10 +157,10 @@ Font License notices are included in `priv/static/fonts/neo-acid`.
   the opposite corner or side stays fixed. Escape or a cancelled pointer gesture
   discards the rotation or resize preview. Open **Style** to change its appearance.
 - Pan with Space + drag; open the left rail's zoom percentage to zoom or fit the canvas.
-- With a canvas loaded, Command/Ctrl + `+` (or `=`) zooms in and Command/Ctrl + `-`
-  zooms out instead of zooming the browser page. These work with the zoom popover
-  closed or open, including while a text field has focus. Unmodified `+` and `-`
-  still type normally.
+- With the canvas or an object focused, Command/Ctrl + `+` (or `=`) zooms the canvas
+  in and Command/Ctrl + `-` zooms out. Outside that focus scope—including fields,
+  toolbar controls, and the zoom popover—these keys retain browser page zoom.
+  Focus any control to enlarge the application chrome with browser zoom.
 - Use **Bring to front** or **Send to back** in the left rail to reorder selected
   drawing objects. Selected objects keep their relative order, as do the other
   objects; locked objects are not reordered. Only stacking changes, using the
@@ -199,6 +199,61 @@ not excluded. Take turns editing externally; automatic merging is absent.
 Server paths refuse symbolic links. Server saves do not preserve extended
 attributes or guarantee parent-directory power-loss durability; browser file
 permissions and filesystem write behavior are controlled by the browser.
+### Keyboard editing
+
+The left rail's **?** opens the complete in-app command map; **Edit** opens
+**Object properties**. Both are ordinary Tab-reachable buttons. No shortcut is
+required to reach a control: use Tab/Shift+Tab, Enter/Space, and native select
+navigation. The file menu contains native open, server open/create forms, reload,
+default font and project links. Style exposes every applicable appearance choice,
+including standalone arrowheads; Paper and arrangement retain their native menus.
+
+The following shortcuts require focus on the canvas or an object, not a field,
+select, contenteditable editor or toolbar button. IME composition is left alone.
+
+| Action | Keys |
+| --- | --- |
+| Select; rectangle; ellipse; diamond; triangle; text; line; arrow | V; R; O; D; I; T; L; A |
+| Place the active drawing tool at viewport center | Enter |
+| Edit selected shape text | Enter or F2; Escape cancels; Command/Ctrl+Enter or blur commits |
+| Visit objects / nearest object | Tab / Shift+Tab; Alt+arrows |
+| Select all | Command/Ctrl+A |
+| Move selection / line endpoint | Arrows (1 pixel); Shift+arrows (10 pixels) |
+| Pan with no selection | Arrows; Shift+arrows for larger steps |
+| Object properties / shortcut help | P / ? |
+| Start connection; choose target; commit / cancel | C; arrows or Tab; Enter / Escape |
+| Copy / cut / paste / duplicate | Command/Ctrl+C / X / V / D |
+| Delete; undo; redo | Delete or Backspace; Command/Ctrl+Z; Shift+Command/Ctrl+Z or Ctrl+Y |
+| Bring to front / send to back | Command/Ctrl+Shift+] / [ |
+| Tidy; fit; reset zoom | Shift+L; Shift+1; Shift+0 or Command/Ctrl+0 |
+| Canvas zoom | + / −; Command/Ctrl+ + / − |
+
+**Save** (Command/Ctrl+S) works throughout the workspace and commits active shape
+text first. It retains the source-specific Save/Save copy contract above; there is
+no fake New or Save As command, nor a browser New/Reload/Find shortcut takeover.
+Keyboard activation of a drawing-tool button focuses the canvas for placement.
+Command/Ctrl+O invokes the existing native **Open…** workflow from any field;
+Command/Ctrl+Shift+E invokes the existing image **Download**. Both retain current
+unsaved guards, browser capabilities and cancellation behavior.
+
+**Object properties** offers labeled object checkboxes (Tab and Space choose any subset) followed by
+**Select objects**, exact position/size/rotation for one unlocked shape, and
+absolute start/end coordinates for standalone lines/arrows. **Apply geometry**
+commits changed values as one ordinary history edit, including combined geometry
+and rotation. Unchanged values create no history. Closing or Escape discards
+unsubmitted fields, not already applied edits.
+Its **Connections** selector reaches every bound arrow, highlights the choice,
+and provides source/target objects, named or automatic sides, reconnect, label
+and delete actions. Choose **New connection** to author one; self-loops require
+the same object with two different named sides. Reconnecting retains edge
+appearance and metadata. Style remains the only appearance inspector.
+
+Escape returns file/style panels to their trigger; native popovers retain their
+own dismissal behavior. Panels scroll within short/narrow windows rather than
+trapping focus. Paper choices remain authored document edits with undo/save.
+The keyboard routes do not imply screen-reader certification or native file-dialog
+automation across browsers.
+
 
 ## Document format: version 1
 
@@ -324,7 +379,9 @@ history are session state and are not part of the file.
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test
-node --check assets/js/app.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js
+for file in assets/js/app.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js assets/js/object_properties.js; do
+  node --input-type=module --check < "$file" || exit 1
+done
 mix assets.build
 ```
 
@@ -338,6 +395,11 @@ and stale reload/save rejection.
 Stacking regressions cover stable multi-selection ordering, empty/extreme no-ops,
 locked nodes, interleaved ordinary edits and undo/redo, redo preservation after
 no-ops, and temporary-file save/reload with unchanged object content and connections.
+The exact-properties regression also protects combined resize/rotation as one
+history edit, reconnect/label history, saved geometry and retained node/edge
+metadata. Browser keyboard behavior needs the real-editor checks below; these
+server-event tests do not certify focus or key handling.
+
 
 ### Manual browser verification
 
@@ -370,6 +432,16 @@ every change:
    file-input picker, edit, and **Save copy**. Inspect the downloaded JSON and
    confirm the original is unchanged and edits remain dirty. Reselect the original
    when checking reload.
+6. For keyboard changes, use the **?** map as the workflow inventory. Place each
+   drawing kind without a pointer; edit/commit/cancel text; select arbitrary
+   objects and a connection; apply exact dimensions/rotation/endpoints; create a
+   distinct-node arrow and self-loop, reconnect and label it. Exercise every
+   applicable Style choice (including standalone arrowheads), Paper, all layouts,
+   clipboard/history/stacking, pan/fit/reset and source-specific file actions.
+   Inspect saved geometry, metadata, connections and dirty state, not just focus
+   or event callbacks. Repeat menu Escape/return and field/IME/browser-zoom
+   isolation, then Tab through short/narrow windows with panels open.
+
 
 Stop only this check's server with Ctrl-C in its terminal (follow any shutdown
 prompt). Retain any captured evidence you need before removing only this check's

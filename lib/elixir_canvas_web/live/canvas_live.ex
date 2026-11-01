@@ -536,6 +536,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
           <button
             id="save-file"
             class="save-button"
+            aria-keyshortcuts="Meta+S Control+S"
             phx-click={JS.dispatch("canvas:save", to: "#workspace")}
             disabled={!@document || @pending_save != nil}
             title={
@@ -587,6 +588,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
             id="open-native-file"
             type="button"
             class="menu-button native-open-button"
+            title="Open… (⌘O / Ctrl+O)"
+            aria-keyshortcuts="Meta+O Control+O"
             phx-click={JS.dispatch("canvas:open", to: "#workspace")}
             disabled={@pending_save != nil}
             aria-describedby="native-open-help"
@@ -667,36 +670,12 @@ defmodule ElixirCanvasWeb.CanvasLive do
               else: "Reload from disk"}
           </button>
         </div>
-        <dl class="shortcut-list">
-          <div>
-            <dt>Save</dt>
-            <dd>⌘ / Ctrl S</dd>
-          </div>
-          <div>
-            <dt>Zoom in</dt>
-            <dd>⌘ / Ctrl +</dd>
-          </div>
-          <div>
-            <dt>Zoom out</dt>
-            <dd>⌘ / Ctrl −</dd>
-          </div>
-          <div>
-            <dt>Text · rectangle · ellipse</dt>
-            <dd>T · R · O</dd>
-          </div>
-          <div>
-            <dt>Line · arrow · select</dt>
-            <dd>L · A · V</dd>
-          </div>
-          <div>
-            <dt>Line direction · 45°</dt>
-            <dd>Shift + drag</dd>
-          </div>
-          <div>
-            <dt>Pan</dt>
-            <dd>Space + drag</dd>
-          </div>
-        </dl>
+        <p class="menu-footnote">
+          Keyboard shortcuts: open the <strong>?</strong> button in the left rail for the complete
+          command map. <strong>Edit</strong> provides object selection, exact geometry, line
+          endpoints and connection editing. Single-letter shortcuts require canvas focus.
+          Command/Ctrl +/− zooms the canvas only there; focus a control to zoom the browser.
+        </p>
         <p class="menu-footnote">Local JSON. No account, no hidden database.</p>
         <div class="menu-section about-section">
           <p class="about-title">Elixir Canvas</p>

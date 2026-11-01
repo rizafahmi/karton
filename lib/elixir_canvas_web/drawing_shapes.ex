@@ -23,6 +23,7 @@ defmodule ElixirCanvasWeb.DrawingShapes do
   def tools(messages) do
     Enum.map(Shapes.tools(messages), fn
       %{tool: "line"} = tool -> %{tool | label: "Arrow"}
+      %{tool: "triangle"} = tool -> %{tool | key: "i"}
       tool -> tool
     end) ++
       [

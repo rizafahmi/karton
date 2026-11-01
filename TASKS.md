@@ -180,12 +180,30 @@ Source-backed gaps and observed/unverified risks below do not reorder approved w
 - [ ] **Proposed gate:** keyboard access, focus, and short-window controls work
   through open/edit/style/reorder/connect/save and cancellation; include arrow
   controls when implementing their inspector. Do not infer accessibility from ARIA.
-- Browser Cmd/Ctrl +/- currently zooms the canvas globally, even in fields.
-  Preserve the approved shortcut intent while proving a discoverable way to
-  enlarge application chrome and reach controls with browser zoom/text scaling.
-- Restore focus to the trigger after Escape closes a panel. A headless Chromium
-  audit focused Reload then pressed Escape: the panel closed but focus became
-  `body`, not the document trigger. Observed in Chromium only, not all browsers.
+- Keyboard editing now has canvas-scoped drawing/zoom shortcuts, native exact
+  geometry/connection controls and a complete **?** map. Browser page zoom remains
+  available when a field or toolbar control has focus; file/style Escape restores
+  the trigger. Keep the readiness gate above evidence-based: implementation is
+  not cross-browser or assistive-technology certification.
+- **Keyboard verification (2026-11-01, Brave/Chromium on macOS only):** real
+  keyboard placement of every drawing tool; arbitrary checkbox selection; exact
+  geometry/rotation and both line endpoints; bound-arrow creation, self-loops,
+  reconnect/label/delete/history; applicable Style/Paper/layout choices;
+  Meta clipboard/duplicate/history/stacking; locks; focus return and initial help
+  PageDown/PageUp; scrolling controls at 360×500 and 800×360 were exercised.
+  Actual saved/reopened JSON retained geometry, named styles, typography and
+  connection identity; Command+Shift+E produced an inspected RGBA PNG.
+  Independent file-input selection and Save copy produced real downloaded JSON,
+  left the original untouched and edits dirty. Keyboard server create/open
+  guards, genuine create/save and external-conflict refusal preserved bytes and
+  in-memory edits. Full automated checks passed (60 tests), as did changed-module
+  syntax checks and assets build.
+- **Verification limits:** browser page-zoom enlargement, physical IME/AltGraph/
+  dead-key entry, screen readers, other browsers, OS-selected writable handles
+  and their permission dialogs were not exercised. Field Command+/- left canvas
+  zoom unchanged; this is isolation proof, not browser-chrome zoom certification.
+  Reload discard/reopen passed, but automated confirm handling prevented
+  definitive reload-cancellation proof. These limits keep the gate unchecked.
 - Check short-window menus/inspectors for clipped actions, traps, and hidden focus.
 - Agree a representative brainstorming/diagram board and intended hardware/browser.
   Exercise open, text editing, pan/zoom, save/reopen, and export; record responsiveness
@@ -259,8 +277,7 @@ Promote optional work only as ranked hypotheses grounded in observed session fri
 
 - [x] redesign with acid theme
 - [x] canvas styling using acid theme
-- [x] add zoom in and zoom out shortcut to override default browser zoom in and
-      zoom out
+- [x] canvas-focused zoom shortcuts; browser page zoom outside canvas focus
 - [x] add a line
 - [x] ability to do a loop with arrow/line
 - [x] Do rotation, the drawing item is rotating, but the guide nodes stay still.

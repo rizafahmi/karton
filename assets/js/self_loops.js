@@ -59,7 +59,7 @@ export function mountSelfLoops(canvas) {
     canvas.setTool(null)
   }
 
-  const route = edge => {
+  const route = (edge, rootBounds) => {
     if (edge.source !== edge.target || !edge.sourceHandle || !edge.targetHandle || edge.sourceHandle === edge.targetHandle) return null
     const node = canvas.nodes.get(edge.source)
     const geometry = canvas.geometry(edge)
@@ -69,8 +69,8 @@ export function mountSelfLoops(canvas) {
     // Native handle positions include rotation; the visual box includes its
     // corners too. Convert that viewport box back into canvas coordinates.
     const visual = (node.el.querySelector('[data-hakushi-rotate]') || node.el).getBoundingClientRect()
-    const x = (visual.left - canvas.bounds.left - canvas.view.x) / canvas.view.zoom
-    const y = (visual.top - canvas.bounds.top - canvas.view.y) / canvas.view.zoom
+    const x = (visual.left - rootBounds.left - canvas.view.x) / canvas.view.zoom
+    const y = (visual.top - rootBounds.top - canvas.view.y) / canvas.view.zoom
     const left = Math.min(box.x, x) - 48
     const top = Math.min(box.y, y) - 48
     const right = Math.max(box.x + box.width, x + visual.width / canvas.view.zoom) + 48
@@ -114,8 +114,11 @@ export function mountSelfLoops(canvas) {
   const drawEdges = canvas.drawEdges.bind(canvas)
   canvas.drawEdges = (...args) => {
     drawEdges(...args)
+    // Hakushi invalidates its pointer-coordinate cache on captured scroll.
+    // Use one current root measurement for this entire edge rendering pass.
+    const rootBounds = canvas.root.getBoundingClientRect()
     for (const edge of canvas.edges.values()) {
-      const d = route(edge)
+      const d = route(edge, rootBounds)
       const view = canvas.edgeViews.get(edge.id)
       if (!d || !view) continue
       view.d = d
@@ -128,8 +131,8 @@ export function mountSelfLoops(canvas) {
         const node = canvas.nodes.get(edge.source)
         const center = canvas.center(node)
         const visual = (node.el.querySelector('[data-hakushi-rotate]') || node.el).getBoundingClientRect()
-        const left = (visual.left - canvas.bounds.left - canvas.view.x) / canvas.view.zoom
-        const top = (visual.top - canvas.bounds.top - canvas.view.y) / canvas.view.zoom
+        const left = (visual.left - rootBounds.left - canvas.view.x) / canvas.view.zoom
+        const top = (visual.top - rootBounds.top - canvas.view.y) / canvas.view.zoom
         const rightSide = left + visual.width / canvas.view.zoom
         const bottomSide = top + visual.height / canvas.view.zoom
         // Keep a wide label outside the item too, not merely its midpoint.
@@ -160,7 +163,7 @@ export function mountSelfLoops(canvas) {
     const pending = ends && ends.from.id !== ends.to.id ? {source: ends.node.id, target: ends.node.id, sourceHandle: ends.from.id, targetHandle: ends.to.id} :
       gesture?.kind === 'connect' && gesture.target ? {source: gesture.from.node, target: gesture.target.end.node, sourceHandle: gesture.from.handle, targetHandle: gesture.target.end.handle} :
       canvas.pending ? {source: canvas.pending.source.node, target: canvas.pending.target.node, sourceHandle: canvas.pending.source.handle, targetHandle: canvas.pending.target.handle} : null
-    const d = pending && route(pending)
+    const d = pending && route(pending, canvas.root.getBoundingClientRect())
     if (d) {
       const preview = canvas.overlay.querySelector('.hakushi-edge-pending, .hakushi-shape-preview')
       if (preview?.tagName.toLowerCase() === 'path') preview.setAttribute('d', d)

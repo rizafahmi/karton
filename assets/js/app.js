@@ -5,6 +5,7 @@ import {Hakushi} from "hakushi"
 import {mountSelfLoops} from "./self_loops"
 import {mountRotationGuides} from "./rotation_guides"
 import {mountNativeFile} from "./native_file"
+import {mountObjectProperties} from "./object_properties"
 
 async function loadDrawingFonts(workspace) {
   // Resolve the host's CSS mapping, not a second document-role → family registry.
@@ -44,6 +45,8 @@ function setFontState(workspace, state) {
 function mountObjectTypography(canvas) {
   const drawStylePanel = canvas.drawStylePanel.bind(canvas)
   canvas.drawStylePanel = () => {
+    const focused = canvas.styleEl?.contains(document.activeElement) ? document.activeElement : null
+    const focusIndex = focused ? [...canvas.styleEl.querySelectorAll("button, input, select")].indexOf(focused) : -1
     for (const id of canvas.selected) {
       const node = canvas.nodes.get(id)
       if (node?.type !== "shape") continue
@@ -59,7 +62,9 @@ function mountObjectTypography(canvas) {
         shape.dataset.hakushiStyle = JSON.stringify({...style, font})
       }
     }
-    return drawStylePanel()
+    const result = drawStylePanel()
+    if (focusIndex >= 0 && !focused.isConnected) canvas.styleEl?.querySelectorAll("button, input, select")[focusIndex]?.focus({preventScroll: true})
+    return result
   }
 
   const editText = canvas.editText.bind(canvas)
@@ -83,6 +88,9 @@ function mountObjectTypography(canvas) {
     const editor = canvas.labelsEl.lastElementChild
     if (editor?.classList.contains("hakushi-text-editor")) {
       Object.assign(editor.style, typography)
+      editor.addEventListener("keydown", event => {
+        if (event.isComposing || event.keyCode === 229) event.stopImmediatePropagation()
+      }, true)
     }
   }
   canvas.drawStylePanel()
@@ -397,8 +405,81 @@ const FileCanvas = {
     this.mountZoomControls()
     this.mountStackingControls()
     this.mountHeaderActions(workspace)
+    this.objectProperties = mountObjectProperties(this.canvas)
+    this.toolKeyboardClick = event => {
+      if (event.detail === 0 && event.target.closest("[data-tool]")) this.canvas.root.focus({preventScroll: true})
+    }
+    this.canvas.toolsEl.addEventListener("click", this.toolKeyboardClick)
+    const keyDown = this.canvas.keyDown.bind(this.canvas)
+    this.canvas.keyDown = event => {
+      const target = event.composedPath()[0]
+      if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return
+      if (target.closest("input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=slider]")) return
+      const onCanvas = target === this.canvas.root || target.classList.contains("hakushi-node") || target.classList.contains("drawing-line-endpoint")
+      if (!onCanvas) return
+      const command = event.metaKey || event.ctrlKey
+      if (command && (event.altKey || !["z", "y", "a", "c", "x", "v", "d", "0", "+", "=", "-", "[", "]", "{", "}"].includes(event.key.toLowerCase()))) return
+      if (command && event.shiftKey && !["z", "+", "=", "[", "]", "{", "}"].includes(event.key.toLowerCase())) return
+      if (event.altKey && !event.key.startsWith("Arrow")) return
+      if (!command && !event.altKey && event.key === "?") {
+        event.preventDefault()
+        return this.objectProperties.help()
+      }
+      if (!command && !event.altKey && event.key.toLowerCase() === "p") {
+        event.preventDefault()
+        return this.objectProperties.open()
+      }
+      if (command && event.shiftKey && ["BracketLeft", "BracketRight"].includes(event.code)) {
+        event.preventDefault()
+        return this.canvas.push("drawing:stack", {direction: event.code === "BracketRight" ? "front" : "back", nodes: [...this.canvas.selected]})
+      }
+      if (command) {
+        // Privacy-reduced UA data can report an empty platform. Route both
+        // standard command modifiers here rather than Hakushi's OS detector;
+        // retain its actual command implementations and document history.
+        const key = event.key.toLowerCase()
+        if (["z", "y", "a", "c", "x", "v", "d", "0", "+", "=", "-"].includes(key)) event.preventDefault()
+        switch (key) {
+          case "z": return event.shiftKey ? this.canvas.redo() : this.canvas.undo()
+          case "y": return this.canvas.redo()
+          case "a": return this.canvas.select([...this.canvas.order])
+          case "c": return this.canvas.copy()
+          case "x": return this.canvas.copy(true)
+          case "v": return this.canvas.paste()
+          case "d": return this.canvas.duplicate()
+          case "0": return this.canvas.zoomTo(1)
+          case "+": case "=": return this.canvas.zoomBy(1.25)
+          case "-": return this.canvas.zoomBy(1 / 1.25)
+          default: return
+        }
+      }
+      if (!command && !event.altKey && event.key === "Enter" && this.canvas.tool && !this.canvas.gesture) {
+        event.preventDefault()
+        const canvas = this.canvas
+        const x = (canvas.size.width / 2 - canvas.view.x) / canvas.view.zoom
+        const y = (canvas.size.height / 2 - canvas.view.y) / canvas.view.zoom
+        const tool = canvas.tool
+        const payload = {tool: `${tool.kit}:${tool.tool}`}
+        if (tool.tool === "line" || tool.tool === "straight-line") payload.points = [[x - 80, y], [x + 80, y]]
+        else payload.box = [x - 80, y - 48, 160, 96]
+        canvas.push("hakushi:draw", payload, reply => {
+          if (typeof reply.drawn === "string") { canvas.pendingSelect = [reply.drawn]; canvas.selectPending() }
+        })
+        canvas.setTool(null)
+        return
+      }
+      if (!command && !event.altKey && !this.canvas.gesture && ["Enter", "F2"].includes(event.key)) {
+        const node = this.canvas.focusedNode()
+        if (node?.type === "shape" && !node.locked) {
+          event.preventDefault()
+          return this.canvas.editText(node)
+        }
+      }
+      keyDown(event)
+    }
     this.zoomKey = event => {
-      if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.isComposing) return
+      if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.isComposing || event.defaultPrevented) return
+      if (event.target !== this.canvas.root && !event.target.classList.contains("hakushi-node")) return
       let factor
       if (event.key === "+" || event.key === "=") factor = 1.25
       else if (event.key === "-") factor = 1 / 1.25
@@ -493,7 +574,9 @@ const FileCanvas = {
       button.type = "button"
       button.className = "hakushi-control"
       button.dataset.action = `stack-${direction}`
-      button.title = label
+      const shortcut = direction === "front" ? "]" : "["
+      button.title = `${label} (⌘/Ctrl+Shift+${shortcut})`
+      button.setAttribute("aria-keyshortcuts", `Meta+Shift+${shortcut} Control+Shift+${shortcut}`)
       button.setAttribute("aria-label", label)
       button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="${path}"/></svg>`
       button.addEventListener("click", event => {
@@ -509,6 +592,8 @@ const FileCanvas = {
   mountHeaderActions(workspace) {
     const actions = workspace.querySelector(".canvas-actions")
     const download = this.canvas.root.querySelector('[data-action="export"]')
+    download.title = "Download image (⌘/Ctrl+Shift+E)"
+    download.setAttribute("aria-keyshortcuts", "Meta+Shift+E Control+Shift+E")
     // Native controls retain their own pointer boundary and export handler.
     // Reserve their rendered border boxes, not guesses about label/font widths.
     const sync = this.el.syncHeaderActions = () => {
@@ -523,6 +608,8 @@ const FileCanvas = {
   destroyed() {
     window.removeEventListener("keydown", this.zoomKey, true)
     this.destroyLineTool?.()
+    this.objectProperties?.destroy()
+    this.canvas.toolsEl?.removeEventListener("click", this.toolKeyboardClick)
     this.destroyRotationGuides?.()
     this.zoomObserver?.disconnect()
     this.typographyObserver?.disconnect()
@@ -557,13 +644,30 @@ const Workspace = {
     this.requestOpen = () => this.nativeFile.open()
     this.requestReload = () => this.nativeFile.reload()
     this.saveKey = event => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || (!event.metaKey && !event.ctrlKey)) return
+      const key = event.key.toLowerCase()
+      if (key === "s" && !event.shiftKey) {
         event.preventDefault()
         this.requestSave()
+      } else if (key === "o" && !event.shiftKey) {
+        event.preventDefault()
+        this.requestOpen()
+      } else if (key === "e" && event.shiftKey) {
+        const download = this.el.querySelector('[data-action="export"]')
+        if (download) { event.preventDefault(); download.click() }
       }
     }
     this.closeOverlays = event => {
-      if (event.key === "Escape") this.pushEvent("close-overlays", {})
+      if (event.key !== "Escape" || event.isComposing || this.el.querySelector(":popover-open")) return
+      if (event.target.closest(".hakushi-paper-menu, .hakushi-layout-menu, .hakushi-text-editor")) return
+      const menu = this.el.querySelector("#file-menu")
+      const style = this.el.dataset.styleOpen === "true"
+      if (menu || style) {
+        event.preventDefault()
+        event.stopPropagation()
+        this.pushEvent("close-overlays", {})
+        this.el.querySelector(menu ? "#file-menu-toggle" : "#style-toggle")?.focus()
+      }
     }
     this.beforeUnload = event => {
       if (this.hasUnsaved() || this.el.dataset.nativeBusy === "true" || this.el.dataset.fileBusy === "true") {
@@ -582,6 +686,12 @@ const Workspace = {
   updated() {
     this.el.dataset.fontState = this.el.drawingFontState || "loading"
     this.nativeFile.updated()
+    const menuOpen = !!this.el.querySelector("#file-menu")
+    const styleOpen = this.el.dataset.styleOpen === "true"
+    if (menuOpen && !this.menuWasOpen) this.el.querySelector("#open-native-file")?.focus()
+    if (styleOpen && !this.styleWasOpen) this.el.querySelector(".hakushi-style-panel button")?.focus()
+    this.menuWasOpen = menuOpen
+    this.styleWasOpen = styleOpen
     // LiveView may remove client-owned inline styles without resizing buttons.
     this.activeCanvas()?.syncHeaderActions?.()
     this.settled()

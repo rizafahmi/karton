@@ -90,6 +90,16 @@ components:
 > group. The rail ends above the dock and scrolls in short windows. Narrow windows
 > collapse Download and, at the smallest width, Style to labeled icons. All drawing
 > tools remain visible.
+>
+> **Keyboard alternatives:** The rail includes **Edit** (Object properties) and
+> **?** (complete keyboard help), as ordinary focusable buttons. Properties uses
+> native labeled selects/inputs for selection, geometry and connections; it does
+> not duplicate Style. Non-modal popovers use square frames and opaque surfaces,
+> fit the viewport and scroll, without custom focus traps. Cobalt focus remains
+> visible. Keyboard-opened file/style panels enter their controls; Escape returns
+> to the trigger. Canvas-scoped character/zoom commands never hijack fields, IME
+> composition or browser chrome zoom outside the canvas.
+
 
 ## 1. Overview
 

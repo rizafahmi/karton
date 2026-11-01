@@ -699,6 +699,61 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     assert loop in CanvasTest.edges(view, board)
   end
 
+  test "exact object properties and reconnect preserve authored metadata through save and history",
+       %{
+         view: view,
+         path: path,
+         source: source
+       } do
+    source =
+      source
+      |> put_in(["nodes", Access.at(0), "data", "future"], %{"keep" => [1, 2]})
+      |> put_in(["edges", Access.at(0), "data"], %{"future" => "keep"})
+      |> put_in(["edges", Access.at(0), "path"], "step")
+      |> put_in(["edges", Access.at(0), "marker"], "dot")
+
+    File.write!(path, Jason.encode!(source))
+    render_click(view, "reload")
+    board = board_id(view)
+    original_box = node_box(view, board, "idea")
+    original_edge = hd(CanvasTest.edges(view, board))
+
+    assert :ok =
+             CanvasTest.edit(view, board, "idea", "rotate", %{
+               "value" => 45,
+               "box" => [-12.5, 42, 190, 85]
+             })
+
+    assert node_box(view, board, "idea") == {-12.5, 42, 190, 85}
+    assert :ok = CanvasTest.undo(view, board)
+    assert node_box(view, board, "idea") == original_box
+    assert :ok = CanvasTest.redo(view, board)
+
+    assert :ok =
+             CanvasTest.reconnect(view, board, original_edge.id,
+               source: {"idea", "bottom"},
+               target: {"idea", "top"}
+             )
+
+    assert :ok = CanvasTest.label(view, board, original_edge.id, "Return")
+    assert %{ok: true} = selected_event(view, "save", %{})
+    assert {:ok, saved} = Document.open(path)
+    node = Graph.node(saved.graph, "idea")
+    assert node.data["future"] == %{"keep" => [1, 2]}
+    assert node.data["rotation"] == 45
+    edge = Graph.edge(saved.graph, original_edge.id)
+
+    assert {edge.source, edge.source_handle, edge.target, edge.target_handle} ==
+             {"idea", "bottom", "idea", "top"}
+
+    assert {edge.path, edge.marker, edge.label, edge.data} ==
+             {"step", "dot", "Return", %{"future" => "keep"}}
+
+    assert :ok = CanvasTest.undo(view, board)
+    assert :ok = CanvasTest.undo(view, board)
+    assert hd(CanvasTest.edges(view, board)) == original_edge
+  end
+
   test "stacking is one history action and saves only node order", %{
     view: view,
     path: path,
