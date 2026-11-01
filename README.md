@@ -3,6 +3,14 @@
 A local-file-first spatial thinking canvas built with Elixir, Phoenix LiveView,
 and Hakushi. The JSON file is the document, not an export from a database.
 
+## Planned native macOS editor
+
+The next milestone is an independent native Mac editor sharing the version-1 JSON
+document contract, with Apple-native UI and transparent high-resolution PNG export
+for Keynote. It is not implemented yet and will not require the web app's runtime.
+See [TASKS.md](TASKS.md#next-milestone-independent-native-macos-editor) for scope,
+acceptance proof, and open repository/technology decisions.
+
 ## Run
 
 Requires Elixir 1.18+ and a compatible Erlang/OTP, available through Nix. The

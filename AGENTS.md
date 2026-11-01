@@ -11,6 +11,10 @@ it is not a hosted multi-user service. Keep this trust boundary explicit.
 Databases, accounts, cloud storage, and multiplayer are outside the current scope
 unless requested, not permanently prohibited directions.
 
+An independent native Mac editor is planned, sharing version-1 JSON rather than
+the web runtime. [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof,
+and unresolved repository/technology decisions. No native app is implemented yet.
+
 ## Architecture map
 
 - [Document](lib/elixir_canvas/document.ex) owns version-1 JSON validation,
@@ -57,16 +61,17 @@ state and external-change handling. See [README: Run](README.md#run) and
 Implement requested changes directly by default. Restate the plan and wait only
 when explicitly requested. Commit only when requested.
 
-Reuse the existing Elixir/Phoenix/LiveView/Hakushi stack and vanilla CSS. Ask before
-adding any dependency or build step; this does not prohibit using existing ones.
+For the existing web app, reuse the Elixir/Phoenix/LiveView/Hakushi stack and
+vanilla CSS. Ask before adding any dependency or build step; this does not
+prohibit using existing ones.
 
-Core desktop behavior should work in Chrome, Edge, Safari, and Firefox. Use
+Web desktop behavior should work in Chrome, Edge, Safari, and Firefox. Use
 progressive enhancement: feature-detect optional browser APIs and provide honest
 fallbacks rather than implying unsupported capabilities succeeded.
 
 ## Design guidance
 
-Read [DESIGN.md](DESIGN.md) before interface changes, prioritizing its opening
+For web interface changes, read [DESIGN.md](DESIGN.md), prioritizing its opening
 Elixir Canvas adaptation over the source kit's generic defaults. Keep the canvas
 dominant, with floating controls, square corners, and flat surfaces. Acid marks
 the active tool; hover stays neutral. Cobalt marks object selection and focus.
@@ -76,13 +81,20 @@ design skill's font list, not its other guardrails. See
 [DESIGN: Typography](DESIGN.md#3-typography) for font inventory, weights, role
 mapping, and inspector behavior rather than duplicating those rules here.
 
+The planned native Mac interface follows Apple Human Interface Guidelines, not
+the web Neo-Acid controls or font pairing. It shares the JSON contract's geometry,
+named colors, and semantic font roles, not pixel-identical rendering or a runtime.
+
 ## Setup and verification
 
-[README: Run](README.md#run) is canonical for prerequisites and local setup;
+[README: Run](README.md#run) is canonical for the current web app's prerequisites and setup;
 no npm installation is required. [README: Checks](README.md#checks) lists the
 verification commands and browser-check limits. Mix aliases are defined in
 [mix.exs](mix.exs); `mix precommit` formats files and can change the lockfile,
 so it is not a read-only check.
+
+The native milestone's setup and verification instructions must be supplied with
+implementation; current Mix/browser checks are not native application proof.
 
 Verify visual changes in the actual editor, including narrow layouts and open
 panels. Narrow-layout checks are not mobile interaction testing. Use temporary
