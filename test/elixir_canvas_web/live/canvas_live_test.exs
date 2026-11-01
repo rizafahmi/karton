@@ -855,6 +855,73 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     assert {:error, _} = CanvasTest.undo(view, board)
   end
 
+  test "a thought's authored text and grown box add atomically with stable redo identity and unchanged source",
+       %{view: view, path: path, source: source} do
+    source =
+      source
+      |> put_in(["nodes", Access.at(0), "data", "rotation"], 37)
+      |> put_in(["nodes", Access.at(0), "data", "font"], "mono")
+      |> put_in(["nodes", Access.at(0), "data", "future"], %{"identity" => ["keep"]})
+
+    File.write!(path, Jason.encode!(source))
+    render_click(view, "reload")
+    board = board_id(view)
+    assert {:ok, original} = Document.open(path)
+    initial_nodes = CanvasTest.nodes(view, board)
+    text = String.duplicate("👩🏽‍💻", 1_999) <> "\n"
+
+    view
+    |> element("##{board}-hook")
+    |> render_hook("hakushi:draw", %{
+      "tool" => "drawing:rect",
+      "box" => [752.4, -120, 160, 640],
+      "style" => %{"text" => text}
+    })
+
+    %{proxy: {ref, _topic, _pid}} = view
+
+    id =
+      receive do
+        {^ref, {:reply, %{"ok" => true, "drawn" => id}}} -> id
+      after
+        1_000 -> flunk("thought draw did not reply")
+      end
+
+    [thought] = CanvasTest.nodes(view, board) -- initial_nodes
+    assert thought.id == id
+    assert node_box(view, board, id) == {752.4, -120, 160, 640}
+
+    assert view
+           |> render()
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("[data-id='#{id}'] [data-hakushi-text]")
+           |> LazyHTML.attribute("data-hakushi-text") == [text]
+
+    assert has_element?(view, "#workspace[data-dirty=true]")
+    assert :ok = CanvasTest.undo(view, board)
+    assert CanvasTest.nodes(view, board) == initial_nodes
+    assert has_element?(view, "#workspace[data-dirty=false]")
+    assert :ok = CanvasTest.redo(view, board)
+    assert Enum.find(CanvasTest.nodes(view, board), &(&1.id == id)) == thought
+    assert %{ok: true} = selected_event(view, "save", %{})
+    assert {:ok, saved} = Document.open(path)
+    created = Graph.node(saved.graph, id)
+    assert created.data["text"] == text
+    assert created.data["kind"] == "rect"
+    assert created.data["rotation"] == 0
+    refute Map.has_key?(created.data, "font")
+    refute Map.has_key?(created.data, "future")
+    refute created.locked
+
+    for node <- Graph.nodes(original.graph) do
+      assert Graph.node(saved.graph, node.id) == node
+    end
+
+    assert saved.graph.edges == original.graph.edges
+    render_click(view, "reload")
+    assert node_box(view, board_id(view), id) == {752.4, -120, 160, 640}
+  end
+
   defp stack(view, board, direction, ids) do
     view
     |> element("##{board}-hook")

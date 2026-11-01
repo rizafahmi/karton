@@ -76,7 +76,9 @@ export function mountNativeFile(workspace) {
   const acceptFile = async (request, file, handle) => {
     const bytes = await readSelectedFile(file)
     await request.settled
-    await workspace.flushEdits()
+    const flushed = workspace.flushEdits()
+    if (!flushed.ok) return
+    await flushed.settled
     if (!isCurrent(request)) return
     const reloading = request.action === "reload" && file.name === request.filename
     if (!reloading && workspace.hasUnsaved()) {
@@ -153,7 +155,15 @@ export function mountNativeFile(workspace) {
 
     setBusy(true)
     // Start the flush, but never await it before opening the user-activated picker.
-    request.settled = workspace.flushEdits()
+    try {
+      const flushed = workspace.flushEdits()
+      if (!flushed.ok) { finishPicker(request); return }
+      request.settled = flushed.settled
+    } catch (error) {
+      reportError(fileError(error), request)
+      finishPicker(request)
+      return
+    }
     request.editVersion = editVersion()
     if (action === "reload" && mode() === "browser_file") {
       const selected = selectedFile
@@ -235,12 +245,14 @@ export function mountNativeFile(workspace) {
           ? Promise.resolve("granted")
           : selected.handle.requestPermission({mode: "readwrite"})
       }
-      const settled = workspace.flushEdits()
-      if (permission) {
-        selected.writeGranted = await permission === "granted"
+      const flushed = workspace.flushEdits()
+      const permissionGranted = permission?.then(result => {
+        selected.writeGranted = result === "granted"
         if (!selected.writeGranted) throw new DOMException("Write permission denied", "NotAllowedError")
-      }
-      await settled
+      })
+      // Observe both chains immediately: either may reject while the other waits.
+      await Promise.all([permissionGranted, flushed.ok ? flushed.settled : undefined])
+      if (!flushed.ok) return
       if (!isCurrent(request)) return
       reply = await send("save", {generation: request.generation})
       if (!reply.ok || !reply.token) return

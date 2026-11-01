@@ -531,6 +531,9 @@ defmodule ElixirCanvasWeb.CanvasLive do
             <span class="status-dot"></span>
             {status_text(@document, @dirty, @disk_status, @notice)}
           </span>
+          <span id="thought-draft-status" class="document-status unsaved" role="status">
+            <span class="status-dot"></span> Thought draft — not added
+          </span>
         </div>
         <div class="canvas-actions">
           <button
@@ -594,7 +597,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
             <dt>Enter / F2</dt>
             <dd>Enter places tool; either edits text/edge label</dd>
             <dt>Tab / Shift+Tab</dt>
-            <dd>Focus objects/edges; keep selection</dd>
+            <dd>Focus selected drawing first, then objects/edges; keep selection</dd>
             <dt>Space</dt>
             <dd>Tap toggles selection; hold+drag pans</dd>
             <dt>Mod+A / Alt+arrows</dt>
@@ -605,8 +608,12 @@ defmodule ElixirCanvasWeb.CanvasLive do
             <dd>Geometry: Tab handle; arrows adjust; Shift ×10</dd>
             <dt>C</dt>
             <dd>Connect/reconnect: arrows/Tab choose; Enter next</dd>
+            <dt>N → arrow</dt>
+            <dd>
+              Focused or sole selected unlocked text shape: independent thought, then type inline
+            </dd>
             <dt>Enter / Escape</dt>
-            <dd>Commit/cancel G/C; Escape also cancels text</dd>
+            <dd>Commit/cancel G/C/N; N: Shift+Enter newline</dd>
             <dt>S / ?</dt>
             <dd>Style / this reference</dd>
             <dt>Delete / Backspace</dt>
@@ -629,7 +636,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
             <dd>Image Download</dd>
           </dl>
           <p>
-            Preview: Save commits; leaving cancels. Tab reaches all existing controls; Escape exits editing before closing Style/file. Browser shortcuts stay native outside canvas.
+            Save commits placed N previews (including blank); no direction cancels. Existing 2,000-character limit: full draft retained, Save/Open blocked. No automatic links. Escape exits editing before Style/file; fields and browser shortcuts stay native.
           </p>
         </details>
         <div class="menu-section">

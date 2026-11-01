@@ -114,6 +114,9 @@ button:disabled { opacity: .4; cursor: default; }
 .document-toggle svg:last-child { margin-left: 8px; width: 12px; }
 .document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 12px/1.5 var(--font-mono); }
 .document-status { display: flex; align-items: center; gap: 7px; margin: 10px 2px 0; color: var(--text-secondary); font: 400 10px/1.5 var(--font-mono); white-space: nowrap; }
+#thought-draft-status { display: none; }
+.canvas-workspace:has(.drawing-thought-preview) #thought-draft-status { display: flex; }
+.canvas-workspace:has(.drawing-thought-preview) #save-status { display: none; }
 .status-dot { flex: none; width: 7px; height: 7px; border: 1px solid var(--hl-ink); border-radius: 0; background: var(--hl-mint); }
 .unsaved .status-dot { background: var(--hl-violet); }
 .conflict .status-dot { background: var(--hl-magenta); }
@@ -285,6 +288,16 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
 .drawing-keyboard-marker { position: absolute; width: 14px; height: 14px; margin: -7px; border: 3px solid var(--accent-cobalt); background: var(--bg-elevated); pointer-events: none; z-index: 8; }
 .drawing-keyboard-marker[hidden] { display: none; }
 .hakushi-edge[data-keyboard-focus] .hakushi-edge-line { stroke: var(--accent-cobalt); stroke-width: 3; }
+/* Client-only thought drafts live in the same world-coordinate text layer. */
+.drawing-thought-preview { position: absolute; top: 0; left: 0; z-index: 10002; outline: 2px dashed var(--accent-cobalt); background: var(--hakushi-surface); pointer-events: auto; }
+.drawing-thought-preview.drawing-thought-choosing { outline: none; background: transparent; }
+.drawing-thought-input { display: block; box-sizing: border-box; width: 160px; height: 100%; border: 0; border-radius: 0; outline: none; resize: none; overflow: auto; overscroll-behavior: contain; background: transparent; color: var(--hakushi-shape-ink); text-align: left; appearance: none; scrollbar-width: none; }
+/* Scroll without consuming the text width: mirror and saved shape wrap identically. */
+.drawing-thought-input::-webkit-scrollbar { display: none; }
+.drawing-thought-input:focus-visible { outline: 2px solid var(--accent-cobalt); outline-offset: 2px; }
+.drawing-thought-measure { position: absolute; display: block; box-sizing: border-box; width: 160px; height: auto; min-height: 0; visibility: hidden; pointer-events: none; }
+.drawing-thought-hint { position: absolute; box-sizing: border-box; top: calc(100% + 8px); left: 0; width: 160px; padding: 4px 6px; border: 1px solid var(--accent-cobalt); background: var(--hakushi-surface); color: var(--hakushi-shape-ink); font: 11px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.drawing-thought-choosing .drawing-thought-hint { position: relative; top: 0; }
 .keyboard-shortcuts { font: 11px/1.6 var(--font-body); }
 .keyboard-shortcuts dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 6px 12px; margin: 10px 0; }
 .keyboard-shortcuts dt { margin: 0; font-weight: 700; overflow-wrap: anywhere; }

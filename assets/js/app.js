@@ -624,10 +624,16 @@ const Workspace = {
       !!this.el.querySelector(".hakushi-text-editor, .hakushi-edge-input") || this.el.directPreview === true
     this.flushWaiters = new Set()
     this.flushEdits = () => {
-      this.el.dispatchEvent(new CustomEvent("canvas:flush"))
+      const waiters = []
+      const event = new CustomEvent("canvas:flush", {cancelable: true, detail: {waiters}})
+      if (!this.el.dispatchEvent(event)) return {ok: false}
       document.activeElement?.blur()
-      if (this.pending() === 0) return Promise.resolve()
-      return new Promise(resolve => this.flushWaiters.add(resolve))
+      const settled = Promise.all(waiters).then(results => {
+        if (results.includes(false)) throw new Error("The adjacent thought was not added. Your draft is still here.")
+        if (this.pending() === 0) return
+        return new Promise(resolve => this.flushWaiters.add(resolve))
+      })
+      return {ok: true, settled}
     }
     this.settled = () => {
       if (this.pending() > 0) return
@@ -637,9 +643,9 @@ const Workspace = {
     this.nativeFile = mountNativeFile(this)
     this.requestSave = () => this.nativeFile.save()
     this.requestOpen = () => {
-      // Preserve changed geometry before native Open blurs and checks unsaved state.
-      this.el.dispatchEvent(new CustomEvent("canvas:flush"))
-      this.nativeFile.open()
+      // Flush synchronously before Open's user-activated picker/unsaved guard.
+      const event = new CustomEvent("canvas:flush", {cancelable: true})
+      if (this.el.dispatchEvent(event)) this.nativeFile.open()
     }
     this.requestReload = () => this.nativeFile.reload()
     this.saveKey = event => {

@@ -1,6 +1,41 @@
+// Geometry is in canvas pixels, never screen pixels. Only the new box moves.
+export function adjacentThoughtBox(source, obstacles, direction, height = 96) {
+  const width = 160, gap = 48
+  const bounds = node => {
+    const angle = (node.rotation || 0) * Math.PI / 180
+    const w = Math.abs(Math.cos(angle)) * node.width + Math.abs(Math.sin(angle)) * node.height
+    const h = Math.abs(Math.sin(angle)) * node.width + Math.abs(Math.cos(angle)) * node.height
+    return {x: node.x + (node.width - w) / 2, y: node.y + (node.height - h) / 2, width: w, height: h}
+  }
+  const origin = bounds(source)
+  const horizontal = direction === 'ArrowLeft' || direction === 'ArrowRight'
+  const forward = direction === 'ArrowRight' || direction === 'ArrowDown'
+  const axis = horizontal ? 'x' : 'y', span = horizontal ? 'width' : 'height'
+  const cross = horizontal ? 'y' : 'x', crossSpan = horizontal ? 'height' : 'width'
+  const box = {x: source.x + (source.width - width) / 2, y: source.y + (source.height - height) / 2, width, height}
+  box[cross] = Math.round(box[cross] * 10) / 10
+  box[axis] = forward ? origin[axis] + origin[span] + gap : origin[axis] - box[span] - gap
+  const blockers = obstacles.map(bounds).filter(other =>
+    box[cross] < other[cross] + other[crossSpan] + gap &&
+    box[cross] + box[crossSpan] + gap > other[cross])
+  // Every pass moves past a blocker. Finite nodes, no arbitrary search cutoff.
+  for (let pass = 0; pass <= blockers.length; pass++) {
+    const overlaps = blockers.filter(other =>
+      box[axis] < other[axis] + other[span] + gap &&
+      box[axis] + box[span] + gap > other[axis])
+    if (!overlaps.length) break
+    box[axis] = forward
+      ? Math.max(...overlaps.map(other => other[axis] + other[span] + gap))
+      : Math.min(...overlaps.map(other => other[axis] - box[span] - gap))
+  }
+  // Hakushi persists tenths. Round outwards so the preview is the authored box.
+  box[axis] = (forward ? Math.ceil : Math.floor)(box[axis] * 10) / 10
+  return box
+}
+
 // Keyboard routes operate on the same graph, decoration and history as pointer gestures.
 export function mountDirectKeyboard(canvas) {
-  let mode = null, cursor = null, navigating = false, helpObserver = null, spacePending = null
+  let mode = null, cursor = null, navigating = false, helpObserver = null, spacePending = null, pendingFocus = null
   const root = canvas.root
   const workspace = root.closest('#workspace')
   const corners = ['se', 's', 'sw', 'w', 'nw', 'n', 'ne', 'e', 'rotation']
@@ -25,6 +60,8 @@ export function mountDirectKeyboard(canvas) {
       const node = canvas.nodes.get(item.id)
       canvas.culled.delete(item.id)
       node.el.removeAttribute('data-ui-culled')
+      // Native streamed-node removal recovers canvas focus through this reference.
+      canvas.lastFocus = node.el
       navigating = true
       node.el.focus({preventScroll: true})
       navigating = false
@@ -52,6 +89,226 @@ export function mountDirectKeyboard(canvas) {
   }
   const styleOf = node => node.el.querySelector('[data-hakushi-rotate]')
   const rotation = node => parseFloat(getComputedStyle(styleOf(node) || node.el).getPropertyValue('--hakushi-rotation')) || 0
+  const selectionStamp = () => JSON.stringify([[...canvas.selected].sort(), [...canvas.selectedEdges].sort()])
+  const sourceStamp = node => JSON.stringify([
+    node.x, node.y, node.width, node.height, rotation(node), node.locked,
+    node.el.querySelector('[data-hakushi-text]')?.dataset.hakushiText,
+    node.el.querySelector('[data-hakushi-style]')?.dataset.hakushiStyle,
+    node.el.querySelector('.drawing-typography')?.dataset.drawingFont,
+    workspace.dataset?.drawingFont,
+  ])
+  function validThought(current) {
+    return mutable(current.source) && !canvas.tool && !canvas.gesture &&
+      canvas.nodes.get(current.source.id) === current.source && current.source.el.isConnected &&
+      sourceStamp(current.source) === current.stamp && selectionStamp() === current.selection
+  }
+  function cancelThought(refocus = false) {
+    const current = mode
+    if (current?.kind !== 'thought' || current.committing) return
+    mode = null
+    workspace.directPreview = false
+    current.preview.remove()
+    if (refocus && mutable(current.source) && current.source.el.isConnected) focusItem({id: current.source.id, node: true})
+    canvas.schedule()
+  }
+  function revealThought(current) {
+    const box = current.box || {x: current.source.x, y: current.source.y + current.source.height + 12, width: 160}
+    const bounds = root.getBoundingClientRect?.() || {left: 0, top: 0}
+    const rail = canvas.controlsEl?.getBoundingClientRect()
+    const header = workspace.querySelector('.canvas-header')?.getBoundingClientRect()
+    const safeLeft = rail ? Math.max(24, rail.right - bounds.left + 12) : 24
+    const right = canvas.size.width - 24
+    const top = header ? Math.max(24, header.bottom - bounds.top + 12) : 24
+    const dock = canvas.toolsEl?.getBoundingClientRect()
+    const bottom = dock
+      ? Math.min(canvas.size.height - 24, dock.top - bounds.top - 24)
+      : canvas.size.height - 120
+    // Measure UI at screen size, then cancel the world's scale for the hint.
+    const hintWidth = Math.min(280, right - safeLeft)
+    Object.assign(current.hint.style, {fontSize: '11px', width: `${hintWidth}px`, padding: '4px 6px', borderWidth: '1px'})
+    const hintHeight = parseFloat(getComputedStyle(current.hint).height) || current.hint.offsetHeight || 48
+    let zoom = Math.min(canvas.view.zoom, (right - safeLeft) / box.width)
+    if (current.input) {
+      const lineHeight = parseFloat(getComputedStyle(current.input).lineHeight) || 24
+      // Fit one line plus ordinary padding, never the full authored text height.
+      zoom = Math.min(zoom, (bottom - top - hintHeight - 12) / (lineHeight + 16))
+    }
+    Object.assign(current.hint.style, {
+      fontSize: `${11 / zoom}px`, width: `${hintWidth / zoom}px`,
+      padding: `${4 / zoom}px ${6 / zoom}px`, borderWidth: `${1 / zoom}px`,
+    })
+    let visibleHeight = hintHeight
+    if (current.input) {
+      const height = Math.min(box.height, (bottom - top - hintHeight - 12) / zoom)
+      current.input.style.height = `${height}px`
+      current.input.style.paddingBlock = `${height < box.height ? 8 : 8 + (box.height - current.mirror.scrollHeight) / 2}px`
+      current.input.style.overflowY = height < box.height ? 'auto' : 'hidden'
+      current.hint.style.top = `${height + 8 / zoom}px`
+      visibleHeight += height * zoom + 8
+      if (current.input.selectionEnd === current.input.value.length) current.input.scrollTop = current.input.scrollHeight
+    }
+    const width = Math.max(box.width * zoom, hintWidth)
+    const left = box.x * zoom + canvas.view.x, y = box.y * zoom + canvas.view.y
+    canvas.view = {...canvas.view, zoom,
+      x: canvas.view.x + (left < safeLeft ? safeLeft - left : Math.min(0, right - left - width)),
+      y: canvas.view.y + (y < top ? top - y : Math.min(0, bottom - y - visibleHeight))}
+    canvas.schedule()
+  }
+  function thoughtError(current, message) {
+    current.hint.textContent = message
+    current.input?.setAttribute('aria-invalid', 'true')
+    current.input?.focus({preventScroll: true})
+    revealThought(current)
+    canvas.announce(message)
+  }
+  function measureThought() {
+    const current = mode
+    if (current?.kind !== 'thought' || !current.input || current.committing) return
+    if (!validThought(current)) { cancelThought(); return }
+    current.mirror.textContent = current.input.value + '\u200b'
+    const height = Math.max(96, Math.ceil(current.mirror.scrollHeight))
+    const source = {...current.source, rotation: rotation(current.source)}
+    const obstacles = [...canvas.nodes.values()].filter(node => !canvas.gone.has(node.id))
+      .map(node => ({...node, rotation: rotation(node)}))
+    current.box = adjacentThoughtBox(source, obstacles, current.direction, height)
+    const {x, y, width} = current.box
+    Object.assign(current.preview.style, {translate: `${x}px ${y}px`, width: `${width}px`, height: `${height}px`})
+    current.input.removeAttribute('aria-invalid')
+    current.hint.textContent = 'Enter adds · Shift+Enter newline · Escape cancels'
+    revealThought(current)
+    canvas.schedule()
+  }
+  function startThoughtText(direction) {
+    const current = mode
+    if (current.committing) return
+    if (current.input) { current.input.focus({preventScroll: true}); return }
+    if (!validThought(current)) { cancelThought(); return }
+    current.direction = direction
+    const mirror = current.mirror = document.createElement('div')
+    mirror.className = 'hakushi-shape-text drawing-thought-measure'
+    mirror.dataset.align = 'left'
+    mirror.setAttribute('aria-hidden', 'true')
+    const input = current.input = document.createElement('textarea')
+    input.className = 'hakushi-shape-text drawing-thought-input'
+    input.setAttribute('aria-label', 'New adjacent thought')
+    input.setAttribute('aria-describedby', current.hint.id)
+    input.setAttribute('spellcheck', 'true')
+    input.addEventListener('pointerdown', event => event.stopPropagation())
+    input.addEventListener('wheel', event => event.stopPropagation(), {passive: true})
+    input.addEventListener('input', measureThought)
+    input.addEventListener('keydown', event => {
+      event.stopPropagation()
+      if (event.isComposing || event.keyCode === 229) return
+      if (event.key === 'Escape') { event.preventDefault(); cancelThought(true) }
+      else if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); finishThought() }
+    })
+    current.preview.prepend(mirror, input)
+    measureThought()
+    input.focus({preventScroll: true})
+  }
+  function thought() {
+    const element = document.activeElement
+    const node = element?.classList.contains('hakushi-node')
+      ? canvas.nodes.get(element.dataset.id)
+      : element === root && cursor?.node !== false && canvas.selectedEdges.size === 0 ? single() : null
+    if (!mutable(node) || node.type !== 'shape' || !node.el.querySelector('[data-hakushi-text]') || canvas.tool || canvas.gesture) return
+    const preview = document.createElement('div')
+    preview.className = 'drawing-thought-preview drawing-thought-choosing'
+    const hint = document.createElement('div')
+    hint.className = 'drawing-thought-hint'
+    hint.id = `${root.id}-thought-hint`
+    hint.textContent = 'Choose ↑ → ↓ ← · Escape cancels · No automatic link'
+    preview.append(hint)
+    canvas.labelsEl.append(preview)
+    mode = {kind: 'thought', source: node, stamp: sourceStamp(node), selection: selectionStamp(), preview, hint}
+    Object.assign(preview.style, {translate: `${node.x}px ${node.y + node.height + 12}px`, width: '160px'})
+    revealThought(mode)
+    workspace.directPreview = true
+    root.focus({preventScroll: true})
+    canvas.announce(hint.textContent)
+  }
+  function finishThought(saving = false) {
+    const current = mode
+    if (current?.kind !== 'thought') return Promise.resolve(true)
+    if (current.committing) return current.committing
+    if (!validThought(current)) {
+      cancelThought()
+      canvas.announce('Adjacent thought cancelled because its source or selection changed.')
+      return Promise.resolve(true)
+    }
+    if (!current.input) {
+      if (saving) { cancelThought(); canvas.announce('Direction-only adjacent thought cancelled before saving.'); return Promise.resolve(true) }
+      return null
+    }
+    // Match Shapes' grapheme limit without truncating pasted text or IME input.
+    if (typeof Intl.Segmenter !== 'function') {
+      thoughtError(current, 'This browser cannot count text safely. Update it to add an adjacent thought.')
+      return null
+    }
+    if ([...new Intl.Segmenter(undefined, {granularity: 'grapheme'}).segment(current.input.value)].length > 2000) {
+      thoughtError(current, 'Thought exceeds the existing 2,000-character limit. Shorten it or Escape; nothing was added or saved.')
+      return null
+    }
+    measureThought()
+    const {x, y, width, height} = current.box
+    current.input.readOnly = true
+    current.hint.textContent = 'Adding thought…'
+    canvas.announce(current.hint.textContent)
+    revealThought(current)
+    current.preview.classList.remove('drawing-thought-choosing')
+    current.committing = new Promise(resolve => {
+      canvas.push('hakushi:draw', {tool: 'drawing:rect', box: [x, y, width, height], style: {text: current.input.value}}, reply => {
+        if (typeof reply.drawn !== 'string' || reply.error || reply.ok === false) {
+          current.committing = null
+          current.input.readOnly = false
+          thoughtError(current, reply.error || 'Thought was not added. Your draft is still here; try again or Escape.')
+          resolve(false)
+          return
+        }
+        const continueFocus = document.activeElement === current.input || document.activeElement === root
+        mode = null
+        workspace.directPreview = false
+        current.preview.remove()
+        if (continueFocus) { root.focus({preventScroll: true}); pendingFocus = reply.drawn }
+        canvas.pendingSelect = [reply.drawn]
+        canvas.selectPending()
+        resolve(true)
+      })
+    })
+    return current.committing
+  }
+  const selectPending = canvas.selectPending.bind(canvas)
+  canvas.selectPending = () => {
+    selectPending()
+    if (pendingFocus && canvas.nodes.has(pendingFocus)) {
+      const id = pendingFocus
+      pendingFocus = null
+      if (document.activeElement === root) focusItem({id, node: true})
+    }
+  }
+  const nodesChanged = canvas.nodesChanged.bind(canvas)
+  canvas.nodesChanged = records => {
+    nodesChanged(records)
+    if (mode?.kind === 'thought' && !mode.committing) {
+      if (!validThought(mode)) cancelThought()
+      else measureThought()
+    }
+  }
+  const selectionChanged = canvas.selectionChanged.bind(canvas)
+  canvas.selectionChanged = () => {
+    if (mode?.kind === 'thought' && !mode.committing && selectionStamp() !== mode.selection) cancelThought()
+    selectionChanged()
+  }
+  const setTool = canvas.setTool.bind(canvas)
+  canvas.setTool = tool => { if (mode?.kind === 'thought') cancelThought(); setTool(tool) }
+  const update = canvas.update.bind(canvas)
+  canvas.update = () => {
+    update()
+    if (mode?.kind === 'thought' && !validThought(mode)) cancelThought()
+  }
+  const undo = canvas.undo.bind(canvas), redo = canvas.redo.bind(canvas)
+  canvas.undo = () => { if (mode?.kind === 'thought') cancelThought(); undo() }
+  canvas.redo = () => { if (mode?.kind === 'thought') cancelThought(); redo() }
   function geometry() {
     const node = single()
     if (!mutable(node) || canvas.gesture || canvas.tool) return
@@ -208,6 +465,8 @@ export function mountDirectKeyboard(canvas) {
   }
   const pointerDown = canvas.pointerDown.bind(canvas)
   canvas.pointerDown = event => {
+    if (event.target?.closest('.drawing-thought-preview')) return
+    if (mode?.kind === 'thought') cancelThought()
     if (spacePending) spacePending.pointer = true
     if (mode?.kind === 'geometry') finishGeometry(false)
     else mode = null
@@ -232,11 +491,24 @@ export function mountDirectKeyboard(canvas) {
       helpObserver.observe(workspace, {childList: true, subtree: true})
     }
   }
-  const flush = () => { if (mode?.kind === 'geometry') finishGeometry(true) }
+  const flush = event => {
+    if (mode?.kind === 'geometry') finishGeometry(true)
+    if (mode?.kind === 'thought') {
+      const committed = finishThought(true)
+      if (!committed) event.preventDefault()
+      else event.detail?.waiters.push(committed)
+    }
+  }
   workspace.addEventListener('canvas:flush', flush)
   const focusOut = event => {
     spacePending = null
     if (!mode || root.contains(event.relatedTarget)) return
+    if (mode.kind === 'thought') {
+      if (!event.relatedTarget && document.hasFocus?.() === false) return
+      if (event.relatedTarget?.closest('#save-file, #open-native-file, #empty-open-file, #file-menu-toggle')) return
+      cancelThought()
+      return
+    }
     if (mode.kind === 'geometry') {
       finishGeometry(false)
       canvas.announce('Geometry preview cancelled after leaving the canvas.')
@@ -255,13 +527,24 @@ export function mountDirectKeyboard(canvas) {
         event.shiftKey && ['BracketLeft', 'BracketRight'].includes(event.code)) ||
         event.altKey && event.key.startsWith('Arrow')
       if (mode && conflicts) {
-        if (mode.kind === 'geometry') finishGeometry(false)
+        if (mode.kind === 'thought') cancelThought()
+        else if (mode.kind === 'geometry') finishGeometry(false)
         else { mode = null; marker.hidden = true; canvas.schedule() }
       }
       return false
     }
     if (mode) {
       event.preventDefault()
+      if (mode.kind === 'thought') {
+        if (mode.committing) return true
+        if (event.key === 'Escape') cancelThought(true)
+        else if (mode.input) mode.input.focus({preventScroll: true})
+        else if (event.key.startsWith('Arrow')) {
+          mode.preview.classList.remove('drawing-thought-choosing')
+          startThoughtText(event.key)
+        }
+        return true
+      }
       if (mode.kind === 'connect') connectKey(event)
       else if (event.key === 'Escape' || event.key === 'Enter') finishGeometry(event.key === 'Enter')
       else if (event.key === 'Tab') { mode.handle = (mode.handle + (event.shiftKey ? -1 : 1) + (mode.points ? 2 : 9)) % (mode.points ? 2 : 9); describeMode(); canvas.schedule() }
@@ -280,9 +563,22 @@ export function mountDirectKeyboard(canvas) {
     }
     if (event.key === 'Tab') {
       const choices = items(), focused = document.activeElement?.closest('.hakushi-node')?.dataset.id
+      // Enter the selected drawing before applying a traversal direction.
+      // Canvas order is stable for multi-selection; virtual edge focus wins.
+      if (!focused && !cursor && document.activeElement === root) {
+        const anchor = choices.find(item => item.node && canvas.selected.has(item.id))
+        if (anchor) { event.preventDefault(); focusItem(anchor); return true }
+      }
       const index = focused ? choices.findIndex(item => item.node && item.id === focused) : cursor ? choices.findIndex(item => item.node === cursor.node && item.id === cursor.id) : -1
       const next = index + (event.shiftKey ? -1 : 1)
       if (next < 0 || next >= choices.length) {
+        if (next < 0 && focused) {
+          // Root precedes the nodes in native tab order. Start there so the
+          // unhandled Shift+Tab leaves the canvas instead of re-entering it.
+          navigating = true
+          root.focus({preventScroll: true})
+          navigating = false
+        }
         if (next >= choices.length && cursor && !cursor.node) {
           const last = choices.findLast(item => item.node)
           if (last) {
@@ -300,6 +596,7 @@ export function mountDirectKeyboard(canvas) {
       if (!event.repeat) spacePending = {pointer: false}
       return false
     }
+    if (event.key.toLowerCase() === 'n' && !event.shiftKey) { event.preventDefault(); thought(); return true }
     if (event.key.toLowerCase() === 'g' && !event.shiftKey) { event.preventDefault(); geometry(); return true }
     if (event.key.toLowerCase() === 'c' && !event.shiftKey) { event.preventDefault(); connect(); return true }
     if (!canvas.tool && ['Enter', 'F2'].includes(event.key) && !document.activeElement?.classList.contains('hakushi-node') && edge()) { event.preventDefault(); editLabel(edge()); return true }
@@ -318,6 +615,7 @@ export function mountDirectKeyboard(canvas) {
   }
   root.addEventListener('keyup', keyUp)
   return {key, get active() { return mode !== null }, destroy() {
+    if (mode?.kind === 'thought') cancelThought()
     if (mode?.kind === 'geometry') finishGeometry(false)
     workspace.removeEventListener('canvas:flush', flush)
     root.removeEventListener('focusout', focusOut)
