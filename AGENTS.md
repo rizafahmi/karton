@@ -101,25 +101,38 @@ named colors, and semantic font roles, not pixel-identical rendering or a runtim
 
 [README: Run](README.md#run) is canonical for the current web app's prerequisites and setup;
 no npm installation is required. [README: Checks](README.md#checks) lists the
-verification commands and browser-check limits. Mix aliases are defined in
+CLI verification commands and browser-check limits. Mix aliases are defined in
 [mix.exs](mix.exs); `mix precommit` formats files and can change the lockfile,
 so it is not a read-only check.
 
 The native milestone's setup and verification instructions must be supplied with
 implementation; current Mix/browser checks are not native application proof.
 
-Verify visual changes in the actual editor, including narrow layouts and open
-panels. Narrow-layout checks are not mobile interaction testing. Use temporary
-canvases to exercise saves: [examples/welcome.json](examples/welcome.json) is a
-real editable source document, not a disposable fixture.
+Minimize token usage during verification by using the lightest sufficient proof:
+1. **Server, document, and LiveView behavior:** Verify with `mix test` (`Phoenix.LiveViewTest`)
+   and temporary files. Do not launch a browser for behavior covered by Elixir tests.
+2. **Client-side JS logic:** Verify with `node --check` and targeted Node scripts/tests
+   before considering a browser.
+3. **Visual/CSS or browser-only DOM behavior:** Only launch a browser when changes
+   cannot be verified via `mix test` or Node (or when explicitly requested). When
+   using a browser:
+   - Delegate browser verification to a subagent so DOM snapshots and screenshots
+     do not bloat the main conversation context.
+   - Prefer a single batched `evaluate_script` state assertion over multi-turn
+     interactive clicking and repeated full-page snapshots/screenshots.
+   - Check only the specific changed control, never the full [README manual QA checklist](README.md#manual-browser-verification).
+
+When exercising saves in tests or the editor, always use temporary canvases:
+[examples/welcome.json](examples/welcome.json) is a real editable source document,
+not a disposable fixture. Narrow-layout checks are not mobile interaction testing.
 
 ## Completion evidence
 
 Before behavior changes, identify the user scenario, observable expected outcomes,
 and relevant failure cases. Derive expectations from requirements, not implementation.
-Run relevant existing checks; passing builds/tests alone is not proof. Exercise the
-real changed surface and inspect actual state and side effects, not callbacks,
-logs, screenshots, or self-reports alone.
+Run relevant existing checks and inspect actual state and side effects (such as
+rendered DOM via `LiveViewTest`, saved JSON bytes, or targeted JS assertions),
+not logs, screenshots, or self-reports alone.
 
 For bugs, establish failing evidence and root cause, then repeat the same scenario
 after the fix. Add a useful deterministic regression when practical. Permanent tests

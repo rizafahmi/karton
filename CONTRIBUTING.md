@@ -32,10 +32,11 @@ and persistence details.
   portable typography roles.
 - [`assets/js/app.js`](assets/js/app.js),
   [`assets/js/native_file.js`](assets/js/native_file.js),
+  [`assets/js/object_properties.js`](assets/js/object_properties.js),
   [`assets/js/rotation_guides.js`](assets/js/rotation_guides.js), and
   [`assets/js/self_loops.js`](assets/js/self_loops.js) — Browser integration for
-  font readiness, File System Access handles and copy-download fallbacks, rotated
-  selection/resizing, and exterior self-loop arrows.
+  font readiness, File System Access handles and copy-download fallbacks, keyboard
+  object properties/help, rotated selection/resizing, and exterior self-loop arrows.
 - [`assets/css/tokens.css`](assets/css/tokens.css) and
   [`assets/css/app.css`](assets/css/app.css) — Light-first Neo-Acid design
   tokens and workspace styling. Read [DESIGN.md](DESIGN.md) before modifying UI
@@ -69,10 +70,9 @@ Run the full check suite from the repository root:
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test
-node --check assets/js/app.js
-node --check assets/js/native_file.js
-node --check assets/js/rotation_guides.js
-node --check assets/js/self_loops.js
+for file in assets/js/app.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js assets/js/object_properties.js; do
+  node --input-type=module --check < "$file" || exit 1
+done
 mix assets.build
 ```
 
