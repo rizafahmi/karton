@@ -698,7 +698,37 @@ defmodule ElixirCanvasWeb.CanvasLive do
           </div>
         </dl>
         <p class="menu-footnote">Local JSON. No account, no hidden database.</p>
+        <div class="menu-section about-section">
+          <p class="about-title">Elixir Canvas</p>
+          <p class="menu-footnote about-copy">
+            A local-file-first spatial thinking canvas. Your JSON file is the actual document—never locked inside a database or cloud account.
+          </p>
+          <ul class="tech-stack" aria-label="Tech stack">
+            <li>Elixir</li>
+            <li>Phoenix LiveView</li>
+            <li>Hakushi</li>
+            <li>Neo-Acid CSS</li>
+          </ul>
+          <a
+            href="https://github.com/rizafahmi/elixir_canvas"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="action-link about-github"
+          >
+            github.com/rizafahmi/elixir_canvas ↗
+          </a>
+        </div>
       </section>
+
+      <a
+        id="agentrouter-badge"
+        href="https://agentrouter.org/register?aff=pWPV"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="agentrouter-credit"
+      >
+        Built with free tokens via AgentRouter ↗
+      </a>
 
       <div class="canvas-messages">
         <div

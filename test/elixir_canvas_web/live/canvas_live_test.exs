@@ -72,6 +72,27 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     assert File.read!(path) == original
   end
 
+  test "document menu displays app info, tech stack, and GitHub link while AgentRouter referral badge sits in the workspace",
+       %{view: view} do
+    assert has_element?(
+             view,
+             "a#agentrouter-badge[href='https://agentrouter.org/register?aff=pWPV']",
+             "AgentRouter"
+           )
+
+    render_click(view, "toggle-file-menu")
+
+    assert has_element?(view, "#file-menu .about-section", "Elixir Canvas")
+    assert has_element?(view, "#file-menu .tech-stack", "Phoenix LiveView")
+    assert has_element?(view, "#file-menu .tech-stack", "Hakushi")
+
+    assert has_element?(
+             view,
+             "#file-menu a[href='https://github.com/rizafahmi/elixir_canvas']",
+             "github.com/rizafahmi/elixir_canvas"
+           )
+  end
+
   test "invalid selected content and a dirty selected-open preserve the current canvas", %{
     view: view,
     path: path,
