@@ -92,12 +92,14 @@ theme from portable names; the document retains its authored geometry and style 
 
 - **Paper** sits beside the filename at the upper left. The filename opens the
   document menu: native **Open…**, advanced server-path open/create, reload,
-  **Default text style**, and shortcut help.
+  **Default text style**, shortcut help, and project/stack details with a link
+  to the GitHub repository.
 - **Download** exports an image beside **Save** at the upper right. Save writes
   the selected JSON when possible; **Save copy** explicitly downloads a separate
   JSON copy otherwise. Image Download becomes icon-only on narrow screens.
 - Drawing tools and **Style** share the bottom dock, separated by a divider.
   **Line** (`L`) has a plain segment icon; **Arrow** (`A`) keeps its arrow icon.
+  A quiet **AgentRouter** credit link sits at the bottom right.
   The inspector opens above the dock, not over the drawing tools. Style becomes
   icon-only on the smallest screens; all eight tool buttons remain visible at 320px.
 - Undo and redo stay at the top of the left rail. The live zoom percentage below

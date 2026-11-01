@@ -81,7 +81,9 @@ components:
 >
 > **Control layout:** Paper and the file menu occupy the top left; Download and
 > Save occupy the top right. Drawing tools and Style share a bottom dock, with
-> Style's inspector above the dock. Undo and redo lead the left rail; a live zoom
+> Style's inspector above the dock, while a quiet AgentRouter credit link sits
+> at the bottom right. Undo and redo
+> lead the left rail; a live zoom
 > percentage opens a non-modal popover to its right for zoom out/in, Fit to screen,
 > and Reset to 100%. Opening it must preserve zoom; repeated adjustments keep it
 > open, and Escape or outside clicks dismiss it. Arrangement remains a separate
