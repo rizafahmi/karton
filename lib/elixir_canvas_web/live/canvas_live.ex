@@ -8,7 +8,6 @@ defmodule ElixirCanvasWeb.CanvasLive do
   """
   use ElixirCanvasWeb, :live_view
 
-  import Hakushi.Components
   alias ElixirCanvas.Document
   alias ElixirCanvasWeb.DrawingShapes
 
@@ -491,7 +490,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
         Downloads a JSON copy. The original file is not changed, and unsaved changes remain until you reload.
       </p>
       <section :if={@document} class="canvas-area" aria-label="Canvas workspace">
-        <.canvas
+        <.live_component
+          module={ElixirCanvasWeb.DrawingCanvas}
           id={"board-#{@generation}"}
           graph={@graph}
           kits={[DrawingShapes]}

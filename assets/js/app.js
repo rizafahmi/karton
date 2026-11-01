@@ -395,6 +395,7 @@ const FileCanvas = {
       return exportImage(options)
     }
     this.mountZoomControls()
+    this.mountStackingControls()
     this.mountHeaderActions(workspace)
     this.zoomKey = event => {
       if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.isComposing) return
@@ -479,6 +480,31 @@ const FileCanvas = {
       controls.querySelector('[data-action="redo"]'),
       trigger,
     )
+  },
+  mountStackingControls() {
+    const canvas = this.canvas
+    const controls = canvas.controlsEl
+    const arrangement = controls.querySelector('[data-action="layouts"]')
+    for (const [direction, label, path] of [
+      ["front", "Bring to front", "M8 3H3v13h13v-5M8 3h13v13H8z"],
+      ["back", "Send to back", "M16 21h5V8H8v5M3 8V3h13v13H3z"],
+    ]) {
+      const button = document.createElement("button")
+      button.type = "button"
+      button.className = "hakushi-control"
+      button.dataset.action = `stack-${direction}`
+      button.title = label
+      button.setAttribute("aria-label", label)
+      button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="${path}"/></svg>`
+      button.addEventListener("click", event => {
+        event.stopPropagation()
+        if (canvas.config.readonly || canvas.gesture) return
+        canvas.push("drawing:stack", {direction, nodes: [...canvas.selected]}, reply => {
+          if (reply.error) canvas.announce(String(reply.error))
+        })
+      })
+      arrangement.after(button)
+    }
   },
   mountHeaderActions(workspace) {
     const actions = workspace.querySelector(".canvas-actions")

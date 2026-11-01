@@ -699,6 +699,123 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     assert loop in CanvasTest.edges(view, board)
   end
 
+  test "stacking is one history action and saves only node order", %{
+    view: view,
+    path: path,
+    source: source
+  } do
+    [idea, make] = Enum.map(source["nodes"], &Map.put(&1, "locked", false))
+    third = idea |> Map.put("id", "third") |> Map.put("future", %{"keep" => [1, 2]})
+    fourth = make |> Map.put("id", "fourth") |> Map.put("locked", true)
+    source = Map.put(source, "nodes", [idea, make, third, fourth])
+    File.write!(path, Jason.encode!(source))
+    {:ok, original_document} = Document.open(path)
+    expected = original_document |> Document.encode(original_document.graph) |> Jason.decode!()
+    render_click(view, "reload")
+    board = board_id(view)
+    original = ~w(idea make third fourth)
+    order = fn -> Enum.map(CanvasTest.nodes(view, board), & &1.id) end
+
+    stack(view, board, "front", ~w(third idea))
+    assert order.() == ~w(make fourth idea third)
+    assert has_element?(view, "#workspace[data-dirty=true]")
+    assert :ok = CanvasTest.undo(view, board)
+    assert order.() == original
+    assert has_element?(view, "#workspace[data-dirty=false]")
+    assert :ok = CanvasTest.redo(view, board)
+    assert order.() == ~w(make fourth idea third)
+
+    stack(view, board, "back", ~w(third idea))
+    assert order.() == ~w(idea third make fourth)
+    assert :ok = CanvasTest.undo(view, board)
+    assert order.() == ~w(make fourth idea third)
+    assert :ok = CanvasTest.redo(view, board)
+    assert order.() == ~w(idea third make fourth)
+
+    assert %{ok: true} = selected_event(view, "save", %{})
+    saved = path |> File.read!() |> Jason.decode!()
+    assert Enum.map(saved["nodes"], & &1["id"]) == ~w(idea third make fourth)
+
+    assert Map.new(saved["nodes"], &{&1["id"], &1}) ==
+             Map.new(expected["nodes"], &{&1["id"], &1})
+
+    assert Map.delete(saved, "nodes") == Map.delete(expected, "nodes")
+    render_click(view, "reload")
+    assert Enum.map(CanvasTest.nodes(view, board_id(view)), & &1.id) == ~w(idea third make fourth)
+  end
+
+  test "stacking no-ops preserve clean state and redo across ordinary edits", %{
+    view: view,
+    path: path
+  } do
+    board = board_id(view)
+    version = workspace_integer(view, "data-edit-version")
+
+    for {direction, ids} <- [{"front", []}, {"back", []}, {"front", ["make"]}, {"back", ["idea"]}] do
+      stack(view, board, direction, ids)
+    end
+
+    assert workspace_integer(view, "data-edit-version") == version
+    assert has_element?(view, "#workspace[data-dirty=false]")
+    assert {:error, _} = CanvasTest.undo(view, board)
+
+    assert :ok = CanvasTest.move(view, board, "idea", {25, 30})
+    stack(view, board, "front", ["idea"])
+    assert :ok = CanvasTest.move(view, board, "make", {450, 50})
+    assert :ok = CanvasTest.undo(view, board)
+    assert node_box(view, board, "make") == {400, 0, 240, 140}
+    assert :ok = CanvasTest.undo(view, board)
+    assert Enum.map(CanvasTest.nodes(view, board), & &1.id) == ~w(idea make)
+    assert :ok = CanvasTest.undo(view, board)
+    assert has_element?(view, "#workspace[data-dirty=false]")
+
+    version = workspace_integer(view, "data-edit-version")
+    stack(view, board, "front", ["make"])
+    stack(view, board, "back", [])
+    assert workspace_integer(view, "data-edit-version") == version
+    assert :ok = CanvasTest.redo(view, board)
+    assert node_box(view, board, "idea") == {25, 30, 240, 140}
+    assert :ok = CanvasTest.redo(view, board)
+    assert Enum.map(CanvasTest.nodes(view, board), & &1.id) == ~w(make idea)
+    assert :ok = CanvasTest.redo(view, board)
+    assert node_box(view, board, "make") == {450, 50, 240, 140}
+
+    assert %{ok: true} = selected_event(view, "save", %{})
+    bytes = File.read!(path)
+    stack(view, board, "front", ["idea"])
+    assert has_element?(view, "#workspace[data-dirty=false]")
+    assert File.read!(path) == bytes
+  end
+
+  test "locked and unknown nodes cannot be reordered", %{view: view, path: path, source: source} do
+    source = put_in(source, ["nodes", Access.at(0), "locked"], true)
+    File.write!(path, Jason.encode!(source))
+    render_click(view, "reload")
+    board = board_id(view)
+    version = workspace_integer(view, "data-edit-version")
+    stack(view, board, "front", ~w(idea missing))
+    assert Enum.map(CanvasTest.nodes(view, board), & &1.id) == ~w(idea make)
+    assert workspace_integer(view, "data-edit-version") == version
+    assert has_element?(view, "#workspace[data-dirty=false]")
+    assert {:error, _} = CanvasTest.undo(view, board)
+  end
+
+  defp stack(view, board, direction, ids) do
+    view
+    |> element("##{board}-hook")
+    |> render_hook("drawing:stack", %{"direction" => direction, "nodes" => ids})
+
+    %{proxy: {ref, _topic, _pid}} = view
+
+    receive do
+      {^ref, {:reply, reply}} -> assert reply["ok"]
+    after
+      1_000 -> flunk("stacking command did not reply")
+    end
+
+    render(view)
+  end
+
   defp board_id(view) do
     view
     |> render()
