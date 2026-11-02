@@ -91,6 +91,23 @@ exists and refuses to replace an existing file. Paths can be absolute or relativ
 to the server's working directory. These are server paths, not browser-selected
 file locations.
 
+**Save a copy** in the document menu downloads a separate version-1 JSON snapshot
+from any open canvas, including server-path and browser-handle files. It is also
+available in source-change warnings and file errors. It suggests a distinct name
+such as `ideas-copy.json`; the browser controls the final download name/location.
+The action commits valid pending text, geometry, and thought drafts before
+serializing; invalid drafts block it without losing their text.
+Geometry previews remain pending while entering the document menu or focusing a
+copy control, so copying can commit them. Escape cancels the active preview/draft
+before closing the menu; leaving for an unrelated control still cancels geometry.
+
+This is not Save As: the current filename, source path/handle, saved baseline,
+undo history, and existing dirty/conflict state remain unchanged. Ordinary Save
+still targets the original. A clean canvas stays clean unless flushing pending
+edits changes it. The notice reports a download started, not confirmed disk
+persistence. Complete and check the download before reloading or closing; the app
+cannot observe cancellation or failure in the browser's download manager.
+
 **Keep the server local.** It intentionally has access to local files, without
 accounts or access controls. Development and production configurations bind to
 IPv4 loopback. This is not a hosted multi-user application. See
@@ -220,6 +237,10 @@ Font License notices are included in `priv/static/fonts/neo-acid`.
   including automatic text-box growth. Unsaved changes live in memory, not in a
   database. A browser write acknowledgement only clears edits included in its
   serialized snapshot; edits made while writing remain dirty.
+- **Save a copy** preserves a separate snapshot without acknowledging a save to
+  the original. Edits made after snapshot preparation are not in that copy and
+  remain unsaved. Existing Open/New unsaved guards still apply; copying does not
+  provide automatic conflict merging or crash recovery.
 - Edit the JSON in an ordinary text editor, then reload it through the document
   menu. Reload asks before discarding unsaved canvas edits. Browser-selected
   copies must be selected again; handle-backed files and server-path files are
@@ -559,6 +580,11 @@ permissions, and refusing to overwrite existing files. Selected-file consumer
 tests also cover validated content loading, server-path isolation, prepared-save
 metadata, snapshot acknowledgements with newer edits, copy-download dirty state,
 and stale reload/save rejection.
+Explicit preservation-copy regressions cover all source modes, changed/missing
+sources, current metadata/font snapshots, preserved baseline/conflict/history,
+invalid content, newer edits, and stale/busy callbacks. Client regressions cover
+invalid/failed draft flushes, superseded generations, concurrency, and download
+failure without a false acknowledgement.
 Stacking regressions cover stable multi-selection ordering, empty/extreme no-ops,
 locked nodes, interleaved ordinary edits and undo/redo, redo preservation after
 no-ops, and temporary-file save/reload with unchanged object content and connections.
@@ -604,6 +630,12 @@ every change:
 3. Where relevant, cancel a picker, select invalid JSON, or change the temporary
    source externally before saving. Confirm cancellation, invalid content, and
    conflicts preserve canvas edits rather than replacing them or silently saving.
+   Use **Save a copy** from the warning or document menu, inspect the downloaded
+   JSON for the latest edits (including active text/thoughts and metadata), and
+   reopen the actual copy. Verify the externally changed original stays untouched
+   and its filename/source, unsaved state, and conflict remain. Also exercise a
+   missing/unwritable source, invalid drafts, and a clean canvas; copying must not
+   silently connect a new source or claim the original was saved.
 4. For browser-selected direct saves, use **Open…** and the actual native picker
    in a supporting secure-context browser, grant the requested permissions,
    edit, and save. Inspect that selected file on disk and the dirty state; also

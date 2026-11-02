@@ -5,8 +5,9 @@ current web editing (front/back → connected-arrow styling), then remaining
 non-native work, with the independent native macOS editor as the final milestone.
 The separately approved adjacent-thought task is implemented. Connected-arrow
 styling's additive v1 metadata scope is now approved (details below); the native
-editor remains last. Proposed readiness additions below are **not approved scope**;
-decide their adoption and placement before the final native milestone.
+editor remains last. Save a copy preservation is separately approved and
+implemented below; other proposed readiness additions remain **unapproved scope**.
+Decide their adoption and placement before the final native milestone.
 No app scaffolding, toolchain installation, dependencies, build steps, or CI
 changes until implementation is requested.
 
@@ -146,12 +147,12 @@ journey.
   Firefox, Edge, forced-colors, screen-reader, physical OS IME or native-picker
   certification. Selection setup used existing canvas hooks where needed; edits
   used visible controls and endpoint moves used actual pointer gestures. Native
-  work remains final; proposed readiness additions below are still unapproved.
+  work remains final; other proposed readiness additions below remain unapproved.
 
 ### First-class New canvas
 
 - **Status:** implemented as an explicitly requested web workflow; this does not
-  approve the proposed readiness additions below or move the native milestone.
+  approve other proposed readiness additions below or move the native milestone.
 - **Scope:** primary document-menu New canvas creates an in-memory `untitled.json`
   with Normal typography, a fresh generation and history, and no previous path or
   handle. Advanced server-path creation remains available. New flushes valid
@@ -222,27 +223,52 @@ journey.
   I/O, not OS-picker proof; masked fallback does not certify Safari/Firefox.
 
 
-## Proposed readiness additions — adoption and placement need approval
+## Readiness additions — only explicitly adopted work is approved
 
-Source-backed gaps and observed/unverified risks below do not approve new scope.
-Any adopted non-native additions precede the final native milestone.
+Save a copy preservation is adopted; remaining proposed additions below require
+approval. Any adopted non-native additions precede the final native milestone.
 
 ### 1. Preserve edits when the original cannot be saved
 
-- [ ] **Proposed outcome:** save a separate JSON preservation copy from any
-      source mode without discarding edits or overwriting the conflicted
-      original.
-- **Evidence:** `Document.current_revision` refuses changed/missing sources;
-  `CanvasLive` blocks open/create while dirty and its disk warning offers
-  Reload. `native_file.js` downloads JSON only in `save_copy` mode. A
-  separate-copy escape for `server_file`/`browser_file` is absent from the
-  current UI path; this is source-backed, not a runtime-reproduced UI bug.
+- [x] **Approved outcome (2026-11-02):** save a separate JSON preservation copy
+      from any source mode without discarding edits or overwriting the original.
+- **Implemented:** explicit **Save a copy** in the document menu and source/error
+  warnings always starts a browser download with a distinct suggested filename.
+  Flush valid text/geometry/thought drafts and validate version-1 bytes first;
+  invalid drafts retain their text and refuse copying. Preserve source identity,
+  baseline/revision, dirty/conflict state, unresolved original errors, history,
+  and generation. No source check/write, native picker, or Save As reassignment.
+  Downloads do not confirm disk persistence or observable download completion.
 - **Acceptance:** edit a temporary canvas, change/remove its source externally
   or deny writing, then preserve elsewhere. Inspect the new JSON for the latest
   graph, pending text, and metadata; reopen it. Original bytes remain untouched,
   and the original source/conflict/dirty state stays truthful. Cancel/failure
   retain edits. A downloaded copy must not imply confirmed original-file
   persistence. No automatic merge or silent source reassignment.
+- **Verified:** `mix check` passed (90 ExUnit, 40 Node tests). Actual Chromium 150
+  on macOS: refused ordinary Save after an external edit, active text flushed
+  into a real downloaded v1 JSON copy, current typography/metadata/bindings retained,
+  original external bytes unchanged, connected server-file identity and dirty/conflict
+  retained. Native Tab Open → New → Save a copy and Enter initiated a real download.
+  A valid active adjacent-thought draft added exactly one node before downloading;
+  Undo/Redo proved a single add with no copy history entry. A 2,001-grapheme draft
+  refused copying with no download, unchanged node/edit counts and intact input.
+  Geometry preview width 200 → 201 survived menu entry and appeared in downloaded
+  JSON as one undoable change, including direct conflict-warning Copy. Escape
+  cancelled preview before closing the menu. Deleting the source still allowed a
+  preservation download without recreating it; an actual downloaded file reopened
+  with text/geometry/font/binding intact. A clean renamed untitled copy remained
+  untitled and clean. Desktop and 375×667 menu/warning controls fit without message
+  occlusion; native Escape returned focus to the menu toggle.
+- **Handle/fallback proof and limits:** a real OPFS handle with controlled denied
+  permissions refused ordinary Save; copying downloaded current JSON without
+  touching the handle, then a granted ordinary Save still wrote that original
+  handle. Actual file-input fallback selection exercised both ordinary Save copy
+  and explicit Save a copy downloads with retained dirty/source state. Picker
+  hooks, controlled permissions and masked APIs prove these Chromium paths, not
+  OS permission/picker behavior or Safari/Firefox/Edge compatibility. Browser
+  download-manager cancellation/completion is unobservable; screen-reader and
+  cross-engine certification were not exercised.
 
 ### 2. Start and keep a first personal document safely
 
@@ -327,8 +353,8 @@ Any adopted non-native additions precede the final native milestone.
   edits and retained content, not just screenshots, callbacks, or a “Saved”
   label.
 - Include one relevant save-conflict/cancellation scenario and the agreed
-  recovery promise. A missing preservation path is an explicit release decision,
-  not a checkbox covered by successful happy-path saves.
+  recovery promise. Save a copy provides explicit preservation; download initiation
+  alone is not completed persistence or proof of interruption recovery.
 - Record web-slice, native-workflow, and overall product acceptance separately.
   Proposed gates become release requirements only after explicit scope approval.
   If adopted, non-native validation precedes the final native milestone;

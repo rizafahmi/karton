@@ -91,6 +91,14 @@ browser handles, and downloaded copies distinct, including truthful save/dirty
 state and external-change handling. See [README: Run](README.md#run) and
 [README: Edit](README.md#edit) for the persistence contract and its limits.
 
+Explicit **Save a copy** downloads a validated snapshot from every source mode
+after flushing pending editors/previews. Unlike ordinary fallback Save copy or
+first native Save, it never promotes/reassigns a source, advances the baseline,
+clears dirty/conflict state, or resets history. Preserve unresolved original-file
+errors when acknowledging a copy; generation/token checks and busy guards still
+apply. Report download initiation only, not confirmed disk persistence; browser
+download-manager cancellation/failure is not observable.
+
 `Document.new/0` returns a blank `:untitled` document without a path or revision.
 New canvas flushes drafts/text, then refuses unsaved work or a busy file operation;
 it remounts a generation-scoped board and returns keyboard focus after readiness.
