@@ -22,32 +22,9 @@
       "id": "vjtmngd3",
       "locked": false,
       "type": "shape",
-      "width": 181.6,
+      "width": 235.31,
       "x": 554.2,
       "y": 0.08
-    },
-    {
-      "data": {
-        "arrow": "none",
-        "dash": false,
-        "from": [
-          12,
-          12
-        ],
-        "stroke": "ink",
-        "to": [
-          16.8,
-          511.8
-        ],
-        "width": 2
-      },
-      "height": 523.8,
-      "id": "44qdrcdt",
-      "locked": false,
-      "type": "shape-line",
-      "width": 28.8,
-      "x": 404.05,
-      "y": 194.3
     },
     {
       "data": {
@@ -179,7 +156,245 @@
       "width": 180,
       "x": 579.14,
       "y": 275.6
+    },
+    {
+      "data": {
+        "align": "center",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "Instagram",
+        "width": 2
+      },
+      "height": 40,
+      "id": "yghecjum",
+      "locked": false,
+      "type": "shape",
+      "width": 180,
+      "x": 166,
+      "y": 328.9
+    },
+    {
+      "data": {
+        "align": "center",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "buat yang gak suka foto",
+        "width": 2
+      },
+      "height": 50,
+      "id": "ejuwin7d",
+      "locked": false,
+      "type": "shape",
+      "width": 233.81,
+      "x": 552.24,
+      "y": 323.9
+    },
+    {
+      "data": {
+        "align": "center",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "Kalkulator harga satuan",
+        "width": 2
+      },
+      "height": 50,
+      "id": "j7xk2mjt",
+      "locked": false,
+      "type": "shape",
+      "width": 180,
+      "x": 166,
+      "y": 398.13
+    },
+    {
+      "data": {
+        "align": "center",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "Price tracker",
+        "width": 2
+      },
+      "height": 50,
+      "id": "kroxshec",
+      "locked": false,
+      "type": "shape",
+      "width": 180,
+      "x": 166,
+      "y": 464.25
+    },
+    {
+      "data": {
+        "align": "center",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "Daftar Hadir Livestream",
+        "width": 2
+      },
+      "height": 50,
+      "id": "7gnr6lyg",
+      "locked": false,
+      "type": "shape",
+      "width": 180,
+      "x": 166,
+      "y": 523.25
+    },
+    {
+      "data": {
+        "arrow": "none",
+        "dash": false,
+        "from": [
+          12,
+          12
+        ],
+        "stroke": "ink",
+        "to": [
+          12,
+          506.3
+        ],
+        "width": 2
+      },
+      "height": 518.3,
+      "id": "ueyd2wpy",
+      "locked": false,
+      "type": "shape-line",
+      "width": 24,
+      "x": 435.7,
+      "y": 201.4
+    },
+    {
+      "data": {
+        "align": "center",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "Pomodoro app",
+        "width": 2
+      },
+      "height": 50,
+      "id": "cp62xqqq",
+      "locked": false,
+      "type": "shape",
+      "width": 180,
+      "x": 166,
+      "y": 597.63
+    },
+    {
+      "data": {
+        "align": "center",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "Kalau belum habis waktunya gak bisa pindah tab",
+        "width": 2
+      },
+      "height": 70,
+      "id": "yh5br3zj",
+      "locked": false,
+      "type": "shape",
+      "width": 272.31,
+      "x": 532.99,
+      "y": 587.63
+    },
+    {
+      "data": {
+        "align": "left",
+        "dash": false,
+        "fill": "none",
+        "font": "heading",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "Agent skill management",
+        "width": 2
+      },
+      "height": 50,
+      "id": "54xodayn",
+      "locked": false,
+      "type": "shape",
+      "width": 180,
+      "x": 154.03,
+      "y": 826.94
+    },
+    {
+      "data": {
+        "align": "left",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "Scan agent skill yg ada di berbagai folder\nJadi lebih mudah di maintain\nLebih mudah dibaca\nBisa di eval",
+        "width": 2
+      },
+      "height": 91,
+      "id": "5muqu5ks",
+      "locked": false,
+      "type": "shape",
+      "width": 375.7,
+      "x": 154.03,
+      "y": 892.32
+    },
+    {
+      "data": {
+        "align": "left",
+        "dash": false,
+        "fill": "none",
+        "kind": "rect",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "ink",
+        "text": "",
+        "width": 2
+      },
+      "height": 220.16,
+      "id": "vj2plsne",
+      "locked": false,
+      "type": "shape",
+      "width": 387.9,
+      "x": 139.9,
+      "y": 811.24
     }
   ],
+  "paper": {
+    "background": "cross",
+    "grid": 20
+  },
   "version": 1
 }
