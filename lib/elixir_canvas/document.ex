@@ -28,6 +28,58 @@ defmodule ElixirCanvas.Document do
     }
   end
 
+  @doc "Normalizes an authored, unbacked canvas filename without changing file identity."
+  def normalize_filename(candidate) when is_binary(candidate) do
+    cond do
+      !String.valid?(candidate) ->
+        {:error, "Use a valid Unicode filename."}
+
+      Regex.match?(~r/\p{Cc}/u, candidate) ->
+        {:error, "Filename cannot contain control characters."}
+
+      true ->
+        filename = String.trim(candidate)
+        has_extension = String.ends_with?(String.downcase(filename), ".json")
+
+        stem =
+          if has_extension,
+            do: String.slice(filename, 0, String.length(filename) - 5),
+            else: filename
+
+        normalized = if has_extension, do: filename, else: filename <> ".json"
+
+        cond do
+          String.trim(stem) == "" ->
+            {:error, "Enter a filename before .json."}
+
+          String.contains?(normalized, ["/", "\\", ".."]) ->
+            {:error, "Filename cannot contain /, backslash, or .."}
+
+          String.length(normalized) > 120 ->
+            {:error, "Filename must be 120 characters or fewer, including .json."}
+
+          true ->
+            {:ok, normalized}
+        end
+    end
+  end
+
+  def normalize_filename(_candidate), do: {:error, "Enter a filename."}
+
+  @doc "Changes only the filename of a canvas that has never acquired a source."
+  def rename(
+        %__MODULE__{path: nil, revision: nil, persistence: persistence} = document,
+        candidate
+      )
+      when persistence in [:untitled, :save_copy] do
+    with {:ok, filename} <- normalize_filename(candidate) do
+      {:ok, %{document | filename: filename}}
+    end
+  end
+
+  def rename(%__MODULE__{}, _candidate),
+    do: {:error, "Only a canvas without a connected source can be renamed."}
+
   def open(path) do
     path = Path.expand(path)
 

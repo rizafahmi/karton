@@ -23,6 +23,195 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     %{view: view, path: path, source: source}
   end
 
+  test "unsaved rename updates filename surfaces without changing graph, dirty state or history",
+       %{
+         view: view,
+         path: path
+       } do
+    original = File.read!(path)
+    refute has_element?(view, "#rename-document-form")
+
+    assert %{ok: true, generation: generation} =
+             selected_event(view, "new", %{
+               "generation" => workspace_integer(view, "data-generation")
+             })
+
+    render_change(view, "appearance", %{"font" => "mono"})
+    board = board_id(view)
+
+    view
+    |> element("##{board}-hook")
+    |> render_hook("hakushi:draw", %{
+      "tool" => "drawing:rect",
+      "box" => [0, 0, 240, 140],
+      "style" => %{"text" => "Keep history"}
+    })
+
+    %{proxy: {ref, _topic, _pid}} = view
+
+    receive do
+      {^ref, {:reply, %{"ok" => true}}} -> :ok
+    after
+      1_000 -> flunk("drawing did not reply")
+    end
+
+    render(view)
+    before = :sys.get_state(view.pid).socket.assigns
+    render_click(view, "toggle-file-menu")
+    assert has_element?(view, "#rename-document-form")
+
+    view
+    |> form("#rename-document-form", %{"filename" => "  My ideas.JSON  "})
+    |> render_submit()
+
+    after_rename = :sys.get_state(view.pid).socket.assigns
+    assert after_rename.document == %{before.document | filename: "My ideas.JSON"}
+    assert after_rename.graph == before.graph
+    assert board_id(view) == board
+    assert length(CanvasTest.nodes(view, board)) == 1
+    assert workspace_integer(view, "data-generation") == generation
+
+    assert workspace_integer(view, "data-edit-version") ==
+             before.edit_version
+
+    assert has_element?(view, "#workspace[data-file-name='My ideas.JSON'][data-dirty=true]")
+    assert page_title(view) == "My ideas.JSON"
+    assert element(view, "#selected-file-help") |> render() =~ "My ideas.JSON"
+    assert :ok = CanvasTest.undo(view, board)
+    assert CanvasTest.nodes(view, board) == []
+    assert :ok = CanvasTest.redo(view, board)
+    assert length(CanvasTest.nodes(view, board)) == 1
+
+    for candidate <- ["", ".json", "a/b", "a\\b", "a..b", "\nname", "name\u0085"] do
+      render_submit(view, "rename_document", %{
+        "filename" => candidate,
+        "generation" => to_string(generation)
+      })
+
+      assert :sys.get_state(view.pid).socket.assigns.document == after_rename.document
+      assert has_element?(view, "#workspace[data-dirty=true]")
+    end
+
+    render_submit(view, "rename_document", %{
+      "filename" => "stale",
+      "generation" => to_string(generation - 1)
+    })
+
+    assert :sys.get_state(view.pid).socket.assigns.document == after_rename.document
+
+    assert %{ok: true, token: token, bytes: bytes, filename: "My ideas.JSON"} =
+             selected_event(view, "save", %{
+               "generation" => generation,
+               "mode" => "save_copy",
+               "filename" => "My ideas.JSON"
+             })
+
+    json = Jason.decode!(bytes)
+    assert json["version"] == 1
+    refute Map.has_key?(json, "title")
+    refute Map.has_key?(json, "name")
+    refute Map.has_key?(json, "filename")
+
+    render_submit(view, "rename_document", %{
+      "filename" => "during-save",
+      "generation" => to_string(generation)
+    })
+
+    assert :sys.get_state(view.pid).socket.assigns.document == after_rename.document
+
+    assert %{ok: true} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "generation" => generation,
+               "token" => token
+             })
+
+    render_submit(view, "rename_document", %{
+      "filename" => "Second copy",
+      "generation" => to_string(generation)
+    })
+
+    assert has_element?(
+             view,
+             "#workspace[data-file-mode=save_copy][data-file-name='Second copy.json'][data-dirty=true]"
+           )
+
+    assert %{ok: true, filename: "Second copy.json", bytes: ^bytes} =
+             selected_event(view, "save", %{"generation" => generation, "mode" => "save_copy"})
+
+    assert File.read!(path) == original
+  end
+
+  test "native chosen filename wins over the unsaved name and backed documents refuse rename", %{
+    view: view,
+    path: path
+  } do
+    original = File.read!(path)
+    render_click(view, "toggle-file-menu")
+    refute has_element?(view, "#rename-document-form")
+
+    render_submit(view, "rename_document", %{
+      "filename" => "No server rename",
+      "generation" => to_string(workspace_integer(view, "data-generation"))
+    })
+
+    assert :sys.get_state(view.pid).socket.assigns.document.filename == "portable.json"
+
+    for mode <- ["browser_file", "save_copy"] do
+      assert %{ok: true, generation: generation} =
+               selected_event(view, "selected-open", %{
+                 "generation" => workspace_integer(view, "data-generation"),
+                 "filename" => "Opened.json",
+                 "bytes" => original,
+                 "mode" => mode
+               })
+
+      render_click(view, "toggle-file-menu")
+      refute has_element?(view, "#rename-document-form")
+      before = :sys.get_state(view.pid).socket.assigns.document
+
+      render_submit(view, "rename_document", %{
+        "filename" => "No",
+        "generation" => to_string(generation)
+      })
+
+      assert :sys.get_state(view.pid).socket.assigns.document == before
+    end
+
+    for chosen <- ["Chosen.json", "OS different.JSON"] do
+      assert %{ok: true, generation: generation} =
+               selected_event(view, "new", %{
+                 "generation" => workspace_integer(view, "data-generation")
+               })
+
+      render_submit(view, "rename_document", %{
+        "filename" => "Chosen",
+        "generation" => to_string(generation)
+      })
+
+      assert %{ok: true, token: token, bytes: bytes} =
+               selected_event(view, "save", %{
+                 "generation" => generation,
+                 "mode" => "browser_file",
+                 "filename" => chosen
+               })
+
+      assert %{ok: true} =
+               selected_event(view, "selected-saved", %{
+                 "generation" => generation,
+                 "token" => token
+               })
+
+      assert :sys.get_state(view.pid).socket.assigns.document.filename == chosen
+      assert page_title(view) == chosen
+      assert has_element?(view, ".document-name", chosen)
+      render_click(view, "toggle-file-menu")
+      refute has_element?(view, "#rename-document-form")
+      assert Jason.decode!(bytes)["version"] == 1
+    end
+
+    assert File.read!(path) == original
+  end
+
   test "New replaces only a clean canvas with a fresh blank document and rejects old work", %{
     view: view,
     path: path,

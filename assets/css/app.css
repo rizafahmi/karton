@@ -151,6 +151,10 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
 .file-input-row .menu-button { flex: none; min-height: 40px; padding: 8px 10px; }
 .reload-button { margin-top: 16px; }
 .file-form .menu-button { justify-self: start; }
+.rename-document-form { margin-bottom: 0; }
+.rename-document-form .menu-footnote { margin: 0; }
+.rename-document-form .file-input-row :is(input, button) { min-height: 44px; }
+#selected-file-help { overflow-wrap: anywhere; }
 .native-open-button { width: 100%; background: var(--text-primary); color: var(--bg-elevated); }
 .native-open-button svg { width: 16px; height: 16px; }
 .server-file-options > summary { cursor: pointer; font: 700 11px/1.6 var(--font-mono); }

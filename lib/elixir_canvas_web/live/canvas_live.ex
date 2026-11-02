@@ -55,6 +55,34 @@ defmodule ElixirCanvasWeb.CanvasLive do
     end
   end
 
+  def handle_event("rename_document", params, socket) do
+    cond do
+      params["generation"] != to_string(socket.assigns.generation) ->
+        {:noreply, socket}
+
+      socket.assigns.pending_save ->
+        {:noreply, assign(socket, error: "Wait for the current file save to finish.")}
+
+      socket.assigns.document == nil ->
+        {:noreply, socket}
+
+      true ->
+        case Document.rename(socket.assigns.document, params["filename"]) do
+          {:ok, document} ->
+            {:noreply,
+             assign(socket,
+               document: document,
+               page_title: document.filename,
+               error: nil,
+               notice: nil
+             )}
+
+          {:error, reason} ->
+            {:noreply, assign(socket, error: reason)}
+        end
+    end
+  end
+
   @impl true
   def handle_event("open", %{"path" => path}, socket) do
     cond do
@@ -410,7 +438,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
           {"browser_file", filename} when is_binary(filename) and filename != "" ->
             %{document | persistence: :browser_file, filename: filename}
 
-          {"save_copy", "untitled.json"} ->
+          {"save_copy", filename} when filename == document.filename ->
             %{document | persistence: :save_copy}
 
           _ ->
@@ -745,6 +773,39 @@ defmodule ElixirCanvasWeb.CanvasLive do
             Choose a canvas JSON file. Supported browsers can save back with your permission; other browsers download a copy.
           </p>
         </div>
+        <form
+          :if={
+            @document && @document.revision == nil && @document.path == nil &&
+              @document.persistence in [:untitled, :save_copy]
+          }
+          id="rename-document-form"
+          class="menu-section file-form rename-document-form"
+          phx-submit="rename_document"
+        >
+          <label class="field-label" for="document-filename">Canvas filename</label>
+          <p id="document-filename-help" class="menu-footnote">
+            Up to 120 characters including .json; no /, backslash, .. or control characters.
+            Naming does not save a file.
+          </p>
+          <input type="hidden" name="generation" value={@generation} />
+          <div class="file-input-row">
+            <input
+              id="document-filename"
+              name="filename"
+              value={@document.filename}
+              aria-describedby="document-filename-help"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              required
+              disabled={@pending_save != nil}
+            />
+            <button type="submit" class="menu-button" disabled={@pending_save != nil}>
+              Rename
+            </button>
+          </div>
+        </form>
         <details id="server-file-options" class="menu-section server-file-options">
           <summary>Advanced: server file path</summary>
           <p class="menu-footnote">For files on the computer running this app.</p>

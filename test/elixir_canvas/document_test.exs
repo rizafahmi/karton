@@ -13,6 +13,81 @@ defmodule ElixirCanvas.DocumentTest do
     %{path: path, document: document}
   end
 
+  test "candidate filenames normalize only the filename and reject unsafe or empty stems" do
+    for {candidate, expected} <- [
+          {"  My canvas  ", "My canvas.json"},
+          {"  日本語.JSON  ", "日本語.JSON"},
+          {"notes.Json", "notes.Json"},
+          {String.duplicate("a", 115), String.duplicate("a", 115) <> ".json"},
+          {String.duplicate("é", 115), String.duplicate("é", 115) <> ".json"}
+        ] do
+      assert {:ok, ^expected} = Document.normalize_filename(candidate)
+    end
+
+    for candidate <- [
+          "",
+          "   ",
+          ".json",
+          ".JSON",
+          " .json ",
+          "   .json",
+          "a/b",
+          "a\\b",
+          "..",
+          "a..b",
+          "name.",
+          "\nnotes",
+          "notes\t",
+          "notes\r.json",
+          "a\0b",
+          "a\u007Fb",
+          "a\u0085b",
+          "a\u009Fb",
+          String.duplicate("a", 116),
+          String.duplicate("é", 116),
+          String.duplicate("a", 116) <> ".JSON"
+        ] do
+      assert {:error, _reason} = Document.normalize_filename(candidate)
+    end
+  end
+
+  test "rename changes only an unsourced filename, never JSON or existing file bytes", %{
+    path: path,
+    document: backed
+  } do
+    original = File.read!(path)
+
+    for persistence <- [:untitled, :save_copy] do
+      document = %{Document.new() | persistence: persistence}
+      assert {:ok, renamed} = Document.rename(document, "  Chosen.JSON ")
+      assert renamed == %{document | filename: "Chosen.JSON"}
+      assert Document.encode(renamed, renamed.graph) == Document.encode(document, document.graph)
+      assert {:ok, bytes, prepared} = Document.prepare_save(renamed, renamed.graph)
+      assert prepared.filename == "Chosen.JSON"
+      json = Jason.decode!(bytes)
+      assert json["version"] == 1
+      refute Map.has_key?(json, "title")
+      refute Map.has_key?(json, "name")
+      refute Map.has_key?(json, "filename")
+      assert {:error, _reason} = Document.rename(document, "../escape")
+    end
+
+    for document <- [
+          backed,
+          %{backed | persistence: :browser_file, path: nil},
+          %{backed | persistence: :save_copy, path: nil},
+          %{Document.new() | persistence: :browser_file},
+          %{Document.new() | path: path},
+          %{Document.new() | persistence: :server_file}
+        ] do
+      assert {:error, _reason} = Document.rename(document, "Not a filesystem rename")
+    end
+
+    assert File.read!(path) == original
+    assert {:ok, reopened} = Document.open(path)
+    assert reopened.revision == backed.revision
+  end
+
   test "a new in-memory canvas is blank, portable and cannot save over a previous file", %{
     path: path,
     document: previous

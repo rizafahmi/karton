@@ -63,7 +63,7 @@ export function mountNativeFile(workspace) {
         ? "Choose a canvas JSON file. With your permission, Save writes back to that file while this tab stays open."
         : "This browser cannot save back to a selected file. Open a canvas JSON file, then Save copy downloads JSON without changing the original."
     }
-    for (const button of root.querySelectorAll("#save-file, #new-canvas, #open-native-file, #empty-open-file, #reload-file, #server-file-options button, #disk-warning .message-action")) {
+    for (const button of root.querySelectorAll("#save-file, #new-canvas, #open-native-file, #empty-open-file, #reload-file, #server-file-options button, #disk-warning .message-action, #rename-document-form input, #rename-document-form button")) {
       button.disabled = disabled || button.id === "save-file" && mode() === "none"
     }
     const saveButton = root.querySelector("#save-file")
@@ -268,7 +268,7 @@ export function mountNativeFile(workspace) {
 
   const save = async () => {
     if (busy || root.dataset.fileBusy === "true" || mode() === "none") return
-    const request = {generation: generation()}
+    const request = {generation: generation(), filename: root.dataset.fileName || "untitled.json"}
     const originalMode = mode()
     let selected = selectedFile
     let reply
@@ -281,7 +281,7 @@ export function mountNativeFile(workspace) {
       if (originalMode === "untitled" && supportsNewSave) {
         // Invoke in the original gesture: flushing/blur and server replies may consume activation.
         picker = window.showSaveFilePicker({
-          suggestedName: root.dataset.fileName || "untitled.json",
+          suggestedName: request.filename,
           types: [{description: "Canvas JSON", accept: {"application/json": [".json"]}}],
         }).then(handle => ({handle}), error => ({error}))
       } else if (originalMode === "browser_file") {
@@ -309,7 +309,7 @@ export function mountNativeFile(workspace) {
       const targetMode = originalMode === "untitled" ? (firstHandle ? "browser_file" : "save_copy") : originalMode
       reply = await send("save", {
         generation: request.generation,
-        ...(originalMode === "untitled" ? {mode: targetMode, filename: firstHandle?.name || root.dataset.fileName || "untitled.json"} : {}),
+        ...(originalMode === "untitled" ? {mode: targetMode, filename: firstHandle?.name || request.filename} : {}),
       })
       if (!reply.ok || !reply.token) return
       if (!isCurrent(request) || reply.generation !== request.generation || reply.mode !== targetMode ||
