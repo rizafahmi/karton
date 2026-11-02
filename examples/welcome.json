@@ -8,6 +8,17 @@
       "path": "bezier",
       "source": "7blrw3t4",
       "target": "zet2hozs"
+    },
+    {
+      "animated": false,
+      "data": {},
+      "id": "zet2hozs:right->ztsqteyf:left",
+      "marker": "arrow",
+      "path": "bezier",
+      "source": "zet2hozs",
+      "source_handle": "right",
+      "target": "ztsqteyf",
+      "target_handle": "left"
     }
   ],
   "nodes": [
@@ -29,8 +40,8 @@
       "locked": false,
       "type": "shape",
       "width": 220,
-      "x": 4.5,
-      "y": -44.38
+      "x": -66.65,
+      "y": -144.21
     },
     {
       "data": {
@@ -51,7 +62,7 @@
       "locked": false,
       "type": "shape",
       "width": 203.7,
-      "x": 384.97,
+      "x": 369.97,
       "y": -39.62
     },
     {
@@ -72,8 +83,8 @@
       "locked": false,
       "type": "shape",
       "width": 271.8,
-      "x": 656.03,
-      "y": 124.62
+      "x": 784.36,
+      "y": 264.8
     },
     {
       "data": {
@@ -163,6 +174,138 @@
       "width": 180,
       "x": 488.6,
       "y": -149.9
+    },
+    {
+      "data": {
+        "align": "left",
+        "dash": false,
+        "fill": "yellow",
+        "kind": "rect",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "yellow",
+        "text": "",
+        "width": 2
+      },
+      "height": 156.9,
+      "id": "efkpw5p5",
+      "locked": false,
+      "type": "shape",
+      "width": 74.5,
+      "x": 71.74,
+      "y": -188.35
+    },
+    {
+      "data": {
+        "arrow": "none",
+        "dash": false,
+        "from": [
+          12,
+          12
+        ],
+        "stroke": "ink",
+        "to": [
+          12,
+          431
+        ],
+        "width": 2
+      },
+      "height": 443,
+      "id": "be2vuk4n",
+      "locked": false,
+      "type": "shape-line",
+      "width": 24,
+      "x": 712.3,
+      "y": -215.1
+    },
+    {
+      "data": {
+        "arrow": "none",
+        "dash": false,
+        "from": [
+          12,
+          12
+        ],
+        "stroke": "ink",
+        "to": [
+          269.9,
+          12
+        ],
+        "width": 2
+      },
+      "height": 24,
+      "id": "gk6wozmd",
+      "locked": false,
+      "type": "shape-line",
+      "width": 281.9,
+      "x": 614.5,
+      "y": -49.2
+    },
+    {
+      "data": {
+        "arrow": "end",
+        "dash": false,
+        "from": [
+          12,
+          12
+        ],
+        "stroke": "ink",
+        "to": [
+          187,
+          334.5
+        ],
+        "width": 2
+      },
+      "height": 346.5,
+      "id": "xq36trag",
+      "locked": false,
+      "type": "shape-line",
+      "width": 199,
+      "x": 654.1,
+      "y": -152.9
+    },
+    {
+      "data": {
+        "align": "left",
+        "dash": false,
+        "fill": "none",
+        "kind": "triangle",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "ink",
+        "text": "",
+        "width": 2
+      },
+      "height": 112,
+      "id": "3uwgfy4o",
+      "locked": false,
+      "type": "shape",
+      "width": 140,
+      "x": 288.47,
+      "y": -201.81
+    },
+    {
+      "data": {
+        "align": "left",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "Text bearing",
+        "width": 2
+      },
+      "height": 40,
+      "id": "wz2kkxqa",
+      "locked": false,
+      "type": "shape",
+      "width": 180,
+      "x": 112.8,
+      "y": 97.9
     }
   ],
   "paper": {
