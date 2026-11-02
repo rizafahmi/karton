@@ -5,10 +5,11 @@ and Hakushi. The JSON file is the document, not an export from a database.
 
 ## Planned native macOS editor
 
-The next milestone is an independent native Mac editor sharing the version-1 JSON
-document contract, with Apple-native UI and transparent high-resolution PNG export
-for Keynote. It is not implemented yet and will not require the web app's runtime.
-See [TASKS.md](TASKS.md#next-milestone-independent-native-macos-editor) for scope,
+The final milestone, after the remaining non-native work, is an independent native
+Mac editor sharing the version-1 JSON document contract, with Apple-native UI and
+transparent high-resolution PNG export for Keynote. It is not implemented yet and
+will not require the web app's runtime.
+See [TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) for scope,
 acceptance proof, and open repository/technology decisions.
 
 ## Run

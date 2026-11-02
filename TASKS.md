@@ -1,11 +1,12 @@
 # MVP plan
 
 Planning only: unchecked work is not implemented behavior. Approved sequence:
-current web editing (front/back → connected-arrow styling), then independent
-native macOS. The separately approved adjacent-thought task below is implemented;
-connected-arrow styling and native work are not advanced by it. Proposed readiness
-additions below are **not approved scope or a new milestone blocking native**;
-decide their adoption and placement explicitly.
+current web editing (front/back → connected-arrow styling), then remaining
+non-native work, with the independent native macOS editor as the final milestone.
+The separately approved adjacent-thought task is implemented. Connected-arrow
+styling's additive v1 metadata scope is now approved (details below); the native
+editor remains last. Proposed readiness additions below are **not approved scope**;
+decide their adoption and placement before the final native milestone.
 No app scaffolding, toolchain installation, dependencies, build steps, or CI
 changes until implementation is requested.
 
@@ -147,72 +148,10 @@ journey.
   used visible controls and endpoint moves used actual pointer gestures. Native
   work remains final; proposed readiness additions below are still unapproved.
 
-## Next milestone: independent native macOS editor
-
-- [ ] **Outcome:** open an existing version-1 JSON canvas in an independent
-      native Mac editor, select/move objects, edit text, undo/redo, save, and
-      reopen in both editors; export a transparent high-resolution PNG suitable
-      for Keynote.
-- **Purpose:** personal structured brainstorming, developer systems diagrams,
-  facilitated sessions, and illustrations for presentations.
-- **Committed direction:** native UI follows Apple Human Interface Guidelines,
-  not Neo-Acid. No wrapper, webview, Phoenix server, or BEAM runtime in the Mac
-  app. Share the [version-1 file contract](README.md#document-format-version-1),
-  not a runtime; preserve authored geometry, semantic font roles, and named
-  colors. Native font/palette resolution may differ; pixel-identical rendering
-  is not required.
-- **Before project creation:** confirm repository organization. Recommended, not
-  approved: monorepo with the web app left at the root, a separate `macos/`
-  project, and shared contract fixtures; independent builds and runtimes. Swift
-  with AppKit, SwiftUI, and Core Graphics is a candidate, not an approved
-  architecture.
-- **Before implementation:** decide minimum macOS, SwiftUI/AppKit
-  responsibilities, the initial supported document-content/editing scope, and
-  PNG default dimensions and maximum output size. Do not imply full web feature
-  parity.
-- **Compatibility gate:** agree fixtures covering supported shapes/text,
-  standalone lines, connections/self-loops, rotations, locks, and metadata.
-  Unsupported content must be identified before editing: reject it clearly or
-  open read-only without loss; never silently omit it or permit a lossy save.
-- **Round-trip proof:** on temporary fixture copies, open → render → select/move
-  → edit text → undo/redo → save → reopen in web and native. Compare actual
-  JSON: stable IDs, node stacking order, bindings and handles, styles, unknown
-  metadata, named colors/font roles, and unedited authored geometry survive;
-  only intended edits differ. Plain Line remains free-standing. Renderer
-  font/theme choices must not dirty files.
-- **Mac workflow proof:** native menus, keyboard commands, file dialogs, and
-  window lifecycle work together. Exercise dirty close/quit/open prompts,
-  cancel, invalid files, failed writes, and external-change conflicts; keep
-  edits and source intact. Use atomic replacement with conflict checks; document
-  remaining race/durability limits rather than claiming filesystem locking.
-- **PNG proof:** choose explicit output pixel width/height or scale, independent
-  of viewport zoom and screen DPR. Wait for resolved fonts; include padding and
-  full labels/strokes/arrowheads, with true alpha and no paper/grid/UI
-  background. Inspect actual PNG dimensions/alpha, compare exports at different
-  zoom/DPR, and place the export on actual light and dark Keynote slides to
-  check transparency, legibility, and unclipped content. No SVG/PDF requirement
-  in this milestone.
-- **Boundary:** a small complete native workflow, not web parity, cloud,
-  accounts, multiplayer, or additional platforms. Implementation must supply
-  native setup and proof instructions; current Mix/browser instructions remain
-  web-only.
-
-### Native delivery tasks within this milestone
-
-- [ ] Resolve native decisions before project creation/implementation as
-      applicable.
-- [ ] Agree compatibility fixtures and prove round-trips before editable saves.
-- [ ] Deliver the agreed native workflow/history and failure/conflict proof.
-      New/create/connect behavior remains unresolved, not implied by “editor.”
-- [ ] Meet the PNG/Keynote gate using actual exported files.
-- [ ] Supply audience-appropriate setup/launch/check instructions and prove
-      runtime independence; decide install/distribution needs before release
-      infrastructure.
-
 ## Proposed readiness additions — adoption and placement need approval
 
-Source-backed gaps and observed/unverified risks below do not reorder approved
-work.
+Source-backed gaps and observed/unverified risks below do not approve new scope.
+Any adopted non-native additions precede the final native milestone.
 
 ### 1. Preserve edits when the original cannot be saved
 
@@ -285,8 +224,8 @@ work.
   physical IME/AltGraph/dead-key entry, screen readers, other browsers, or
   OS-selected writable-handle permission dialogs. Preserve the existing native
   file capability/fallback contract; local-server and downloaded-file proof is
-  not OS-dialog automation. Connected-arrow appearance and independent native
-  editor work remain the separately agreed milestones above.
+  not OS-dialog automation. Connected-arrow appearance and the final independent
+  native editor remain separate milestones.
 - Check short-window menus/inspectors for clipped actions, traps, and hidden
   focus.
 - Agree a representative brainstorming/diagram board and intended
@@ -315,6 +254,9 @@ work.
   not a checkbox covered by successful happy-path saves.
 - Record web-slice, native-workflow, and overall product acceptance separately.
   Proposed gates become release requirements only after explicit scope approval.
+  If adopted, non-native validation precedes the final native milestone;
+  native-workflow and native presentation proof apply within that milestone
+  when native exists, not as prerequisites to starting it.
 
 ## Later
 
@@ -322,6 +264,26 @@ work.
       and overflow-y). Improve compactness, keyboard access, and short-window
       reachability; do not merely hide the scrollbar. Promotion into readiness
       is not yet approved.
+- [ ] **Code snippets:** confirmed dedicated code blocks, not only the existing
+      shape Code typography; monospace text with syntax highlighting, in both
+      the web editor and the planned independent native Mac editor.
+      Web code snippets precede the final native milestone; native code snippets
+      remain part of that final milestone, not a prerequisite to starting it.
+      Enter inserts a newline; Tab/ShiftTab indent/unindent; Escape finishes
+      editing. Disable canvas commands while editing a snippet.
+      Paste only inside an open snippet editor; canvas paste must not
+      automatically create a code block. No code execution is implied.
+      Support common programming languages including Elixir; automatically detect
+      the language with manual override. Agree the exact inventory before implementation.
+      Provide a dedicated Copy code action copying literal text and whitespace.
+      Preserve the local JSON/version-1 compatibility policy; discuss format
+      changes before implementation. No schema or dependency choice is approved,
+      and this scope does not require full web/native parity.
+      **Proposed acceptance:** in each implementation when available, type and
+      paste a multiline snippet inside its editor; exercise language autodetection
+      and manual override; verify Copy code preserves literal text and whitespace.
+      Preserve indentation; exercise the agreed controls and keyboard isolation;
+      edit, undo/redo, and save/reopen with unrelated content intact.
 
 Promote optional work only as ranked hypotheses grounded in observed session
 friction.
@@ -332,11 +294,6 @@ friction.
       and dash in optional `edge.data.connector_style`, keeping version 1 and
       existing target marker semantics. See [edge contract](README.md#edges).
       No standalone arrowhead mapping or new attachment behavior is approved.
-- [ ] **Native authoring:** recommend a minimal New → draw/text → connect
-      workflow for brainstorming, but decide creation versus existing-document
-      editing explicitly. If edit-only, identify where starting boards come from
-      and describe that boundary honestly; neither decision implies full web
-      parity.
 - [ ] **Audience and delivery:** personal/developer setup versus broader users;
       agree first-install/launch expectations and native install/distribution
       needs. Do not presume signing, notarization, an app store, or a packaging
@@ -345,17 +302,9 @@ friction.
       warnings, and whether recovery beyond explicit save/preservation copies is
       required. Decide storage/lifetime/privacy implications before adding any
       local draft mechanism.
-- [ ] **Native repository/technology:** confirm organization before project
-      creation; decide minimum macOS, stack and UI/rendering responsibilities,
-      supported content and editing scope, shared fixtures, and independent
-      build/check instructions. The monorepo and Swift/AppKit/SwiftUI/Core
-      Graphics proposal above is not approval.
-- [ ] **PNG output:** agree default dimensions/scale and maximum output size;
-      retain transparency, font readiness, clipping, zoom/DPR, and Keynote proof
-      above.
-- [ ] **Proposed readiness:** decide which additions become scope, their
-      placement without silently delaying native, and the representative
-      workload/user session.
+- [ ] **Proposed readiness:** decide which additions become scope and their
+      placement before the final native milestone, and the representative
+      workload/user session. This sequencing does not approve the additions.
 - [ ] **Favicon (low priority):** logo/favicon assets and layout references
       exist; confirm a concrete branding gap before changing assets or marking
       work complete.
@@ -367,6 +316,89 @@ friction.
   ([current behavior](README.md#edit)). Keep plain Line free-standing, including
   when drawn between shapes; do not turn the old question into attached-Line
   work.
+
+## Final milestone: independent native macOS editor
+
+Start native work only after the remaining non-native work and non-native scope
+decisions, including web code snippets and any adopted readiness work, are complete.
+Native code snippets remain included here under the shared Code snippets
+requirements and acceptance in Later; they are not a precondition to this milestone.
+
+- [ ] **Outcome:** open an existing version-1 JSON canvas in an independent
+      native Mac editor, select/move objects, edit text, undo/redo, save, and
+      reopen in both editors; export a transparent high-resolution PNG suitable
+      for Keynote.
+- **Purpose:** personal structured brainstorming, developer systems diagrams,
+  facilitated sessions, and illustrations for presentations.
+- **Committed direction:** native UI follows Apple Human Interface Guidelines,
+  not Neo-Acid. No wrapper, webview, Phoenix server, or BEAM runtime in the Mac
+  app. Share the [version-1 file contract](README.md#document-format-version-1),
+  not a runtime; preserve authored geometry, semantic font roles, and named
+  colors. Native font/palette resolution may differ; pixel-identical rendering
+  is not required.
+- **Before project creation:** confirm repository organization. Recommended, not
+  approved: monorepo with the web app left at the root, a separate `macos/`
+  project, and shared contract fixtures; independent builds and runtimes. Swift
+  with AppKit, SwiftUI, and Core Graphics is a candidate, not an approved
+  architecture.
+- **Before implementation:** decide minimum macOS, SwiftUI/AppKit
+  responsibilities, the initial supported document-content/editing scope, and
+  PNG default dimensions and maximum output size. Do not imply full web feature
+  parity.
+- **Compatibility gate:** agree fixtures covering supported shapes/text,
+  standalone lines, connections/self-loops, rotations, locks, and metadata.
+  Unsupported content must be identified before editing: reject it clearly or
+  open read-only without loss; never silently omit it or permit a lossy save.
+- **Round-trip proof:** on temporary fixture copies, open → render → select/move
+  → edit text → undo/redo → save → reopen in web and native. Compare actual
+  JSON: stable IDs, node stacking order, bindings and handles, styles, unknown
+  metadata, named colors/font roles, and unedited authored geometry survive;
+  only intended edits differ. Plain Line remains free-standing. Renderer
+  font/theme choices must not dirty files.
+- **Mac workflow proof:** native menus, keyboard commands, file dialogs, and
+  window lifecycle work together. Exercise dirty close/quit/open prompts,
+  cancel, invalid files, failed writes, and external-change conflicts; keep
+  edits and source intact. Use atomic replacement with conflict checks; document
+  remaining race/durability limits rather than claiming filesystem locking.
+- **PNG proof:** choose explicit output pixel width/height or scale, independent
+  of viewport zoom and screen DPR. Wait for resolved fonts; include padding and
+  full labels/strokes/arrowheads, with true alpha and no paper/grid/UI
+  background. Inspect actual PNG dimensions/alpha, compare exports at different
+  zoom/DPR, and place the export on actual light and dark Keynote slides to
+  check transparency, legibility, and unclipped content. No SVG/PDF requirement
+  in this milestone.
+- **Boundary:** a small complete native workflow, not web parity, cloud,
+  accounts, multiplayer, or additional platforms. Implementation must supply
+  native setup and proof instructions; current Mix/browser instructions remain
+  web-only.
+
+### Native delivery tasks within this milestone
+
+- [ ] Resolve native decisions before project creation/implementation as
+      applicable.
+- [ ] Agree compatibility fixtures and prove round-trips before editable saves.
+- [ ] Deliver the agreed native workflow/history and failure/conflict proof.
+      New/create/connect behavior remains unresolved, not implied by “editor.”
+- [ ] Meet the PNG/Keynote gate using actual exported files.
+- [ ] Supply audience-appropriate setup/launch/check instructions and prove
+      runtime independence; decide install/distribution needs before release
+      infrastructure.
+
+### Native decisions
+
+- [ ] **Native authoring:** recommend a minimal New → draw/text → connect
+      workflow for brainstorming, but decide creation versus existing-document
+      editing explicitly. If edit-only, identify where starting boards come from
+      and describe that boundary honestly; neither decision implies full web
+      parity.
+- [ ] **Native repository/technology:** confirm organization before project
+      creation; decide minimum macOS, stack and UI/rendering responsibilities,
+      supported content and editing scope, shared fixtures, and independent
+      build/check instructions. The monorepo and Swift/AppKit/SwiftUI/Core
+      Graphics proposal above is not approval.
+- [ ] **PNG output:** agree default dimensions/scale and maximum output size;
+      retain transparency, font readiness, clipping, zoom/DPR, and Keynote proof
+      above.
 
 ## Done
 
