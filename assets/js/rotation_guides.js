@@ -51,6 +51,9 @@ export function mountRotationGuides(canvas) {
   }
   const measureHandles = canvas.measureHandles.bind(canvas)
   canvas.measureHandles = node => {
+    // readNode replaces the model from authored data-height during editing.
+    // Keep client-only text growth through those rereads, without changing JSON.
+    if (node.el.drawingTextHeight !== undefined) node.height = node.el.drawingTextHeight
     measureHandles(node)
     syncGuides(node)
   }

@@ -259,7 +259,7 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
 .hakushi-shape-text, .hakushi-edge-label, .hakushi-edge-label[data-ui-selected], .hakushi-edge-input { color: var(--hakushi-shape-ink); }
 .hakushi-edge-label, .hakushi-edge-input { border-radius: 0; }
 .hakushi-shape[data-kind="text"] { background: var(--hakushi-shape-fill); }
-.hakushi-text-editor { background: transparent; }
+.hakushi-text-editor { background: transparent; border-radius: 0; box-shadow: none; }
 /* Native style metadata stays named; only this renderer chooses contrast ink. */
 .hakushi-shape[data-hakushi-style*='"fill":"ink"'] .hakushi-shape-text { color: var(--hakushi-surface); }
 .hakushi-shape-outline, .hakushi-shape-line-stroke { stroke-linejoin: miter; stroke-linecap: butt; }

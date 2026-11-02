@@ -7,6 +7,7 @@ import {mountRotationGuides} from "./rotation_guides"
 import {mountNativeFile} from "./native_file"
 import {mountDirectKeyboard} from "./direct_keyboard"
 import {mountConnectorStyles} from "./connector_styles"
+import {mountTextEditorGeometry} from "./text_editor_geometry"
 
 async function loadDrawingFonts(workspace) {
   // Resolve the host's CSS mapping, not a second document-role → family registry.
@@ -92,6 +93,7 @@ function mountObjectTypography(canvas) {
       editor.addEventListener("keydown", event => {
         if (event.isComposing || event.keyCode === 229) event.stopImmediatePropagation()
       }, true)
+      mountTextEditorGeometry(canvas, node, editor)
     }
   }
   canvas.drawStylePanel()
