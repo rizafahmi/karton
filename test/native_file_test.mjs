@@ -5,14 +5,14 @@ const source = await readFile(new URL('../assets/js/native_file.js', import.meta
 const {mountNativeFile} = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return {promise, resolve} }
 
-function fixture({flush = () => ({ok: true, settled: Promise.resolve()}), unsaved = () => false, picker} = {}) {
-  const calls = [], input = {addEventListener() {}, removeEventListener() {}}
-  const root = {dataset: {generation: '1', editVersion: '0', fileMode: 'untitled', fileName: 'untitled.json', fileBusy: 'false'}, querySelector: selector => selector === '#canvas-file-input' ? input : null, querySelectorAll: () => []}
-  globalThis.document = {activeElement: null}
+function fixture({flush = () => ({ok: true, settled: Promise.resolve()}), unsaved = () => false, picker, mode = 'untitled', reply = () => ({ok: false}), downloadError} = {}) {
+  const calls = [], downloads = [], input = {addEventListener() {}, removeEventListener() {}}
+  const root = {dataset: {generation: '1', editVersion: '0', fileMode: mode, fileName: 'untitled.json', fileBusy: 'false'}, querySelector: selector => selector === '#canvas-file-input' ? input : null, querySelectorAll: () => [], append() {}}
+  globalThis.document = {activeElement: null, createElement: () => ({remove() {}, click() { if (downloadError) throw downloadError; downloads.push(this.href) }})}
   class Handle { getFile() {} createWritable() {} queryPermission() {} requestPermission() {} }
   globalThis.window = {isSecureContext: true, FileSystemFileHandle: Handle, ...(picker ? {showSaveFilePicker: picker} : {})}
-  const workspace = {el: root, flushEdits: flush, hasUnsaved: unsaved, pushEvent(event, payload, callback) { calls.push({event, payload}); callback?.({ok: false}) }}
-  return {api: mountNativeFile(workspace), root, calls}
+  const workspace = {el: root, flushEdits: flush, hasUnsaved: unsaved, pushEvent(event, payload, callback) { calls.push({event, payload}); callback?.(reply(event, payload)) }}
+  return {api: mountNativeFile(workspace), root, calls, downloads}
 }
 
 test('New rejects an unsuccessful flush without destructive lifecycle events or a stuck busy state', async () => {
@@ -58,4 +58,73 @@ test('a picker resolving after a generation change cannot serialize or write the
   await saving
   assert.deepEqual(calls, [])
   assert.equal(writes, 0)
+})
+
+test('Save a copy refuses an invalid draft without downloading or invoking a native picker', async () => {
+  let pickers = 0
+  const {api, root, downloads} = fixture({flush: () => ({ok: false}), picker: () => { pickers++ }})
+  await api.saveCopy()
+  assert.deepEqual(downloads, [])
+  assert.equal(pickers, 0)
+  assert.equal(root.dataset.nativeBusy, 'false')
+})
+
+test('Save a copy waits for pending edits and ignores a superseded document', async () => {
+  const commit = deferred()
+  const {api, root, calls, downloads} = fixture({mode: 'server_file', flush: () => ({ok: true, settled: commit.promise})})
+  const copying = api.saveCopy()
+  assert.deepEqual(calls, [])
+  root.dataset.generation = '2'
+  commit.resolve(); await copying
+  assert.deepEqual(downloads, [])
+  assert.deepEqual(calls, [])
+  assert.equal(root.dataset.nativeBusy, 'false')
+})
+
+test('a late copy snapshot cannot download after a document generation changes', async () => {
+  let deliver
+  const {root, downloads} = fixture({mode: 'browser_file'})
+  const workspace = {el: root, flushEdits: () => ({ok: true, settled: Promise.resolve()}), pushEvent(event, payload, callback) {
+    if (event === 'save-copy') deliver = callback
+    else callback?.({ok: false})
+  }}
+  const copyingApi = mountNativeFile(workspace)
+  const copying = copyingApi.saveCopy()
+  await Promise.resolve()
+  root.dataset.generation = '2'
+  deliver({ok: true, token: 'copy', generation: 1, bytes: '{}', filename: 'copy.json'})
+  await copying
+  assert.deepEqual(downloads, [])
+  assert.equal(root.dataset.nativeBusy, 'false')
+  copyingApi.destroyed()
+})
+
+test('copy preparation excludes concurrent downloads, saves, and document replacement', async () => {
+  const commit = deferred()
+  const {api, root, calls, downloads} = fixture({mode: 'server_file', flush: () => ({ok: true, settled: commit.promise})})
+  const copying = api.saveCopy()
+  await api.saveCopy(); await api.save(); await api.newCanvas()
+  assert.deepEqual(downloads, [])
+  assert.equal(calls.some(call => ['save', 'save-copy', 'new'].includes(call.event)), false)
+  assert.equal(root.dataset.nativeBusy, 'true')
+  commit.resolve(); await copying
+  assert.equal(root.dataset.nativeBusy, 'false')
+})
+
+test('a failed download cannot acknowledge preservation and releases the file-operation guard', async () => {
+  const {api, root, calls, downloads} = fixture({mode: 'server_file', downloadError: new Error('Downloads blocked'), reply: event =>
+    event === 'save-copy' ? {ok: true, token: 'copy', generation: 1, bytes: '{}', filename: 'copy.json'} : {ok: false}})
+  await api.saveCopy()
+  assert.deepEqual(downloads, [])
+  assert.equal(calls.some(call => call.event === 'selected-copy-downloaded'), false)
+  assert.equal(calls.find(call => call.event === 'selected-save-error').payload.token, 'copy')
+  assert.equal(root.dataset.nativeBusy, 'false')
+})
+
+test('an unsuccessful asynchronous thought commit cannot download a stale graph', async () => {
+  const {api, root, calls, downloads} = fixture({mode: 'server_file', flush: () => ({ok: true, settled: Promise.reject(new Error('Thought was not added'))})})
+  await api.saveCopy()
+  assert.deepEqual(downloads, [])
+  assert.equal(calls.some(call => call.event === 'save-copy'), false)
+  assert.equal(root.dataset.nativeBusy, 'false')
 })

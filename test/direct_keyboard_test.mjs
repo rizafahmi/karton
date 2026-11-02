@@ -144,6 +144,42 @@ test('geometry previews stay local and Escape restores authored dimensions witho
   assert.equal(calls.length, 0)
 })
 
+test('file menu and copy focus retain geometry for one flush while unrelated departures cancel it', () => {
+  for (const target of ['#file-menu-toggle', '#file-menu', '[data-save-copy]']) {
+    const app = editor()
+    app.canvas.selected.add('a')
+    app.key('g'); app.key('ArrowRight')
+    app.leave({closest: selector => selector.includes(target)})
+    assert.equal(app.canvas.nodes.get('a').width, 101)
+    assert.equal(app.workspace.directPreview, true)
+    assert.deepEqual(app.calls, [])
+    app.flush()
+    assert.equal(app.workspace.directPreview, false)
+    assert.deepEqual(app.calls, [{event: 'hakushi:change', payload: {op: 'move', nodes: [{id: 'a', x: 10, y: 20, width: 101, height: 80}]}}])
+    app.flush()
+    assert.equal(app.calls.length, 1)
+  }
+  const app = editor()
+  app.canvas.selected.add('a')
+  app.key('g'); app.key('ArrowRight')
+  app.leave({closest: () => null})
+  assert.equal(app.canvas.nodes.get('a').width, 100)
+  assert.equal(app.workspace.directPreview, false)
+  assert.deepEqual(app.calls, [])
+})
+
+test('a thought draft survives direct copy-control focus and still blocks an invalid flush', () => {
+  const app = editor()
+  app.key('Tab'); app.key('n'); app.key('ArrowRight')
+  const input = app.input()
+  input.value = 'x'.repeat(2001); input.emit('input')
+  app.leave({closest: selector => selector.includes('[data-save-copy]')})
+  assert.equal(app.input(), input)
+  assert.equal(app.flush().defaultPrevented, true)
+  assert.equal(app.input().value, 'x'.repeat(2001))
+  assert.deepEqual(app.calls, [])
+})
+
 
 test('locked objects cannot enter geometry mode or emit edits', () => {
   const {canvas, calls, key} = editor()

@@ -254,6 +254,7 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     for {event, payload} <- [
           {"new", %{"generation" => old_generation}},
           {"save", %{"generation" => old_generation}},
+          {"save-copy", %{"generation" => old_generation}},
           {"selected-saved", %{"generation" => old_generation, "token" => "old-token"}},
           {"selected-copy-downloaded", %{"generation" => old_generation, "token" => "old-token"}},
           {"selected-open",
@@ -713,6 +714,614 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     assert {:ok, saved_copy} = Document.open(copy_path)
     assert Graph.node(saved_copy.graph, "idea").x == 500
     assert File.read!(path) == original
+  end
+
+  test "Save a copy snapshots current typography and metadata without changing source or history",
+       %{view: view, path: path, source: source} do
+    source =
+      source
+      |> Map.put("author", %{"keep" => "top-level metadata"})
+      |> Map.put("appearance", %{"font" => "sans", "future" => %{"keep" => true}})
+      |> Map.put("paper", %{"background" => "dots", "grid" => 20, "annotation" => "Keep paper"})
+      |> put_in(["nodes", Access.at(0), "annotation"], %{"keep" => true})
+      |> put_in(["nodes", Access.at(0), "data", "font"], "handwritten")
+      |> put_in(["edges", Access.at(0), "annotation"], %{"keep" => true})
+
+    File.write!(path, Jason.encode!(source))
+    render_click(view, "reload")
+    original = File.read!(path)
+    generation = workspace_integer(view, "data-generation")
+    board = board_id(view)
+    assert :ok = CanvasTest.move(view, board, "idea", {125.5, -90})
+    render_change(view, "appearance", %{"font" => "heading"})
+    before_copy = copy_state(view)
+
+    assert %{
+             ok: true,
+             token: token,
+             generation: ^generation,
+             bytes: bytes,
+             filename: "portable-copy.json"
+           } =
+             selected_event(view, "save-copy", %{"generation" => generation})
+
+    assert {:ok, snapshot} = Document.open_selected("portable-copy.json", bytes, :save_copy)
+    json = Jason.decode!(bytes)
+    assert json["version"] == 1
+    assert json["author"] == source["author"]
+    assert json["appearance"] == %{"font" => "heading", "future" => %{"keep" => true}}
+    assert json["paper"]["annotation"] == "Keep paper"
+    assert hd(json["nodes"])["annotation"] == %{"keep" => true}
+    assert hd(json["edges"])["annotation"] == %{"keep" => true}
+    assert Graph.node(snapshot.graph, "idea").data["font"] == "handwritten"
+
+    assert {Graph.node(snapshot.graph, "idea").x, Graph.node(snapshot.graph, "idea").y} ==
+             {125.5, -90}
+
+    assert copy_state(view) == before_copy
+    assert File.read!(path) == original
+    render_click(view, "toggle-file-menu")
+    assert has_element?(view, "#save-document-copy[disabled][data-save-copy]")
+    assert has_element?(view, "#save-file[disabled]")
+
+    assert :ok = CanvasTest.move(view, board, "idea", {350, 70})
+    render_change(view, "appearance", %{"font" => "mono"})
+    newer = copy_state(view)
+
+    assert %{ok: false} =
+             selected_event(view, "selected-saved", %{
+               "token" => token,
+               "generation" => generation
+             })
+
+    assert copy_state(view) == newer
+    assert has_element?(view, "#workspace[data-file-busy=true]")
+
+    assert %{ok: true} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "token" => token,
+               "generation" => generation
+             })
+
+    assert copy_state(view) == newer
+    assert board_id(view) == board
+    assert has_element?(view, "#file-notice[role=status]")
+
+    assert has_element?(
+             view,
+             "#workspace[data-file-mode=server_file][data-dirty=true][data-file-busy=false]"
+           )
+
+    refute has_element?(view, "#save-document-copy[disabled]")
+    assert File.read!(path) == original
+
+    assert :ok = CanvasTest.undo(view, board)
+    assert node_box(view, board, "idea") == {125.5, -90, 240, 140}
+    assert :ok = CanvasTest.undo(view, board)
+    render_change(view, "appearance", %{"font" => "sans"})
+    assert has_element?(view, "#workspace[data-dirty=false]")
+    assert :ok = CanvasTest.redo(view, board)
+    assert :ok = CanvasTest.redo(view, board)
+    assert node_box(view, board, "idea") == {350, 70, 240, 140}
+    assert has_element?(view, "#workspace[data-dirty=true]")
+    assert File.read!(path) == original
+  end
+
+  test "clean explicit copies preserve every connected mode and implicit typography",
+       %{view: view, path: path} do
+    original = File.read!(path)
+
+    for mode <- [:server_file, :browser_file, :save_copy] do
+      if mode != :server_file do
+        assert %{ok: true} =
+                 selected_event(view, "selected-open", %{
+                   "generation" => workspace_integer(view, "data-generation"),
+                   "filename" => "architecture.JSON",
+                   "bytes" => original,
+                   "mode" => Atom.to_string(mode)
+                 })
+      end
+
+      before_copy = copy_state(view)
+      assert before_copy.document.persistence == mode
+      refute before_copy.dirty
+      generation = before_copy.generation
+
+      assert %{ok: true, token: token, generation: ^generation, bytes: bytes, filename: filename} =
+               selected_event(view, "save-copy", %{"generation" => generation})
+
+      assert filename ==
+               if(mode == :server_file, do: "portable-copy.json", else: "architecture-copy.json")
+
+      assert bytes == Document.encode(before_copy.document, before_copy.graph)
+      refute Map.has_key?(Jason.decode!(bytes), "appearance")
+      assert copy_state(view) == before_copy
+
+      assert %{ok: true} =
+               selected_event(view, "selected-copy-downloaded", %{
+                 "token" => token,
+                 "generation" => generation
+               })
+
+      assert copy_state(view) == before_copy
+      assert has_element?(view, "#workspace[data-dirty=false][data-file-busy=false]")
+      assert has_element?(view, "#file-notice[role=status]")
+      assert File.read!(path) == original
+    end
+  end
+
+  test "explicit untitled copies never promote a source or mark clean work unsaved",
+       %{view: view, path: path} do
+    original = File.read!(path)
+
+    assert %{ok: true, generation: generation} =
+             selected_event(view, "new", %{
+               "generation" => workspace_integer(view, "data-generation")
+             })
+
+    render_submit(view, "rename_document", %{
+      "generation" => to_string(generation),
+      "filename" => "My ideas.JSON"
+    })
+
+    for font <- ["sans", "mono"] do
+      render_change(view, "appearance", %{"font" => font})
+      before_copy = copy_state(view)
+      assert before_copy.document.persistence == :untitled
+      assert before_copy.document.path == nil
+      assert before_copy.document.revision == nil
+      assert before_copy.dirty == (font != "sans")
+
+      assert %{ok: true, token: token, bytes: bytes, filename: "My ideas-copy.json"} =
+               selected_event(view, "save-copy", %{"generation" => generation})
+
+      json = Jason.decode!(bytes)
+      assert json["version"] == 1
+      assert json["nodes"] == []
+      assert json["edges"] == []
+      assert json["appearance"]["font"] == font
+
+      assert %{ok: true} =
+               selected_event(view, "selected-copy-downloaded", %{
+                 "token" => token,
+                 "generation" => generation
+               })
+
+      assert copy_state(view) == before_copy
+      assert has_element?(view, "#workspace[data-file-mode=untitled][data-source-missing=true]")
+      assert File.read!(path) == original
+    end
+
+    assert %{ok: true, token: token, revision: nil, bytes: bytes} =
+             selected_event(view, "save", %{
+               "generation" => generation,
+               "mode" => "browser_file",
+               "filename" => "Chosen.json"
+             })
+
+    assert Jason.decode!(bytes)["appearance"]["font"] == "mono"
+
+    assert %{ok: true} =
+             selected_event(view, "selected-saved", %{
+               "token" => token,
+               "generation" => generation
+             })
+
+    assert has_element?(
+             view,
+             "#workspace[data-file-mode=browser_file][data-file-name='Chosen.json'][data-dirty=false]"
+           )
+
+    assert File.read!(path) == original
+  end
+
+  test "a conflicted server source can be copied without overwriting external bytes or resolving its save error",
+       %{view: view, path: path, source: source} do
+    board = board_id(view)
+    assert :ok = CanvasTest.move(view, board, "idea", {210, -40})
+    render_change(view, "appearance", %{"font" => "mono"})
+
+    external =
+      Jason.encode!(put_in(source, ["nodes", Access.at(0), "data", "text"], "External editor"))
+
+    File.write!(path, external)
+    send(view.pid, :check_file)
+    render(view)
+    assert %{ok: false} = selected_event(view, "save", %{})
+    before_copy = copy_state(view)
+    original_error = :sys.get_state(view.pid).socket.assigns.error
+    assert before_copy.disk_status == :changed
+    assert is_binary(original_error)
+
+    assert %{ok: true, token: token, bytes: bytes} =
+             selected_event(view, "save-copy", %{"generation" => before_copy.generation})
+
+    assert {:ok, copy} = Document.open_selected("portable-copy.json", bytes, :save_copy)
+    assert Graph.node(copy.graph, "idea").x == 210
+    assert Graph.node(copy.graph, "idea").data["text"] == hd(source["nodes"])["data"]["text"]
+    assert Document.drawing_font(copy) == "mono"
+    assert :sys.get_state(view.pid).socket.assigns.error == original_error
+
+    assert %{ok: true} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "token" => token,
+               "generation" => before_copy.generation
+             })
+
+    assert copy_state(view) == before_copy
+    assert :sys.get_state(view.pid).socket.assigns.error == original_error
+    assert File.read!(path) == external
+    assert has_element?(view, "#disk-warning [data-save-copy]:not([disabled])")
+    refute has_element?(view, "#file-error [data-save-copy]")
+    assert has_element?(view, "#file-notice[role=status]")
+    assert %{ok: false} = selected_event(view, "save", %{})
+    assert File.read!(path) == external
+  end
+
+  test "a missing server source is not read or recreated by an explicit copy",
+       %{view: view, path: path} do
+    assert :ok = CanvasTest.move(view, board_id(view), "idea", {230, -10})
+    File.rm!(path)
+    send(view.pid, :check_file)
+    render(view)
+    assert %{ok: false} = selected_event(view, "save", %{})
+    before_copy = copy_state(view)
+    original_error = :sys.get_state(view.pid).socket.assigns.error
+    assert before_copy.disk_status == :unavailable
+
+    assert %{ok: true, token: token, bytes: bytes} =
+             selected_event(view, "save-copy", %{"generation" => before_copy.generation})
+
+    assert {:ok, copy} = Document.open_selected("portable-copy.json", bytes, :save_copy)
+    assert {Graph.node(copy.graph, "idea").x, Graph.node(copy.graph, "idea").y} == {230, -10}
+
+    assert %{ok: true} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "token" => token,
+               "generation" => before_copy.generation
+             })
+
+    assert copy_state(view) == before_copy
+    assert :sys.get_state(view.pid).socket.assigns.error == original_error
+    refute File.exists?(path)
+  end
+
+  test "selected source errors survive copy failure, newer edits and successful copy acknowledgement",
+       %{view: view, path: path} do
+    original = File.read!(path)
+    original_revision = Base.encode16(:crypto.hash(:sha256, original), case: :lower)
+
+    for {status, message} <- [
+          {"changed", "Original file changed."},
+          {"unavailable", "Original file permission denied."}
+        ] do
+      assert %{ok: true, generation: generation} =
+               selected_event(view, "selected-open", %{
+                 "generation" => workspace_integer(view, "data-generation"),
+                 "filename" => "architecture.json",
+                 "bytes" => original,
+                 "mode" => "browser_file"
+               })
+
+      board = board_id(view)
+      assert :ok = CanvasTest.move(view, board, "idea", {125, -20})
+
+      assert %{ok: true, token: save_token} =
+               selected_event(view, "save", %{"generation" => generation})
+
+      assert %{ok: false} = selected_event(view, "save-copy", %{"generation" => generation})
+
+      assert %{ok: false} =
+               selected_event(view, "selected-save-error", %{
+                 "token" => save_token,
+                 "generation" => generation,
+                 "status" => status,
+                 "message" => message
+               })
+
+      before_copy = copy_state(view)
+      assert before_copy.disk_status == String.to_existing_atom(status)
+
+      assert %{ok: true, token: copy_token, bytes: bytes} =
+               selected_event(view, "save-copy", %{"generation" => generation})
+
+      assert hd(Jason.decode!(bytes)["nodes"])["x"] == 125
+      assert :sys.get_state(view.pid).socket.assigns.error == message
+      assert :ok = CanvasTest.move(view, board, "idea", {350, 70})
+      render_change(view, "appearance", %{"font" => "heading"})
+      newer = copy_state(view)
+      copy_failure = "Copy download failed."
+
+      assert %{ok: false} =
+               selected_event(view, "selected-save-error", %{
+                 "token" => copy_token,
+                 "generation" => generation,
+                 "status" => "unavailable",
+                 "message" => copy_failure
+               })
+
+      assert copy_state(view) == newer
+      combined_error = :sys.get_state(view.pid).socket.assigns.error
+      assert String.contains?(combined_error, message)
+      assert String.contains?(combined_error, copy_failure)
+      assert has_element?(view, "#workspace[data-file-busy=false][data-dirty=true]")
+
+      assert %{ok: false} =
+               selected_event(view, "selected-copy-downloaded", %{
+                 "token" => copy_token,
+                 "generation" => generation
+               })
+
+      assert %{ok: true, token: next_token, bytes: next_bytes} =
+               selected_event(view, "save-copy", %{"generation" => generation})
+
+      assert {:ok, next_copy} =
+               Document.open_selected("architecture-copy.json", next_bytes, :save_copy)
+
+      assert Graph.node(next_copy.graph, "idea").x == 350
+      assert Document.drawing_font(next_copy) == "heading"
+
+      assert %{ok: true} =
+               selected_event(view, "selected-copy-downloaded", %{
+                 "token" => next_token,
+                 "generation" => generation
+               })
+
+      assert copy_state(view) == newer
+      assert :sys.get_state(view.pid).socket.assigns.error == combined_error
+      assert File.read!(path) == original
+
+      assert %{ok: true, token: retry_token, revision: ^original_revision} =
+               selected_event(view, "save", %{"generation" => generation})
+
+      assert %{ok: false} =
+               selected_event(view, "selected-save-error", %{
+                 "token" => retry_token,
+                 "generation" => generation,
+                 "status" => status,
+                 "message" => message
+               })
+
+      assert %{ok: true} =
+               selected_event(view, "selected-reload", %{
+                 "generation" => generation,
+                 "edit_version" => workspace_integer(view, "data-edit-version"),
+                 "filename" => "architecture.json",
+                 "bytes" => original,
+                 "mode" => "browser_file"
+               })
+    end
+  end
+
+  test "permission-only save errors offer a copy without changing selected disk status",
+       %{view: view, path: path} do
+    original = File.read!(path)
+
+    assert %{ok: true, generation: generation} =
+             selected_event(view, "selected-open", %{
+               "generation" => workspace_integer(view, "data-generation"),
+               "filename" => "architecture.json",
+               "bytes" => original,
+               "mode" => "browser_file"
+             })
+
+    assert :ok = CanvasTest.move(view, board_id(view), "idea", {260, 50})
+
+    assert %{ok: true, token: save_token} =
+             selected_event(view, "save", %{"generation" => generation})
+
+    permission_error = "Write permission denied."
+
+    assert %{ok: false} =
+             selected_event(view, "selected-save-error", %{
+               "token" => save_token,
+               "generation" => generation,
+               "message" => permission_error
+             })
+
+    before_copy = copy_state(view)
+    assert before_copy.disk_status == :unchanged
+    assert has_element?(view, "#file-error [data-save-copy]:not([disabled])")
+    refute has_element?(view, "#disk-warning")
+
+    render_click(view, "selected-error", %{
+      "generation" => generation - 1,
+      "action" => "save-copy",
+      "message" => "Stale draft error."
+    })
+
+    assert :sys.get_state(view.pid).socket.assigns.error == permission_error
+
+    render_click(view, "selected-error", %{
+      "generation" => generation,
+      "action" => "save-copy",
+      "message" => "Thought was not added."
+    })
+
+    assert copy_state(view) == before_copy
+    flush_error = :sys.get_state(view.pid).socket.assigns.error
+    assert String.contains?(flush_error, permission_error)
+    assert String.contains?(flush_error, "Thought was not added.")
+
+    assert %{ok: true, token: copy_token} =
+             selected_event(view, "save-copy", %{"generation" => generation})
+
+    assert has_element?(view, "#file-error [data-save-copy][disabled]")
+
+    assert %{ok: false} =
+             selected_event(view, "selected-save-error", %{
+               "token" => copy_token,
+               "generation" => generation,
+               "status" => "unavailable",
+               "message" => "Copy download failed."
+             })
+
+    assert copy_state(view) == before_copy
+    refute has_element?(view, "#disk-warning")
+    combined_error = :sys.get_state(view.pid).socket.assigns.error
+    assert String.contains?(combined_error, permission_error)
+
+    assert %{ok: true, token: next_token, bytes: bytes} =
+             selected_event(view, "save-copy", %{"generation" => generation})
+
+    assert hd(Jason.decode!(bytes)["nodes"])["x"] == 260
+
+    assert %{ok: true} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "token" => next_token,
+               "generation" => generation
+             })
+
+    assert copy_state(view) == before_copy
+    assert :sys.get_state(view.pid).socket.assigns.error == combined_error
+    assert has_element?(view, "#file-error [data-save-copy]:not([disabled])")
+    assert File.read!(path) == original
+  end
+
+  test "an explicit copy of an edited opened copy leaves its original baseline undoable",
+       %{view: view, path: path} do
+    original = File.read!(path)
+
+    assert %{ok: true, generation: generation} =
+             selected_event(view, "selected-open", %{
+               "generation" => workspace_integer(view, "data-generation"),
+               "filename" => "architecture.json",
+               "bytes" => original,
+               "mode" => "save_copy"
+             })
+
+    board = board_id(view)
+    assert :ok = CanvasTest.move(view, board, "idea", {280, 60})
+    before_copy = copy_state(view)
+    assert before_copy.dirty
+
+    assert %{ok: true, token: token, bytes: bytes, filename: "architecture-copy.json"} =
+             selected_event(view, "save-copy", %{"generation" => generation})
+
+    assert hd(Jason.decode!(bytes)["nodes"])["x"] == 280
+
+    assert %{ok: true} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "token" => token,
+               "generation" => generation
+             })
+
+    assert copy_state(view) == before_copy
+    assert :ok = CanvasTest.undo(view, board)
+    assert has_element?(view, "#workspace[data-file-mode=save_copy][data-dirty=false]")
+    assert :ok = CanvasTest.redo(view, board)
+    assert node_box(view, board, "idea") == {280, 60, 240, 140}
+    assert File.read!(path) == original
+  end
+
+  test "explicit copies reject invalid generations, busy requests and stale acknowledgements without replacing pending work",
+       %{view: view, path: path} do
+    original = File.read!(path)
+    before_copy = copy_state(view)
+    generation = before_copy.generation
+
+    for payload <- [
+          %{},
+          %{"generation" => nil},
+          %{"generation" => to_string(generation)},
+          %{"generation" => generation - 1},
+          %{"generation" => generation + 1},
+          %{"generation" => generation * 1.0}
+        ] do
+      assert %{ok: false} = selected_event(view, "save-copy", payload)
+      assert copy_state(view) == before_copy
+      assert :sys.get_state(view.pid).socket.assigns.pending_save == nil
+    end
+
+    assert %{ok: true, token: token} =
+             selected_event(view, "save-copy", %{"generation" => generation})
+
+    pending = :sys.get_state(view.pid).socket.assigns.pending_save
+    assert %{ok: false} = selected_event(view, "save-copy", %{"generation" => generation})
+
+    for event <- ["selected-copy-downloaded", "selected-save-error", "selected-saved"],
+        {stale_token, stale_generation} <- [{"wrong-token", generation}, {token, generation - 1}] do
+      assert %{ok: false} =
+               selected_event(view, event, %{
+                 "token" => stale_token,
+                 "generation" => stale_generation,
+                 "status" => "unavailable",
+                 "message" => "Stale failure."
+               })
+
+      assert :sys.get_state(view.pid).socket.assigns.pending_save == pending
+      assert :sys.get_state(view.pid).socket.assigns.error == nil
+      assert copy_state(view) == before_copy
+    end
+
+    assert %{ok: false} =
+             selected_event(view, "selected-save-error", %{
+               "token" => token,
+               "generation" => generation,
+               "status" => "unavailable",
+               "message" => "Copy download cancelled."
+             })
+
+    assert copy_state(view) == before_copy
+    assert :sys.get_state(view.pid).socket.assigns.pending_save == nil
+    assert has_element?(view, "#file-error [data-save-copy]:not([disabled])")
+    assert File.read!(path) == original
+
+    assert %{ok: true, token: next_token} =
+             selected_event(view, "save-copy", %{"generation" => generation})
+
+    refute next_token == token
+
+    assert %{ok: false} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "token" => token,
+               "generation" => generation
+             })
+
+    assert %{ok: true} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "token" => next_token,
+               "generation" => generation
+             })
+
+    assert copy_state(view) == before_copy
+    assert File.read!(path) == original
+  end
+
+  test "invalid graph snapshots do not become copies or change the source baseline",
+       %{view: view, path: path} do
+    original = File.read!(path)
+    document = :sys.get_state(view.pid).socket.assigns.document
+    node = Graph.node(document.graph, "idea")
+
+    assert {:ok, invalid, _, _} =
+             Graph.apply(
+               document.graph,
+               Change.update(
+                 nodes: [%{id: node.id, data: Map.put(node.data, "font", "Mona Sans")}]
+               )
+             )
+
+    generation = workspace_integer(view, "data-generation")
+    send(view.pid, {:canvas_changed, generation, invalid})
+    render(view)
+    before_copy = copy_state(view)
+
+    assert %{ok: false} = selected_event(view, "save-copy", %{"generation" => generation})
+    assert copy_state(view) == before_copy
+    assert before_copy.dirty
+    assert :sys.get_state(view.pid).socket.assigns.pending_save == nil
+    assert is_binary(:sys.get_state(view.pid).socket.assigns.error)
+    assert File.read!(path) == original
+
+    socket = %Phoenix.LiveView.Socket{assigns: %{document: nil}}
+
+    assert {:reply, %{ok: false}, ^socket} =
+             ElixirCanvasWeb.CanvasLive.handle_event(
+               "save-copy",
+               %{"generation" => generation},
+               socket
+             )
   end
 
   test "selected reload rejects a read overtaken by edits and accepts fresh selected content", %{
@@ -1522,6 +2131,26 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     |> LazyHTML.attribute(attribute)
     |> List.first()
     |> String.to_integer()
+  end
+
+  defp copy_state(view) do
+    render(view)
+
+    view.pid
+    |> :sys.get_state()
+    |> Map.fetch!(:socket)
+    |> Map.fetch!(:assigns)
+    |> Map.take([
+      :document,
+      :graph,
+      :page_title,
+      :path_input,
+      :drawing_font,
+      :dirty,
+      :disk_status,
+      :generation,
+      :edit_version
+    ])
   end
 
   defp selected_event(view, event, payload) do

@@ -4,7 +4,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
 
   Coordinates Hakushi graph operations, portable drawing typography and color
   roles, dirty/conflict tracking, and persistence across server file paths,
-  browser File System Access handles, and copy-download fallbacks.
+  browser File System Access handles, copy-download fallbacks, and explicit copies
+  that leave the open document's source, save baseline, and edits untouched.
   """
   use ElixirCanvasWeb, :live_view
 
@@ -179,9 +180,27 @@ defmodule ElixirCanvasWeb.CanvasLive do
     end
   end
 
+  def handle_event("save-copy", _params, %{assigns: %{document: nil}} = socket),
+    do: {:reply, %{ok: false}, socket}
+
+  def handle_event("save-copy", params, socket) do
+    cond do
+      not is_integer(params["generation"]) ||
+          params["generation"] != socket.assigns.generation ->
+        {:reply, %{ok: false}, socket}
+
+      socket.assigns.pending_save ->
+        {:reply, %{ok: false}, socket}
+
+      true ->
+        prepare_document_copy(socket)
+    end
+  end
+
   def handle_event("selected-saved", %{"token" => token, "generation" => generation}, socket) do
     case socket.assigns.pending_save do
       %{
+        intent: :save,
         token: ^token,
         generation: ^generation,
         document: %{persistence: :browser_file} = document
@@ -212,7 +231,21 @@ defmodule ElixirCanvasWeb.CanvasLive do
         socket
       ) do
     case socket.assigns.pending_save do
-      %{token: ^token, generation: ^generation, document: %{persistence: :save_copy}} ->
+      %{intent: :copy, token: ^token, generation: ^generation}
+      when generation == socket.assigns.generation ->
+        {:reply, %{ok: true},
+         assign(socket,
+           pending_save: nil,
+           notice:
+             "Copy download started; the original file and unsaved status are unchanged. Disk persistence is not confirmed."
+         )}
+
+      %{
+        intent: :save,
+        token: ^token,
+        generation: ^generation,
+        document: %{persistence: :save_copy}
+      } ->
         {:reply, %{ok: true},
          assign(socket,
            document:
@@ -242,7 +275,12 @@ defmodule ElixirCanvasWeb.CanvasLive do
         socket
       ) do
     case socket.assigns.pending_save do
-      %{token: ^token, generation: ^generation} ->
+      %{intent: :copy, token: ^token, generation: ^generation}
+      when generation == socket.assigns.generation ->
+        socket = socket |> assign(pending_save: nil) |> copy_error(params["message"])
+        {:reply, %{ok: false}, socket}
+
+      %{intent: :save, token: ^token, generation: ^generation} ->
         status =
           case {socket.assigns.document.persistence, params["status"]} do
             {:browser_file, "changed"} -> :changed
@@ -261,6 +299,17 @@ defmodule ElixirCanvasWeb.CanvasLive do
       _ ->
         {:reply, %{ok: false}, socket}
     end
+  end
+
+  def handle_event(
+        "selected-error",
+        %{"generation" => generation, "action" => "save-copy", "message" => message},
+        socket
+      )
+      when is_binary(message) do
+    if generation == socket.assigns.generation,
+      do: {:noreply, copy_error(socket, message)},
+      else: {:noreply, socket}
   end
 
   def handle_event("selected-error", %{"generation" => generation, "message" => message}, socket)
@@ -455,7 +504,13 @@ defmodule ElixirCanvasWeb.CanvasLive do
       {:ok, bytes, pending_document} ->
         token = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
         generation = socket.assigns.generation
-        pending = %{token: token, generation: generation, document: pending_document}
+
+        pending = %{
+          intent: :save,
+          token: token,
+          generation: generation,
+          document: pending_document
+        }
 
         {:reply,
          %{
@@ -472,6 +527,49 @@ defmodule ElixirCanvasWeb.CanvasLive do
       {:error, reason} ->
         {:reply, %{ok: false}, assign(socket, error: reason, notice: nil)}
     end
+  end
+
+  defp prepare_document_copy(socket) do
+    document = with_drawing_font(socket.assigns.document, socket.assigns.drawing_font)
+
+    case Document.prepare_save(document, socket.assigns.graph) do
+      {:ok, bytes, _snapshot} ->
+        token = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+        generation = socket.assigns.generation
+        pending = %{intent: :copy, token: token, generation: generation}
+
+        {:reply,
+         %{
+           ok: true,
+           token: token,
+           generation: generation,
+           bytes: bytes,
+           filename: copy_filename(document.filename)
+         }, assign(socket, pending_save: pending, notice: nil)}
+
+      {:error, reason} ->
+        {:reply, %{ok: false}, copy_error(socket, reason)}
+    end
+  end
+
+  defp copy_filename(filename) do
+    extension = Path.extname(filename)
+
+    stem =
+      if String.downcase(extension) == ".json",
+        do: Path.rootname(filename, extension),
+        else: filename
+
+    stem <> "-copy.json"
+  end
+
+  defp copy_error(socket, reason) do
+    error =
+      if socket.assigns.error && socket.assigns.error != reason,
+        do: "#{socket.assigns.error} #{reason}",
+        else: reason
+
+    assign(socket, error: error, notice: nil)
   end
 
   defp revision_hex(%{revision: nil}), do: nil
@@ -587,6 +685,9 @@ defmodule ElixirCanvasWeb.CanvasLive do
       />
       <p :if={@document && @document.persistence == :save_copy} id="save-copy-help" class="sr-only">
         Downloads a JSON copy without confirming disk persistence. Use Reload: choose file again… to load the copy you saved; cancelling keeps your current edits.
+      </p>
+      <p :if={@document} id="save-document-copy-help" class="sr-only">
+        Download a separate JSON file. This canvas keeps its source and unsaved changes; disk persistence is not confirmed.
       </p>
       <section :if={@document} class="canvas-area" aria-label="Canvas workspace">
         <.live_component
@@ -773,6 +874,24 @@ defmodule ElixirCanvasWeb.CanvasLive do
             Choose a canvas JSON file. Supported browsers can save back with your permission; other browsers download a copy.
           </p>
         </div>
+        <div :if={@document} class="menu-section">
+          <div class="file-menu-actions">
+            <button
+              id="save-document-copy"
+              type="button"
+              class="menu-button"
+              data-save-copy
+              phx-click={JS.dispatch("canvas:save-copy", to: "#workspace")}
+              disabled={@pending_save != nil}
+              aria-describedby="save-document-copy-menu-help"
+            >
+              <.glyph name="save" />Save a copy
+            </button>
+          </div>
+          <p id="save-document-copy-menu-help" class="menu-footnote">
+            Download a separate JSON file without changing this canvas's filename, connected source, or unsaved status.
+          </p>
+        </div>
         <form
           :if={
             @document && @document.revision == nil && @document.path == nil &&
@@ -917,7 +1036,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
 
       <div class="canvas-messages">
         <div
-          :if={@notice && @document && @document.persistence == :save_copy}
+          :if={@notice && @document}
           id="file-notice"
           class="canvas-message warning"
           role="status"
@@ -925,38 +1044,68 @@ defmodule ElixirCanvasWeb.CanvasLive do
           <span>{@notice}</span>
         </div>
         <div :if={@error} id="file-error" class="canvas-message error" role="alert">
-          <span>{@error}</span>
+          <span>
+            <span>{@error}</span>
+            <span :if={@document && @disk_status == :unchanged} class="file-menu-actions">
+              <button
+                id="save-error-copy"
+                type="button"
+                class="message-action"
+                data-save-copy
+                phx-click={JS.dispatch("canvas:save-copy", to: "#workspace")}
+                disabled={@pending_save != nil}
+                aria-describedby="save-document-copy-help"
+              >
+                Save a copy
+              </button>
+            </span>
+          </span>
           <button class="message-dismiss" phx-click="dismiss-error" aria-label="Dismiss error">
             <.glyph name="close" />
           </button>
         </div>
         <div
-          :if={@disk_status != :unchanged}
+          :if={@document && @disk_status != :unchanged}
           id="disk-warning"
           class="canvas-message warning"
           role="status"
         >
           <span>
-            {if @disk_status == :changed,
-              do: "The source changed outside the app. Reload before saving.",
-              else:
-                "The source file is missing or unreadable. Your canvas is still here; saving is blocked."}
+            <span>
+              {if @disk_status == :changed,
+                do: "The source changed outside the app. Reload before saving.",
+                else:
+                  "The source file is missing or unreadable. Your canvas is still here; saving is blocked."}
+            </span>
+            <span class="file-menu-actions">
+              <button
+                class="message-action"
+                phx-click={
+                  if @document.persistence == :server_file,
+                    do: "reload",
+                    else: JS.dispatch("canvas:reload", to: "#workspace")
+                }
+                disabled={@pending_save != nil}
+                data-confirm={
+                  @document.persistence == :server_file && @dirty &&
+                    "Discard unsaved canvas edits and reload the file from disk?"
+                }
+              >
+                Reload file
+              </button>
+              <button
+                id="disk-warning-save-copy"
+                type="button"
+                class="message-action"
+                data-save-copy
+                phx-click={JS.dispatch("canvas:save-copy", to: "#workspace")}
+                disabled={@pending_save != nil}
+                aria-describedby="save-document-copy-help"
+              >
+                Save a copy
+              </button>
+            </span>
           </span>
-          <button
-            class="message-action"
-            phx-click={
-              if @document.persistence == :server_file,
-                do: "reload",
-                else: JS.dispatch("canvas:reload", to: "#workspace")
-            }
-            disabled={@pending_save != nil}
-            data-confirm={
-              @document.persistence == :server_file && @dirty &&
-                "Discard unsaved canvas edits and reload the file from disk?"
-            }
-          >
-            Reload file
-          </button>
         </div>
       </div>
 

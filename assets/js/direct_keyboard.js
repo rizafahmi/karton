@@ -507,11 +507,12 @@ export function mountDirectKeyboard(canvas) {
     if (!mode || root.contains(event.relatedTarget)) return
     if (mode.kind === 'thought') {
       if (!event.relatedTarget && document.hasFocus?.() === false) return
-      if (event.relatedTarget?.closest('#save-file, #new-canvas, #open-native-file, #empty-open-file, #file-menu-toggle')) return
+      if (event.relatedTarget?.closest('#save-file, [data-save-copy], #file-menu, #new-canvas, #open-native-file, #empty-open-file, #file-menu-toggle')) return
       cancelThought()
       return
     }
     if (mode.kind === 'geometry') {
+      if (event.relatedTarget?.closest('#save-file, [data-save-copy], #file-menu, #file-menu-toggle')) return
       finishGeometry(false)
       canvas.announce('Geometry preview cancelled after leaving the canvas.')
     } else { mode = null; marker.hidden = true; canvas.schedule() }

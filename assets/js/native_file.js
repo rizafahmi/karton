@@ -63,7 +63,7 @@ export function mountNativeFile(workspace) {
         ? "Choose a canvas JSON file. With your permission, Save writes back to that file while this tab stays open."
         : "This browser cannot save back to a selected file. Open a canvas JSON file, then Save copy downloads JSON without changing the original."
     }
-    for (const button of root.querySelectorAll("#save-file, #new-canvas, #open-native-file, #empty-open-file, #reload-file, #server-file-options button, #disk-warning .message-action, #rename-document-form input, #rename-document-form button")) {
+    for (const button of root.querySelectorAll("#save-file, [data-save-copy], #new-canvas, #open-native-file, #empty-open-file, #reload-file, #server-file-options button, #disk-warning .message-action, #rename-document-form input, #rename-document-form button")) {
       button.disabled = disabled || button.id === "save-file" && mode() === "none"
     }
     const saveButton = root.querySelector("#save-file")
@@ -266,6 +266,52 @@ export function mountNativeFile(workspace) {
     }
   }
 
+  const downloadCopy = reply => {
+    const url = URL.createObjectURL(new Blob([reply.bytes], {type: "application/json"}))
+    let link
+    try {
+      link = document.createElement("a")
+      link.href = url
+      link.download = reply.filename
+      root.append(link)
+      link.click()
+    } finally {
+      link?.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 0)
+    }
+  }
+
+  const saveCopy = async () => {
+    if (busy || root.dataset.fileBusy === "true" || mode() === "none") return
+    const request = {generation: generation(), trigger: document.activeElement, action: "save-copy"}
+    let reply
+    setBusy(true)
+    try {
+      const flushed = workspace.flushEdits()
+      if (!flushed.ok) return
+      await flushed.settled
+      if (!isCurrent(request)) return
+      reply = await send("save-copy", {generation: request.generation})
+      if (!reply.ok || !reply.token) return
+      if (!isCurrent(request) || reply.generation !== request.generation) {
+        throw new Error("The canvas changed before the copy could be downloaded. Nothing was overwritten.")
+      }
+      downloadCopy(reply)
+      const acknowledgment = await send("selected-copy-downloaded", {token: reply.token, generation: reply.generation})
+      if (!acknowledgment.ok) throw new Error("Copy download started, but the canvas could not acknowledge it. Disk persistence is not confirmed.")
+    } catch (error) {
+      const message = `Could not complete Save a copy: ${error.message}`
+      if (reply?.token) {
+        await send("selected-save-error", {token: reply.token, generation: reply.generation, message})
+      } else if (isCurrent(request)) workspace.pushEvent("selected-error", {generation: request.generation, action: request.action, message})
+    } finally {
+      setBusy(false)
+      if (isCurrent(request) && request.trigger?.isConnected && document.activeElement === document.body) {
+        request.trigger.focus({preventScroll: true})
+      }
+    }
+  }
+
   const save = async () => {
     if (busy || root.dataset.fileBusy === "true" || mode() === "none") return
     const request = {generation: generation(), filename: root.dataset.fileName || "untitled.json"}
@@ -319,17 +365,7 @@ export function mountNativeFile(workspace) {
         throw new Error("The selected file changed before saving. Nothing was overwritten.")
       }
       if (reply.mode === "save_copy") {
-        const url = URL.createObjectURL(new Blob([reply.bytes], {type: "application/json"}))
-        const link = document.createElement("a")
-        link.href = url
-        link.download = reply.filename
-        root.append(link)
-        try {
-          link.click()
-        } finally {
-          link.remove()
-          setTimeout(() => URL.revokeObjectURL(url), 0)
-        }
+        downloadCopy(reply)
         await send("selected-copy-downloaded", {token: reply.token, generation: reply.generation})
         return
       }
@@ -382,6 +418,7 @@ export function mountNativeFile(workspace) {
     open: () => open("open"),
     reload: () => open("reload"),
     save,
+    saveCopy,
     updated() {
       if (selectedFile && (selectedFile.generation !== generation() || selectedFile.filename !== root.dataset.fileName || ["server_file", "none", "untitled"].includes(mode()))) {
         selectedFile = null

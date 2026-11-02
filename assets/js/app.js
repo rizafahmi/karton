@@ -658,6 +658,7 @@ const Workspace = {
     }
     this.nativeFile = mountNativeFile(this)
     this.requestSave = () => this.nativeFile.save()
+    this.requestSaveCopy = () => this.nativeFile.saveCopy()
     this.requestOpen = () => {
       // Flush synchronously before Open's user-activated picker/unsaved guard.
       const event = new CustomEvent("canvas:flush", {cancelable: true})
@@ -681,7 +682,11 @@ const Workspace = {
     }
     this.closeOverlays = event => {
       if (event.key !== "Escape" || event.isComposing || this.el.querySelector(":popover-open")) return
-      if (this.activeCanvas()?.directKeyboard?.active) return
+      const keyboard = this.activeCanvas()?.directKeyboard
+      if (keyboard?.active) {
+        if (event.target.closest("#file-menu, #file-menu-toggle, [data-save-copy]")) keyboard.key(event)
+        return
+      }
       if (event.target.closest(".hakushi-paper-menu, .hakushi-layout-menu, .hakushi-text-editor, .hakushi-edge-input")) return
       const menu = this.el.querySelector("#file-menu")
       const style = this.el.dataset.styleOpen === "true"
@@ -732,6 +737,7 @@ const Workspace = {
       })
     }
     this.el.addEventListener("canvas:save", this.requestSave)
+    this.el.addEventListener("canvas:save-copy", this.requestSaveCopy)
     this.el.addEventListener("canvas:new", this.requestNew)
     this.el.addEventListener("canvas:open", this.requestOpen)
     this.el.addEventListener("canvas:reload", this.requestReload)
@@ -760,6 +766,7 @@ const Workspace = {
     for (const resolve of this.flushWaiters) resolve()
     this.flushWaiters.clear()
     this.el.removeEventListener("canvas:save", this.requestSave)
+    this.el.removeEventListener("canvas:save-copy", this.requestSaveCopy)
     this.el.removeEventListener("canvas:new", this.requestNew)
     this.el.removeEventListener("canvas:open", this.requestOpen)
     this.el.removeEventListener("canvas:reload", this.requestReload)
