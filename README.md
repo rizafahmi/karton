@@ -493,6 +493,12 @@ Run the full read-only verification suite:
 mix check
 ```
 
+In development, [`ElixirCanvas.FlightRecorder`](lib/elixir_canvas/flight_recorder.ex)
+writes rotating server logs to `tmp/logs/dev.log`, a crash summary log to
+`tmp/logs/crashes.jsonl`, and self-contained crash reproduction bundles (with
+git SHA, event parameters, stacktraces, and the in-memory version-1 graph) to
+`tmp/crashes/crash-*.json` for both server exceptions and uncaught browser errors.
+
 Or run the individual steps directly:
 
 ```sh

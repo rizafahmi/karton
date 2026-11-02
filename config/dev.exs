@@ -57,6 +57,9 @@ config :elixir_canvas, ElixirCanvasWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :elixir_canvas, dev_routes: true
 
+# Persist rotating raw server logs (tmp/logs/dev.log) and crash bundles (tmp/crashes/)
+config :elixir_canvas, :flight_recorder, enabled: true
+
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
 

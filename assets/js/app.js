@@ -684,6 +684,39 @@ const Workspace = {
         event.returnValue = ""
       }
     }
+    this.reportedClientErrors = new Set()
+    this.reportClientError = payload => {
+      if (this.reportedClientErrors.size >= 10) return
+      const signature = `${payload.kind}:${payload.message}:${payload.stack || ""}`
+      if (this.reportedClientErrors.has(signature)) return
+      this.reportedClientErrors.add(signature)
+      const canvas = this.activeCanvas()?.__view?.canvas
+      this.pushEvent("client-error", {
+        ...payload,
+        tool: canvas?.tool ? `${canvas.tool.kit}:${canvas.tool.tool}` : null,
+        selected_nodes: canvas ? [...canvas.selected] : [],
+        selected_edges: canvas ? [...canvas.selectedEdges] : [],
+      })
+    }
+    this.windowError = event => {
+      const error = event.error
+      this.reportClientError({
+        kind: "error",
+        message: String(error?.message || event.message || "Uncaught window error"),
+        stack: typeof error?.stack === "string" ? error.stack : null,
+        source: event.filename || null,
+        line: typeof event.lineno === "number" ? event.lineno : null,
+        column: typeof event.colno === "number" ? event.colno : null,
+      })
+    }
+    this.unhandledRejection = event => {
+      const reason = event.reason
+      this.reportClientError({
+        kind: "unhandledrejection",
+        message: String(reason?.message || reason || "Unhandled promise rejection"),
+        stack: typeof reason?.stack === "string" ? reason.stack : null,
+      })
+    }
     this.el.addEventListener("canvas:save", this.requestSave)
     this.el.addEventListener("canvas:open", this.requestOpen)
     this.el.addEventListener("canvas:reload", this.requestReload)
@@ -691,6 +724,8 @@ const Workspace = {
     window.addEventListener("keydown", this.saveKey, true)
     window.addEventListener("keydown", this.closeOverlays, true)
     window.addEventListener("beforeunload", this.beforeUnload)
+    window.addEventListener("error", this.windowError)
+    window.addEventListener("unhandledrejection", this.unhandledRejection)
   },
   updated() {
     this.el.dataset.fontState = this.el.drawingFontState || "loading"
@@ -716,6 +751,8 @@ const Workspace = {
     window.removeEventListener("keydown", this.saveKey, true)
     window.removeEventListener("keydown", this.closeOverlays, true)
     window.removeEventListener("beforeunload", this.beforeUnload)
+    window.removeEventListener("error", this.windowError)
+    window.removeEventListener("unhandledrejection", this.unhandledRejection)
   },
 }
 

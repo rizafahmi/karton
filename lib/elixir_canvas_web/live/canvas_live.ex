@@ -268,6 +268,16 @@ defmodule ElixirCanvasWeb.CanvasLive do
   def handle_event("dismiss-error", _params, socket),
     do: {:noreply, assign(socket, :error, nil)}
 
+  def handle_event("client-error", params, socket) when is_map(params) do
+    :telemetry.execute(
+      [:elixir_canvas, :client, :error],
+      %{count: 1},
+      %{params: params, socket: socket, view: __MODULE__}
+    )
+
+    {:noreply, socket}
+  end
+
   @impl true
   def handle_info({:canvas_changed, graph}, socket) do
     dirty =

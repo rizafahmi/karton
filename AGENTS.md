@@ -19,6 +19,10 @@ and unresolved repository/technology decisions. No native app is implemented yet
 
 - [Document](lib/elixir_canvas/document.ex) owns version-1 JSON validation,
   metadata retention, source identity, and server-file persistence.
+- [FlightRecorder](lib/elixir_canvas/flight_recorder.ex) writes rotating development
+  logs (`tmp/logs/dev.log`), a crash index (`tmp/logs/crashes.jsonl`), and
+  self-contained server/client crash reproduction bundles (`tmp/crashes/crash-*.json`)
+  containing git SHA, event parameters, stacktraces, and the in-memory version-1 graph.
 - [CanvasLive](lib/elixir_canvas_web/live/canvas_live.ex) coordinates the editor,
   document lifecycle, unsaved state, and save/reload flows.
 - [DrawingShapes](lib/elixir_canvas_web/drawing_shapes.ex) and

@@ -7,6 +7,8 @@ defmodule ElixirCanvas.Application do
 
   @impl true
   def start(_type, _args) do
+    _ = ElixirCanvas.FlightRecorder.setup()
+
     children = [
       ElixirCanvasWeb.Telemetry,
       {Phoenix.PubSub, name: ElixirCanvas.PubSub},
