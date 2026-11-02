@@ -1,12 +1,63 @@
 // Keep Hakushi's connection lifecycle, markers, hit targets and export pipeline.
-// Only same-item routes need an exterior perimeter instead of its generic cubic.
+// Register triangle handles on the rendered outline; same-item routes stay exterior.
 export function mountSelfLoops(canvas) {
+  const triangleHandles = node => {
+    if (node.type !== 'shape') return null
+    const shape = node.el.querySelector('.hakushi-shape[data-kind="triangle"]')
+    if (!shape) return null
+    const svg = shape.querySelector('.hakushi-shape-outline')
+    const polygon = svg?.querySelector('polygon')
+    const box = svg?.viewBox.baseVal
+    if (!polygon || polygon.points.numberOfItems !== 3 || !box?.width || !box?.height) return null
+    // Use the kit's inset polygon, not another model of the authored triangle.
+    // Percentages follow the SVG's preserveAspectRatio=none during resize previews,
+    // before LiveView updates its viewBox and polygon to the committed dimensions.
+    const top = polygon.points.getItem(0), right = polygon.points.getItem(1), left = polygon.points.getItem(2)
+    const midpoint = (a, b) => ({x: (a.x + b.x) / 2, y: (a.y + b.y) / 2})
+    const points = {top, right: midpoint(top, right), bottom: midpoint(right, left), left: midpoint(left, top)}
+    for (const handle of shape.querySelectorAll('.hakushi-handle')) {
+      const point = points[handle.dataset.side]
+      if (!point) continue
+      const style = {
+        left: `${(point.x - box.x) / box.width * 100}%`,
+        top: `${(point.y - box.y) / box.height * 100}%`,
+        right: 'auto', bottom: 'auto', translate: '-50% -50%',
+      }
+      for (const [property, value] of Object.entries(style)) {
+        if (handle.style.getPropertyValue(property) !== value) handle.style.setProperty(property, value)
+      }
+    }
+    return {svg, top, right, left}
+  }
+  const triangleSides = (node, triangle) => {
+    const matrix = triangle.svg.getScreenCTM()
+    if (!matrix) return
+    const normal = (a, b) => {
+      const x = matrix.a * (b.x - a.x) + matrix.c * (b.y - a.y)
+      const y = matrix.b * (b.x - a.x) + matrix.d * (b.y - a.y)
+      const length = Math.hypot(x, y)
+      return {x: y / length, y: -x / length}
+    }
+    const right = normal(triangle.top, triangle.right), bottom = normal(triangle.right, triangle.left), left = normal(triangle.left, triangle.top)
+    const normals = {right, bottom, left, top: {x: right.x + left.x, y: right.y + left.y}}
+    for (const handle of node.handles) {
+      const outward = normals[handle.el.dataset.side]
+      if (!outward) continue
+      // Native routing takes cardinal sides. Choose the nearest outward direction
+      // in the transformed frame without changing the persisted named handle ID.
+      handle.side = Math.abs(outward.x) >= Math.abs(outward.y)
+        ? outward.x >= 0 ? 'right' : 'left'
+        : outward.y >= 0 ? 'bottom' : 'top'
+    }
+  }
   const measureHandles = canvas.measureHandles.bind(canvas)
   canvas.measureHandles = node => {
     for (const handle of node.el.querySelectorAll('.hakushi-handle')) {
       if (!handle.dataset.handle) handle.dataset.handle = handle.dataset.side
     }
+    const triangle = triangleHandles(node)
     measureHandles(node)
+    if (triangle) triangleSides(node, triangle)
   }
   for (const node of canvas.nodes.values()) canvas.measureHandles(node)
 

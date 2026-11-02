@@ -338,6 +338,7 @@ export function mountDirectKeyboard(canvas) {
     const element = styleOf(current.node)
     if (element) current.declaration ? element.style.setProperty('--hakushi-rotation', current.declaration) : element.style.removeProperty('--hakushi-rotation')
     canvas.decorate(current.node)
+    canvas.measureHandles(current.node)
     canvas.touchNode(current.node.id)
   }
   function finishGeometry(commit) {
@@ -382,6 +383,7 @@ export function mountDirectKeyboard(canvas) {
       node.y += x * sin + y * cos - (node.height - oldHeight) / 2
     }
     canvas.decorate(node)
+    canvas.measureHandles(node)
     canvas.touchNode(node.id)
     workspace.directPreview = current.points
       ? JSON.stringify(current.points) !== JSON.stringify(current.originalPoints)
