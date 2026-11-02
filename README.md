@@ -147,6 +147,11 @@ Font License notices are included in `priv/static/fonts/neo-acid`.
   To loop back to the same shape, drag between two different side handles.
   The connected arrow curves outside the shape and returns to its target handle;
   returning to the same handle does not create an edge.
+- Triangle connection handles meet the drawn outline: **Top** is the apex,
+  **Left/Right** are the sloped-side midpoints, and **Bottom** is the base midpoint.
+  Named bindings and automatic nearest-handle connections stay on the outline
+  through move, rotation, and resize, including previews. Standalone Lines remain
+  free-standing; this does not add proximity attachment.
 - Select a connected arrow (including a self-loop), then open **Style** to choose
   named stroke color, width 1/2/4, and solid/dashed. Edge-only multiselection applies
   one property to all selected connections in one undo step; different values
@@ -485,7 +490,7 @@ history are session state and are not part of the file.
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test
-node --test test/direct_keyboard_test.mjs
+node --test test/direct_keyboard_test.mjs test/triangle_attachments_test.mjs
 for file in assets/js/app.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js assets/js/direct_keyboard.js; do
   node --input-type=module --check < "$file" || exit 1
 done
@@ -507,6 +512,10 @@ history edit, reconnect/label history, saved geometry and retained node/edge
 metadata. Node regressions cover direct selection, preview cancellation,
 rotated fixed-anchor math, exact rotation restoration, locks, Space tap versus
 held-pointer selection, and preview lifecycle around history/browser keys.
+Triangle attachment regressions mount Hakushi and inspect rendered edge/handle
+geometry against the transformed SVG perimeter across named/automatic source and
+target bindings, non-square sizes, rotation, resize/restore, and keyboard previews.
+Mixed standalone-arrow fixtures retain their free endpoints and markers.
 Adjacent-thought regressions cover rotated cardinal placement, blocker clearance
 after growth, non-mutating cancellation and stale-source guards, composition and
 overlong-draft refusal, chooser Save cancellation, OS-focus state, and a single

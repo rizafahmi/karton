@@ -378,3 +378,15 @@ friction.
 - [x] Do rotation, the drawing item is rotating, but the guide nodes stay still.
       I think it's a bug
 - [x] Load file using os's native load file
+- [x] **Triangle attachment gap (2026-11-02):** named and automatic connection
+      ends meet the actual triangle outline, including rotated non-square shapes
+      and live geometry previews; side binding names and free-standing Lines stay
+      unchanged. Source-derived rectangular-midpoint gap confirmed the root cause.
+      Full Mix (64), Node (27), syntax, format, and existing asset build passed.
+      Independent actual Chromium pointer create/move/rotate/resize/cancel,
+      pan/zoom, reconnect, Save/reopen proof measured maximum endpoint-to-outline
+      residual **0.058px**; self-loop exterior routes, styles/markers, standalone
+      endpoints, omitted shape fields, and metadata were retained. The first
+      mixed-node load's initialization guard defect was fixed and regression-covered.
+      Limits: no Safari/Firefox/Edge, screen-reader, physical IME, or native-picker
+      certification; no visual control redesign.

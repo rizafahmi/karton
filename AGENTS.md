@@ -34,6 +34,9 @@ and unresolved repository/technology decisions. No native app is implemented yet
   including drawing-font readiness and editor behavior, alongside
   [rotation_guides.js](assets/js/rotation_guides.js) and
   [self_loops.js](assets/js/self_loops.js).
+  The self-loop integration also registers triangle connection handles from the
+  kit's actual SVG polygon before native measurement; transformed routing sides
+  are client-only, while persisted top/right/bottom/left names stay unchanged.
 - [connector_styles.js](assets/js/connector_styles.js) extends the existing Style
   inspector for edge-only selections and renders persisted named connector styles.
   Preserve native highlight/hit-target semantics and bounded, state-specific marker
