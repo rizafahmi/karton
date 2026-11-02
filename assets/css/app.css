@@ -71,6 +71,7 @@
   --hakushi-handle-size: 7px;
   --hakushi-edge: #303036;
   --hakushi-edge-width: 2px;
+  --connector-legacy-edge: var(--hakushi-edge);
   --hakushi-edge-label: #fff;
   --hakushi-control: var(--bg-elevated);
   --hakushi-control-shadow: none;
@@ -326,7 +327,8 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
 .canvas-workspace .hakushi-style-swatch[data-color="none"]::after { content: ""; position: absolute; width: 100%; height: 2px; background: var(--text-primary); transform: rotate(-45deg); }
 .canvas-workspace .hakushi-style-group[data-kind="width"] .hakushi-style-option span { border-radius: 0; }
 .style-hint { display: none; position: absolute; top: auto; right: max(var(--workspace-inset), calc(50% - var(--dock-width) / 2)); bottom: calc(var(--workspace-bottom) + var(--dock-height) + 12px); z-index: 8; width: 236px; max-width: calc(100% - var(--workspace-inset) * 2 - 70px); padding: 18px; border: var(--border-frame); border-top: var(--border-split); border-radius: 0; background: var(--bg-elevated); color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
-.canvas-workspace[data-style-open="true"]:not(:has(.hakushi-node[data-ui-selected])) .style-hint { display: block; }
+.canvas-workspace[data-style-open="true"]:not(:has(.hakushi-node[data-ui-selected], .hakushi-edge[data-ui-selected])) .style-hint { display: block; }
+.connector-style-error { margin: 0; color: var(--text-primary); font-size: 12px; }
 .font-message, .font-error { display: none; position: absolute; top: 45%; left: 50%; z-index: 7; transform: translateX(-50%); width: min(360px, calc(100% - 48px)); color: var(--text-secondary); text-align: center; font-size: 13px; line-height: 1.8; }
 .canvas-workspace[data-font-state="loading"]:has(.drawing-board) .font-message { display: block; }
 .canvas-workspace[data-font-state="error"]:has(.drawing-board) .font-error { display: block; color: var(--hl-ink); padding: 16px; border: var(--border-frame); background: var(--hl-magenta); }

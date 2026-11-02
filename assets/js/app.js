@@ -6,6 +6,7 @@ import {mountSelfLoops} from "./self_loops"
 import {mountRotationGuides} from "./rotation_guides"
 import {mountNativeFile} from "./native_file"
 import {mountDirectKeyboard} from "./direct_keyboard"
+import {mountConnectorStyles} from "./connector_styles"
 
 async function loadDrawingFonts(workspace) {
   // Resolve the host's CSS mapping, not a second document-role → family registry.
@@ -392,6 +393,7 @@ const FileCanvas = {
     mountSelfLoops(this.canvas)
     this.destroyLineTool = mountLineTool(this.canvas)
     mountObjectTypography(this.canvas)
+    this.destroyConnectorStyles = mountConnectorStyles(this.canvas)
     this.typographyObserver = new MutationObserver(() => this.canvas.drawStylePanel())
     this.typographyObserver.observe(workspace, {
       attributes: true,
@@ -601,6 +603,7 @@ const FileCanvas = {
   destroyed() {
     window.removeEventListener("keydown", this.zoomKey, true)
     this.destroyLineTool?.()
+    this.destroyConnectorStyles?.()
     this.directKeyboard?.destroy()
     delete this.el.directKeyboard
     this.canvas.toolsEl?.removeEventListener("click", this.toolKeyboardClick)

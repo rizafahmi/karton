@@ -922,6 +922,146 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     assert node_box(view, board_id(view), id) == {752.4, -120, 160, 640}
   end
 
+  test "connector styles preserve metadata, bindings and shared history through save/reopen",
+       %{view: view, path: path, source: source} do
+    [edge] = source["edges"]
+    edge = Map.put(edge, "data", %{"width" => "application", "future" => [1, 2]})
+    loop = edge |> Map.put("id", "loop") |> Map.put("target", edge["source"])
+    loop = Map.merge(loop, %{"source_handle" => "right", "target_handle" => "top"})
+    source = Map.put(source, "edges", [edge, loop])
+    File.write!(path, Jason.encode!(source))
+    render_click(view, "reload")
+    board = board_id(view)
+    ids = [edge["id"], "loop"]
+    version = workspace_integer(view, "data-edit-version")
+
+    assert %{"ok" => true} = connector_style(view, board, ids, "width", 2)
+    assert workspace_integer(view, "data-edit-version") == version
+    assert %{"ok" => true} = connector_style(view, board, ids, "stroke", "ink")
+    assert has_element?(view, "#workspace[data-dirty=true]")
+    ink_version = workspace_integer(view, "data-edit-version")
+    assert %{"ok" => true} = connector_style(view, board, ids, "stroke", "ink")
+    assert workspace_integer(view, "data-edit-version") == ink_version
+    assert :ok = CanvasTest.undo(view, board)
+    assert has_element?(view, "#workspace[data-dirty=false]")
+    assert %{"ok" => true} = connector_style(view, board, ids, "stroke", "red")
+    assert %{"ok" => true} = connector_style(view, board, ids, "width", 4)
+    assert %{"ok" => true} = connector_style(view, board, ids, "dash", true)
+    assert :ok = CanvasTest.move(view, board, edge["source"], {50, 60})
+    assert :ok = CanvasTest.undo(view, board)
+    assert :ok = CanvasTest.undo(view, board)
+    assert %{ok: true} = selected_event(view, "save", %{})
+    assert {:ok, undone} = Document.open(path)
+
+    assert Graph.edge(undone.graph, edge["id"]).data ==
+             Map.put(edge["data"], "connector_style", %{"stroke" => "red", "width" => 4})
+
+    assert %{"ok" => true} = connector_style(view, board, ids, "width", 4)
+    assert :ok = CanvasTest.redo(view, board)
+    assert %{ok: true} = selected_event(view, "save", %{})
+    assert {:ok, saved} = Document.open(path)
+
+    for id <- ids do
+      styled = Graph.edge(saved.graph, id)
+
+      assert styled.data == %{
+               "width" => "application",
+               "future" => [1, 2],
+               "connector_style" => %{"stroke" => "red", "width" => 4, "dash" => true}
+             }
+
+      original = Enum.find(source["edges"], &(&1["id"] == id))
+      assert styled.source == original["source"]
+      assert styled.target == original["target"]
+    end
+
+    assert Graph.edge(saved.graph, "loop").source_handle == "right"
+    assert Graph.edge(saved.graph, "loop").target_handle == "top"
+    assert saved.source["version"] == 1
+    render_click(view, "reload")
+    assert {:ok, reopened} = Document.open(path)
+    assert reopened.graph == saved.graph
+  end
+
+  test "connector collision is atomic and unsupported metadata survives single-property editing",
+       %{view: view, path: path, source: source} do
+    [edge] = source["edges"]
+
+    good =
+      Map.put(edge, "data", %{
+        "connector_style" => %{"stroke" => "future-color", "width" => 99, "future" => [3]},
+        "application" => true
+      })
+
+    collision = good |> Map.put("id", "collision") |> Map.put("data", %{"connector_style" => nil})
+    File.write!(path, Jason.encode!(Map.put(source, "edges", [good, collision])))
+    render_click(view, "reload")
+    board = board_id(view)
+    version = workspace_integer(view, "data-edit-version")
+
+    assert %{"error" => _} =
+             connector_style(view, board, [good["id"], "collision"], "width", 4)
+
+    assert workspace_integer(view, "data-edit-version") == version
+    assert %{"ok" => true} = connector_style(view, board, [good["id"]], "dash", true)
+    assert %{ok: true} = selected_event(view, "save", %{})
+    assert {:ok, saved} = Document.open(path)
+
+    assert Graph.edge(saved.graph, good["id"]).data ==
+             put_in(good["data"], ["connector_style", "dash"], true)
+
+    assert Graph.edge(saved.graph, "collision").data == collision["data"]
+    version = workspace_integer(view, "data-edit-version")
+    assert %{"ok" => true} = connector_style(view, board, [good["id"]], "dash", true)
+    assert workspace_integer(view, "data-edit-version") == version
+    assert :ok = CanvasTest.undo(view, board)
+    assert %{ok: true} = selected_event(view, "save", %{})
+    assert {:ok, undone} = Document.open(path)
+    assert Graph.edge(undone.graph, good["id"]).data == good["data"]
+    assert :ok = CanvasTest.redo(view, board)
+  end
+
+  test "connector style commands reject readonly without changing graph or history",
+       %{source: source} do
+    graph = Graph.load(source)
+    [edge] = Graph.edges(graph)
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        graph: graph,
+        readonly: true,
+        undo: [:existing_undo],
+        redo: [:existing_redo]
+      }
+    }
+
+    assert {:reply, %{"error" => _}, ^socket} =
+             ElixirCanvasWeb.DrawingCanvas.handle_event(
+               "drawing:edge-style",
+               %{"edges" => [edge.id], "key" => "width", "value" => 4},
+               socket
+             )
+  end
+
+  defp connector_style(view, board, ids, key, value) do
+    view
+    |> element("##{board}-hook")
+    |> render_hook("drawing:edge-style", %{"edges" => ids, "key" => key, "value" => value})
+
+    %{proxy: {ref, _topic, _pid}} = view
+
+    reply =
+      receive do
+        {^ref, {:reply, reply}} -> reply
+      after
+        1_000 -> flunk("connector style command did not reply")
+      end
+
+    render(view)
+    reply
+  end
+
   defp stack(view, board, direction, ids) do
     view
     |> element("##{board}-hook")
