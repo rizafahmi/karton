@@ -498,6 +498,13 @@ writes rotating server logs to `tmp/logs/dev.log`, a crash summary log to
 `tmp/logs/crashes.jsonl`, and self-contained crash reproduction bundles (with
 git SHA, event parameters, stacktraces, and the in-memory version-1 graph) to
 `tmp/crashes/crash-*.json` for both server exceptions and uncaught browser errors.
+Inspect build/asset freshness, example corpus validity, recent log errors, and
+recorded crash bundles with:
+
+```sh
+mix canvas.doctor
+mix canvas.doctor --json
+```
 
 Or run the individual steps directly:
 

@@ -23,6 +23,9 @@ and unresolved repository/technology decisions. No native app is implemented yet
   logs (`tmp/logs/dev.log`), a crash index (`tmp/logs/crashes.jsonl`), and
   self-contained server/client crash reproduction bundles (`tmp/crashes/crash-*.json`)
   containing git SHA, event parameters, stacktraces, and the in-memory version-1 graph.
+  [`mix canvas.doctor`](lib/mix/tasks/canvas.doctor.ex) (`--json`, `--strict`,
+  `--clear-crashes`) inspects build/asset freshness, example corpus integrity,
+  recent log errors, and crash bundles.
 - [CanvasLive](lib/elixir_canvas_web/live/canvas_live.ex) coordinates the editor,
   document lifecycle, unsaved state, and save/reload flows.
 - [DrawingShapes](lib/elixir_canvas_web/drawing_shapes.ex) and

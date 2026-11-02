@@ -23,9 +23,11 @@ and persistence details.
 - [`ElixirCanvas.Document`](lib/elixir_canvas/document.ex) — Version-1 JSON
   schema validation, unknown-metadata retention, SHA-256 revision checks, and
   atomic server-file persistence.
-- [`ElixirCanvas.FlightRecorder`](lib/elixir_canvas/flight_recorder.ex) — Rotating
-  development logs (`tmp/logs/dev.log`) and structured server/client crash bundles
-  (`tmp/crashes/crash-*.json` and `tmp/logs/crashes.jsonl`).
+- [`ElixirCanvas.FlightRecorder`](lib/elixir_canvas/flight_recorder.ex) and
+  [`Mix.Tasks.Canvas.Doctor`](lib/mix/tasks/canvas.doctor.ex) — Rotating
+  development logs (`tmp/logs/dev.log`), structured server/client crash bundles
+  (`tmp/crashes/crash-*.json` and `tmp/logs/crashes.jsonl`), and the
+  `mix canvas.doctor` diagnostic CLI.
 - [`ElixirCanvasWeb.CanvasLive`](lib/elixir_canvas_web/live/canvas_live.ex) —
   LiveView workspace coordinating Hakushi graph state, dirty tracking, and
   save/reload flows across server paths, browser file handles, and copy downloads.
