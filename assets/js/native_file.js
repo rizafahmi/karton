@@ -43,6 +43,9 @@ export function mountNativeFile(workspace) {
   const supportsDirectSave = window.isSecureContext &&
     typeof window.showOpenFilePicker === "function" &&
     supportsWritableHandle(window.FileSystemFileHandle?.prototype)
+  const supportsNewSave = window.isSecureContext &&
+    typeof window.showSaveFilePicker === "function" &&
+    supportsWritableHandle(window.FileSystemFileHandle?.prototype)
   let selectedFile = null
   let pickerRequest = null
   let busy = false
@@ -60,8 +63,17 @@ export function mountNativeFile(workspace) {
         ? "Choose a canvas JSON file. With your permission, Save writes back to that file while this tab stays open."
         : "This browser cannot save back to a selected file. Open a canvas JSON file, then Save copy downloads JSON without changing the original."
     }
-    for (const button of root.querySelectorAll("#save-file, #open-native-file, #empty-open-file, #reload-file, #server-file-options button, #disk-warning .message-action")) {
+    for (const button of root.querySelectorAll("#save-file, #new-canvas, #open-native-file, #empty-open-file, #reload-file, #server-file-options button, #disk-warning .message-action")) {
       button.disabled = disabled || button.id === "save-file" && mode() === "none"
+    }
+    const saveButton = root.querySelector("#save-file")
+    if (saveButton && root.dataset.sourceMissing === "true") {
+      const filename = root.dataset.fileName || "untitled.json"
+      const canChooseFile = mode() === "untitled" && supportsNewSave
+      saveButton.querySelector("span").textContent = canChooseFile ? "Save" : "Save copy"
+      saveButton.title = canChooseFile
+        ? `Choose a file to save ${filename}`
+        : `Download ${filename}; saving to disk cannot be confirmed`
     }
   }
   const setBusy = value => {
@@ -80,7 +92,7 @@ export function mountNativeFile(workspace) {
     if (!flushed.ok) return
     await flushed.settled
     if (!isCurrent(request)) return
-    const reloading = request.action === "reload" && file.name === request.filename
+    const reloading = request.action === "reload" && (file.name === request.filename || root.dataset.sourceMissing === "true")
     if (!reloading && workspace.hasUnsaved()) {
       reportError(openError, request)
       return
@@ -226,43 +238,86 @@ export function mountNativeFile(workspace) {
     }
   }
 
+  const newCanvas = async () => {
+    const request = {generation: generation()}
+    if (busy || root.dataset.fileBusy === "true") {
+      reportError("Wait for the current file operation to finish before starting a new canvas.", request)
+      return
+    }
+    setBusy(true)
+    try {
+      const flushed = workspace.flushEdits()
+      if (!flushed.ok) return
+      await flushed.settled
+      if (!isCurrent(request)) return
+      if (workspace.hasUnsaved()) {
+        reportError("Save or reload this canvas before starting a new canvas.", request)
+        return
+      }
+      const reply = await send("new", {generation: request.generation})
+      if (reply.ok && alive && generation() === reply.generation) {
+        selectedFile = null
+        workspace.focusCanvasWhenReady(reply.generation)
+      }
+    } catch (error) {
+      reportError(error.message, request)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const save = async () => {
     if (busy || root.dataset.fileBusy === "true" || mode() === "none") return
     const request = {generation: generation()}
-    const selected = selectedFile
+    const originalMode = mode()
+    let selected = selectedFile
     let reply
     let written = false
+    let firstHandle = null
     setBusy(true)
     try {
       let permission
-      if (mode() === "browser_file") {
+      let picker
+      if (originalMode === "untitled" && supportsNewSave) {
+        // Invoke in the original gesture: flushing/blur and server replies may consume activation.
+        picker = window.showSaveFilePicker({
+          suggestedName: root.dataset.fileName || "untitled.json",
+          types: [{description: "Canvas JSON", accept: {"application/json": [".json"]}}],
+        }).then(handle => ({handle}), error => ({error}))
+      } else if (originalMode === "browser_file") {
         if (!selected?.handle || selected.generation !== request.generation) {
           throw new Error("The selected file is no longer connected to this tab. Open it again before saving.")
         }
-        // A permission prompt consumes user activation; request it synchronously,
-        // before text blur, the pending Hakushi reply chain, or the server snapshot.
         permission = selected.writeGranted
           ? Promise.resolve("granted")
           : selected.handle.requestPermission({mode: "readwrite"})
       }
       const flushed = workspace.flushEdits()
+      // Attach rejection handlers immediately, even when a draft blocks the save.
+      const chosen = picker
       const permissionGranted = permission?.then(result => {
         selected.writeGranted = result === "granted"
         if (!selected.writeGranted) throw new DOMException("Write permission denied", "NotAllowedError")
       })
-      // Observe both chains immediately: either may reject while the other waits.
-      await Promise.all([permissionGranted, flushed.ok ? flushed.settled : undefined])
-      if (!flushed.ok) return
-      if (!isCurrent(request)) return
-      reply = await send("save", {generation: request.generation})
+      const [candidate] = await Promise.all([chosen, permissionGranted, flushed.ok ? flushed.settled : undefined])
+      if (candidate?.error) throw candidate.error
+      if (!flushed.ok || !isCurrent(request)) return
+      if (candidate) {
+        if (!supportsWritableHandle(candidate.handle)) throw new Error("The chosen file does not support writable file handles.")
+        firstHandle = candidate.handle
+      }
+      const targetMode = originalMode === "untitled" ? (firstHandle ? "browser_file" : "save_copy") : originalMode
+      reply = await send("save", {
+        generation: request.generation,
+        ...(originalMode === "untitled" ? {mode: targetMode, filename: firstHandle?.name || root.dataset.fileName || "untitled.json"} : {}),
+      })
       if (!reply.ok || !reply.token) return
-      if (!isCurrent(request) || reply.generation !== request.generation ||
-          reply.mode !== mode() || reply.filename !== root.dataset.fileName ||
-          !selected || selected !== selectedFile || selected.generation !== request.generation ||
-          selected.revision !== reply.revision) {
+      if (!isCurrent(request) || reply.generation !== request.generation || reply.mode !== targetMode ||
+          mode() !== originalMode ||
+          originalMode === "browser_file" && (!selected || selected !== selectedFile ||
+            selected.generation !== request.generation || selected.revision !== reply.revision)) {
         throw new Error("The selected file changed before saving. Nothing was overwritten.")
       }
-
       if (reply.mode === "save_copy") {
         const url = URL.createObjectURL(new Blob([reply.bytes], {type: "application/json"}))
         const link = document.createElement("a")
@@ -273,19 +328,19 @@ export function mountNativeFile(workspace) {
           link.click()
         } finally {
           link.remove()
-          // Let the native download consume the URL, then release the JSON buffer.
           setTimeout(() => URL.revokeObjectURL(url), 0)
         }
         await send("selected-copy-downloaded", {token: reply.token, generation: reply.generation})
         return
       }
-
-      await checkRevision(selected.handle, reply.revision)
-      const writable = await selected.handle.createWritable({mode: "exclusive"})
+      const handle = firstHandle || selected.handle
+      if (!firstHandle) await checkRevision(handle, reply.revision)
+      const writable = await handle.createWritable({mode: "exclusive"})
       try {
+        if (!isCurrent(request)) throw new Error("The canvas changed before saving. Nothing was overwritten.")
         await writable.write(reply.bytes)
-        // External editors do not participate in the browser's exclusive writer lock.
-        await checkRevision(selected.handle, reply.revision)
+        if (!firstHandle) await checkRevision(handle, reply.revision)
+        if (!isCurrent(request)) throw new Error("The canvas changed while saving. Nothing was overwritten.")
         await writable.close()
         written = true
       } catch (error) {
@@ -296,17 +351,22 @@ export function mountNativeFile(workspace) {
         }
         throw error
       }
+      if (!isCurrent(request)) throw new Error("The file was written, but this canvas is no longer open. Reopen that file before saving again.")
       const acknowledgment = await send("selected-saved", {token: reply.token, generation: reply.generation})
       if (!acknowledgment.ok) throw new Error("The file was written, but the canvas could not confirm the save. Reload before saving again.")
-      if (isCurrent(request) && selectedFile === selected) selected.revision = reply.saved_revision
+      if (isCurrent(request)) {
+        if (firstHandle && mode() === "browser_file") {
+          selectedFile = {handle, filename: reply.filename, generation: request.generation,
+            revision: reply.saved_revision, writeGranted: true}
+        } else if (selectedFile === selected) selected.revision = reply.saved_revision
+      }
     } catch (error) {
       if (error.name === "NotAllowedError" && selected) selected.writeGranted = false
+      if (error.name === "AbortError" && !reply?.token) return
       const message = written ? error.message : fileError(error, true)
       if (reply?.token) {
         await send("selected-save-error", {
-          token: reply.token,
-          generation: reply.generation,
-          message,
+          token: reply.token, generation: reply.generation, message,
           status: error.fileStatus || (error.name === "NotFoundError" ? "unavailable" : undefined),
         })
       } else reportError(message, request)
@@ -318,11 +378,12 @@ export function mountNativeFile(workspace) {
   syncButtons()
 
   return {
+    newCanvas,
     open: () => open("open"),
     reload: () => open("reload"),
     save,
     updated() {
-      if (selectedFile && (selectedFile.generation !== generation() || selectedFile.filename !== root.dataset.fileName || mode() === "server_file" || mode() === "none")) {
+      if (selectedFile && (selectedFile.generation !== generation() || selectedFile.filename !== root.dataset.fileName || ["server_file", "none", "untitled"].includes(mode()))) {
         selectedFile = null
       }
       syncButtons()

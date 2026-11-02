@@ -13,6 +13,41 @@ defmodule ElixirCanvas.DocumentTest do
     %{path: path, document: document}
   end
 
+  test "a new in-memory canvas is blank, portable and cannot save over a previous file", %{
+    path: path,
+    document: previous
+  } do
+    original = File.read!(path)
+    original_revision = :crypto.hash(:sha256, original)
+    document = Document.new()
+
+    assert document.graph == Graph.new()
+    assert document.path == nil
+    assert document.filename == "untitled.json"
+    assert document.persistence == :untitled
+    assert document.revision == nil
+    assert document.source == %{"appearance" => %{"font" => "sans"}}
+    assert Document.drawing_font(document) == "sans"
+    assert Document.status(document) == :client_managed
+    assert {:error, _} = Document.save(document, document.graph)
+    assert {:error, _} = Document.save(%{previous | path: nil}, previous.graph)
+
+    bytes = Document.encode(document, document.graph)
+    assert {:ok, graph, source} = Document.decode(bytes)
+    assert graph == Graph.new()
+    assert source["version"] == 1
+    assert source["nodes"] == []
+    assert source["edges"] == []
+    assert source["appearance"] == %{"font" => "sans"}
+    assert {:ok, ^bytes, prepared} = Document.prepare_save(document, document.graph)
+    assert prepared.path == nil
+    assert prepared.persistence == :untitled
+    assert prepared.revision == :crypto.hash(:sha256, bytes)
+    assert document.revision == nil
+    assert File.read!(path) == original
+    assert :crypto.hash(:sha256, File.read!(path)) == original_revision
+  end
+
   test "selected file bytes load real graph content without acquiring a server path", %{
     path: path,
     document: document

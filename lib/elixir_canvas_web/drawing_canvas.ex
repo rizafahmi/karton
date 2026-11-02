@@ -196,7 +196,7 @@ defmodule ElixirCanvasWeb.DrawingCanvas do
 
   defp put_order(socket, order) do
     graph = %{socket.assigns.graph | node_order: order}
-    send(self(), {:canvas_changed, graph})
+    send(self(), {:canvas_changed, socket.assigns.generation, graph})
 
     socket
     |> assign(:graph, graph)

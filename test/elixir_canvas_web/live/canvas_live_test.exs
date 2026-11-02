@@ -23,6 +23,239 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     %{view: view, path: path, source: source}
   end
 
+  test "New replaces only a clean canvas with a fresh blank document and rejects old work", %{
+    view: view,
+    path: path,
+    source: source
+  } do
+    original = File.read!(path)
+    old_generation = workspace_integer(view, "data-generation")
+    old_board = board_id(view)
+    render_change(view, "appearance", %{"font" => "mono"})
+    assert %{ok: true} = selected_event(view, "save", %{})
+    previous_bytes = File.read!(path)
+    previous_hash = :crypto.hash(:sha256, previous_bytes)
+
+    assert %{ok: true, generation: generation} =
+             selected_event(view, "new", %{"generation" => old_generation})
+
+    assert generation == old_generation + 1
+    refute board_id(view) == old_board
+    assert CanvasTest.nodes(view, board_id(view)) == []
+    assert has_element?(view, "#workspace[data-file-mode=untitled][data-dirty=false]")
+
+    assert has_element?(
+             view,
+             "#workspace[data-file-name='untitled.json'][data-drawing-font=sans]"
+           )
+
+    assert %{document: document, graph: graph, pending_save: nil} =
+             :sys.get_state(view.pid).socket.assigns
+
+    assert document == Document.new()
+    assert graph == Graph.new()
+    assert page_title(view) == "untitled.json"
+    assert {:error, _} = CanvasTest.undo(view, board_id(view))
+    assert {:error, _} = CanvasTest.redo(view, board_id(view))
+    assert CanvasTest.nodes(view, board_id(view)) == []
+
+    send(view.pid, {:canvas_changed, old_generation, Graph.load(source)})
+    render(view)
+
+    for {event, payload} <- [
+          {"new", %{"generation" => old_generation}},
+          {"save", %{"generation" => old_generation}},
+          {"selected-saved", %{"generation" => old_generation, "token" => "old-token"}},
+          {"selected-copy-downloaded", %{"generation" => old_generation, "token" => "old-token"}},
+          {"selected-open",
+           %{
+             "generation" => old_generation,
+             "filename" => "old.json",
+             "bytes" => original,
+             "mode" => "browser_file"
+           }}
+        ] do
+      assert %{ok: false} = selected_event(view, event, payload)
+      assert workspace_integer(view, "data-generation") == generation
+      assert CanvasTest.nodes(view, board_id(view)) == []
+      assert has_element?(view, "#workspace[data-file-mode=untitled][data-dirty=false]")
+    end
+
+    render_click(view, "reload")
+    assert CanvasTest.nodes(view, board_id(view)) == []
+    assert has_element?(view, "#workspace[data-file-mode=untitled][data-dirty=false]")
+    assert File.read!(path) == previous_bytes
+    assert :crypto.hash(:sha256, File.read!(path)) == previous_hash
+  end
+
+  test "New refuses dirty edits and an outstanding clean save without changing generation", %{
+    view: view,
+    path: path
+  } do
+    original = File.read!(path)
+    generation = workspace_integer(view, "data-generation")
+    board = board_id(view)
+    assert :ok = CanvasTest.edit(view, board, "idea", "text", %{"value" => "Keep my text"})
+    assert %{ok: false} = selected_event(view, "new", %{"generation" => generation})
+    assert workspace_integer(view, "data-generation") == generation
+    assert board_id(view) == board
+    assert hd(CanvasTest.nodes(view, board)).label =~ "Keep my text"
+    assert has_element?(view, "#workspace[data-dirty=true]")
+
+    render_click(view, "reload")
+
+    assert %{ok: true, generation: selected_generation} =
+             selected_event(view, "selected-open", %{
+               "generation" => workspace_integer(view, "data-generation"),
+               "filename" => "picked.json",
+               "bytes" => original,
+               "mode" => "browser_file"
+             })
+
+    selected_board = board_id(view)
+
+    assert %{ok: true, token: token} =
+             selected_event(view, "save", %{"generation" => selected_generation})
+
+    assert %{ok: false} = selected_event(view, "new", %{"generation" => selected_generation})
+    assert workspace_integer(view, "data-generation") == selected_generation
+    assert board_id(view) == selected_board
+    assert has_element?(view, "#workspace[data-file-mode=browser_file][data-dirty=false]")
+
+    assert %{ok: true} =
+             selected_event(view, "selected-saved", %{
+               "generation" => selected_generation,
+               "token" => token
+             })
+
+    assert File.read!(path) == original
+  end
+
+  test "first native save promotes only its acknowledged snapshot and preserves newer edits", %{
+    view: view,
+    path: path
+  } do
+    original = File.read!(path)
+
+    assert %{ok: true, generation: generation} =
+             selected_event(view, "new", %{
+               "generation" => workspace_integer(view, "data-generation")
+             })
+
+    render_change(view, "appearance", %{"font" => "mono"})
+
+    assert %{ok: true, token: token, bytes: bytes, saved_revision: revision} =
+             selected_event(view, "save", %{
+               "generation" => generation,
+               "mode" => "browser_file",
+               "filename" => "my-new-canvas.json"
+             })
+
+    assert has_element?(view, "#workspace[data-file-mode=untitled][data-dirty=true]")
+    assert {:ok, snapshot} = Document.open_selected("my-new-canvas.json", bytes, :browser_file)
+    assert snapshot.path == nil
+    assert snapshot.graph == Graph.new()
+    assert snapshot.source["version"] == 1
+    assert snapshot.source["appearance"]["font"] == "mono"
+    assert revision == Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
+    render_change(view, "appearance", %{"font" => "heading"})
+
+    assert %{ok: true} =
+             selected_event(view, "selected-saved", %{
+               "generation" => generation,
+               "token" => token
+             })
+
+    assert has_element?(view, "#workspace[data-file-mode=browser_file][data-dirty=true]")
+
+    assert has_element?(
+             view,
+             "#workspace[data-file-name='my-new-canvas.json'][data-drawing-font=heading]"
+           )
+
+    assert %{ok: true, revision: ^revision, token: next_token} =
+             selected_event(view, "save", %{"generation" => generation})
+
+    assert %{ok: true} =
+             selected_event(view, "selected-saved", %{
+               "generation" => generation,
+               "token" => next_token
+             })
+
+    assert has_element?(view, "#workspace[data-file-mode=browser_file][data-dirty=false]")
+    assert File.read!(path) == original
+  end
+
+  test "failed first saves and downloaded copies never acquire a disk source", %{
+    view: view,
+    path: path
+  } do
+    original = File.read!(path)
+
+    assert %{ok: true, generation: generation} =
+             selected_event(view, "new", %{
+               "generation" => workspace_integer(view, "data-generation")
+             })
+
+    render_change(view, "appearance", %{"font" => "mono"})
+
+    assert %{ok: true, token: token} =
+             selected_event(view, "save", %{
+               "generation" => generation,
+               "mode" => "browser_file",
+               "filename" => "failed.json"
+             })
+
+    assert %{ok: false} =
+             selected_event(view, "selected-save-error", %{
+               "generation" => generation,
+               "token" => token,
+               "message" => "Write failed",
+               "status" => "unavailable"
+             })
+
+    assert has_element?(
+             view,
+             "#workspace[data-file-mode=untitled][data-dirty=true][data-file-name='untitled.json']"
+           )
+
+    assert :sys.get_state(view.pid).socket.assigns.disk_status == :unchanged
+    refute has_element?(view, "#disk-warning")
+
+    assert %{ok: true, token: copy_token, bytes: bytes} =
+             selected_event(view, "save", %{
+               "generation" => generation,
+               "mode" => "save_copy",
+               "filename" => "untitled.json"
+             })
+
+    assert {:ok, copy} = Document.open_selected("untitled.json", bytes, :save_copy)
+    assert copy.source["version"] == 1
+    assert copy.source["appearance"]["font"] == "mono"
+
+    assert %{ok: false} =
+             selected_event(view, "selected-saved", %{
+               "generation" => generation,
+               "token" => copy_token
+             })
+
+    assert %{ok: true} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "generation" => generation,
+               "token" => copy_token
+             })
+
+    assert has_element?(view, "#workspace[data-file-mode=save_copy][data-dirty=true]")
+    render_click(view, "reload")
+
+    assert has_element?(
+             view,
+             "#workspace[data-file-mode=save_copy][data-dirty=true][data-drawing-font=mono]"
+           )
+
+    assert File.read!(path) == original
+  end
+
   test "selected bytes replace the canvas content and filename without writing the server source",
        %{
          view: view,
@@ -460,7 +693,7 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     {:ok, graph, _, _} =
       Graph.apply(document.graph, Change.move([%{id: "idea", x: 123.5, y: -90}]))
 
-    send(view.pid, {:canvas_changed, graph})
+    send(view.pid, {:canvas_changed, workspace_integer(view, "data-generation"), graph})
     assert has_element?(view, "[data-dirty=true]")
     render_change(view, "appearance", %{"font" => "mono"})
     render_change(view, "appearance", %{"font" => "sans"})

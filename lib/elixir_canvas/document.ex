@@ -19,6 +19,15 @@ defmodule ElixirCanvas.Document do
   @node_fields ~w(id type x y width height data locked parent)
   @edge_fields ~w(id source source_handle target target_handle path label marker animated data)
 
+  def new do
+    %__MODULE__{
+      filename: "untitled.json",
+      persistence: :untitled,
+      graph: Graph.new(),
+      source: %{"appearance" => %{"font" => "sans"}}
+    }
+  end
+
   def open(path) do
     path = Path.expand(path)
 
@@ -92,7 +101,7 @@ defmodule ElixirCanvas.Document do
   end
 
   def status(%__MODULE__{persistence: persistence})
-      when persistence in [:browser_file, :save_copy],
+      when persistence in [:browser_file, :save_copy, :untitled],
       do: :client_managed
 
   def status(%__MODULE__{persistence: :server_file, path: path, revision: revision}) do
@@ -101,6 +110,10 @@ defmodule ElixirCanvas.Document do
       {:error, _reason} -> :unavailable
     end
   end
+
+  def save(%__MODULE__{path: nil, persistence: persistence}, %Graph{})
+      when persistence in [:server_file, :untitled],
+      do: {:error, "This canvas has no server path. Save it through the browser."}
 
   def save(%__MODULE__{persistence: :browser_file}, %Graph{}),
     do: {:error, "Save this file through the browser's selected file handle."}

@@ -619,9 +619,11 @@ const FileCanvas = {
 const Workspace = {
   mounted() {
     this.activeCanvas = () => this.el.querySelector('[phx-hook="Hakushi"]')
-    this.pending = () => {
+    this.pending = () => this.activeCanvas()?.pendingFileEdits || 0
+    // Loading a fresh board is not an edit, but flushes still await readiness.
+    this.canvasSettled = () => {
       const canvas = this.activeCanvas()
-      return canvas ? (canvas.fileCanvasReady ? canvas.pendingFileEdits || 0 : 1) : 0
+      return !canvas || canvas.fileCanvasReady && !canvas.pendingFileEdits
     }
     this.hasUnsaved = () => this.el.dataset.dirty === "true" || this.pending() > 0 ||
       !!this.el.querySelector(".hakushi-text-editor, .hakushi-edge-input") || this.el.directPreview === true
@@ -629,19 +631,30 @@ const Workspace = {
     this.flushEdits = () => {
       const waiters = []
       const event = new CustomEvent("canvas:flush", {cancelable: true, detail: {waiters}})
-      if (!this.el.dispatchEvent(event)) return {ok: false}
+      if (!this.el.dispatchEvent(event)) return {ok: false, settled: Promise.resolve()}
       document.activeElement?.blur()
       const settled = Promise.all(waiters).then(results => {
         if (results.includes(false)) throw new Error("The adjacent thought was not added. Your draft is still here.")
-        if (this.pending() === 0) return
+        if (this.canvasSettled()) return
         return new Promise(resolve => this.flushWaiters.add(resolve))
       })
       return {ok: true, settled}
     }
     this.settled = () => {
-      if (this.pending() > 0) return
+      if (!this.canvasSettled()) return
+      if (this.focusCanvasGeneration === Number(this.el.dataset.generation)) {
+        const canvas = this.activeCanvas()
+        if (canvas?.fileCanvasReady) {
+          canvas.closest(".hakushi").focus({preventScroll: true})
+          this.focusCanvasGeneration = null
+        }
+      }
       for (const resolve of this.flushWaiters) resolve()
       this.flushWaiters.clear()
+    }
+    this.focusCanvasWhenReady = generation => {
+      this.focusCanvasGeneration = generation
+      this.settled()
     }
     this.nativeFile = mountNativeFile(this)
     this.requestSave = () => this.nativeFile.save()
@@ -650,6 +663,7 @@ const Workspace = {
       const event = new CustomEvent("canvas:flush", {cancelable: true})
       if (this.el.dispatchEvent(event)) this.nativeFile.open()
     }
+    this.requestNew = () => this.nativeFile.newCanvas()
     this.requestReload = () => this.nativeFile.reload()
     this.saveKey = event => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || (!event.metaKey && !event.ctrlKey)) return
@@ -718,6 +732,7 @@ const Workspace = {
       })
     }
     this.el.addEventListener("canvas:save", this.requestSave)
+    this.el.addEventListener("canvas:new", this.requestNew)
     this.el.addEventListener("canvas:open", this.requestOpen)
     this.el.addEventListener("canvas:reload", this.requestReload)
     this.el.addEventListener("canvas:settled", this.settled)
@@ -732,7 +747,7 @@ const Workspace = {
     this.nativeFile.updated()
     const menuOpen = !!this.el.querySelector("#file-menu")
     const styleOpen = this.el.dataset.styleOpen === "true"
-    if (menuOpen && !this.menuWasOpen) this.el.querySelector("#open-native-file")?.focus()
+    if (menuOpen && !this.menuWasOpen) this.el.querySelector(".file-menu-actions #open-native-file")?.focus()
     if (styleOpen && !this.styleWasOpen) this.el.querySelector(".hakushi-style-panel button")?.focus()
     this.menuWasOpen = menuOpen
     this.styleWasOpen = styleOpen
@@ -745,6 +760,7 @@ const Workspace = {
     for (const resolve of this.flushWaiters) resolve()
     this.flushWaiters.clear()
     this.el.removeEventListener("canvas:save", this.requestSave)
+    this.el.removeEventListener("canvas:new", this.requestNew)
     this.el.removeEventListener("canvas:open", this.requestOpen)
     this.el.removeEventListener("canvas:reload", this.requestReload)
     this.el.removeEventListener("canvas:settled", this.settled)
