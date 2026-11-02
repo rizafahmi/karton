@@ -38,13 +38,25 @@ New flushes active text and thought drafts first, then refuses if any edits rema
 unsaved or a file operation is in progress. Invalid drafts are retained and block
 New; there is no implicit discard or confirmation flow.
 
+Before connecting a source, use **Canvas filename → Rename** in the document menu.
+This also remains available after an unbacked Save copy download, even with unsaved
+edits. Naming changes only this tab's filename: it does not save, alter JSON
+metadata, dirty the graph, or reset undo/redo. It is unavailable during a save and
+for opened files/copies or connected browser handles; it never renames a disk file.
+Names retain Unicode, case and internal spaces, with surrounding whitespace
+trimmed and `.json` appended only when omitted (existing `.JSON` is preserved).
+The final name must have a nonblank stem and at most 120 characters including the
+extension, with no `/`, backslash, `..`, or control characters.
+
 On supporting secure-context browsers, the first **Save** opens the operating
-system's Save picker with `untitled.json` suggested. Only a successful validated
+system's Save picker with the current canvas filename suggested (`untitled.json`
+until renamed). The actual name chosen in that picker becomes authoritative.
+Only a successful validated
 JSON write connects that chosen file to this tab and shows **Saved to disk**;
 later saves write it in place and Reload reads it again. Cancellation or write
 failure leaves the untitled document and edits intact, without downloading instead.
 Edits made during the write remain unsaved; saving does not reset history.
-Without native writable-file support, **Save copy** downloads `untitled.json`.
+Without native writable-file support, **Save copy** downloads the current canvas filename.
 Downloads do not confirm disk persistence: the document remains unsaved, retains
 its pre-download comparison baseline, and never pretends to have an original file.
 Use **Reload: choose file again…** to load the actual copy you saved or downloaded;
@@ -609,6 +621,13 @@ every change:
    and actual saved bytes, subsequent Save and Reload; a supplied/OPFS handle alone
    does not prove the dialog. Check cancellation/failure preservation, edits made
    while writing, and repeated fallback downloads without a false saved state.
+   Rename before first Save and after a fallback download, including while dirty.
+   Check current header/tab/help and picker suggestion/download filename, retained
+   graph/history and unchanged old-file bytes; inspect JSON for no added title.
+   Refuse invalid names, stale generation and pending-save renames. A different
+   OS-chosen filename must become authoritative only after a successful write;
+   cancellation/failure retains the session name. Opened/connected files and
+   opened copies must not expose Rename or accept a forged rename submission.
 6. For keyboard changes, use the **?** map as the workflow inventory. Place each
    drawing kind without a pointer; edit/commit/cancel text; select arbitrary
    objects and a connection; preview/commit/cancel resize, rotation and endpoints; create a

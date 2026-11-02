@@ -94,6 +94,9 @@ components:
 > canvas in DOM and keyboard order. Use two equal grid columns with an 8px gap,
 > matching square frames, 16px icons and at least 44px height; keep native-open
 > help below the row and advanced-path/reload controls independent.
+> An unbacked canvas may expose a compact, visibly labeled filename form below
+> that action section. Reuse the file input row with square frames and cobalt
+> focus, scope its sizing independently, and preserve Open/New order and spacing.
 > Connected arrows and self-loops reuse this Style inspector for named stroke,
 > width 1/2/4 and solid/dashed; no new panel or arrowhead mapping. Edge-only
 > multiselection edits one common property atomically; mixed selections retain

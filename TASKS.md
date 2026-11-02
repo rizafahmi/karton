@@ -196,6 +196,32 @@ journey.
   sizing. This layout-only proof does not certify native dialogs, persistence,
   other engines or mobile interaction.
 
+### Unsaved canvas filename
+
+- **Status:** implemented as explicitly requested session-only naming, without
+  changing native milestone ordering or approving proposed readiness scope.
+- **Contract:** a compact document-menu Rename form changes only a pathless,
+  revisionless New/downloaded-copy filename, preserving graph, JSON metadata,
+  dirty state and history. Generation and pending-save guards reject stale or
+  racing submissions. Opened copies, server files and browser handles cannot be
+  renamed here. First native Save suggests the current name but adopts the actual
+  chosen handle name only after writing; unbacked copies keep downloading under
+  their current name without acquiring a handle.
+- **Verified (2026-11-02):** final `mix check` passed (32 Node and 80 ExUnit
+  tests). Actual Chromium form Enter updated header/tab/help/tooltip; two actual
+  downloads used successive normalized names with identical v1 bytes and no
+  title/name metadata. The previous server file's SHA-256 stayed unchanged.
+  An actual opened downloaded copy hid Rename; native Open → Tab → New retained
+  keyboard order. Max-length names fit the menu at 375×667 and 1280×800 after
+  scoped filename-help wrapping.
+- **Handle proof and limits:** real OPFS writes exercised matching/different
+  chosen names and successful browser-file promotion with active user gestures.
+  Picker cancellation preserved the suggested session name. The original native
+  Save picker was invoked with active user activation but returned headless
+  `AbortError`; accepting an OS dialog remains unverified. OPFS is real handle
+  I/O, not OS-picker proof; masked fallback does not certify Safari/Firefox.
+
+
 ## Proposed readiness additions — adoption and placement need approval
 
 Source-backed gaps and observed/unverified risks below do not approve new scope.

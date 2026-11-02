@@ -102,6 +102,15 @@ the pre-download baseline and nil revision (no connected source), with honest
 unsaved state. Neither untitled state nor downloads may reuse a previous path or
 handle. Preserve native browser New shortcuts; no discard flow is implied.
 
+`Document.normalize_filename/1` validates authored names, and `Document.rename/2`
+changes only `filename` for pathless, revisionless `:untitled` / `:save_copy`
+documents. Names are ephemeral session identity, never version-1 JSON metadata
+or a filesystem rename; dirty/history/generation remain unchanged. Rename submits
+a generation string and refuses pending saves so acknowledgements cannot restore
+an older name. First Save snapshots the current suggested name, but a chosen
+browser handle's actual name is authoritative and must not pass through authored
+name normalization. Opened copies with a revision are not renameable.
+
 ## Decision policies
 
 Implement requested changes directly by default. Restate the plan and wait only
