@@ -44,6 +44,10 @@ and unresolved repository/technology decisions. No native app is implemented yet
   The self-loop integration also registers triangle connection handles from the
   kit's actual SVG polygon before native measurement; transformed routing sides
   are client-only, while persisted top/right/bottom/left names stay unchanged.
+  [text_editor_geometry.js](assets/js/text_editor_geometry.js) previews multiline
+  text growth through the guide/handle measurement path, retaining client-only
+  height across native node rereads. Restore the baseline before native text
+  finish so commit still persists growth and Escape leaves no preview/history.
 - [connector_styles.js](assets/js/connector_styles.js) extends the existing Style
   inspector for edge-only selections and renders persisted named connector styles.
   Preserve native highlight/hit-target semantics and bounded, state-specific marker

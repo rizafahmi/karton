@@ -309,6 +309,12 @@ Command/Ctrl+O invokes the existing native **Open…** workflow from any field;
 Command/Ctrl+Shift+E invokes the existing image **Download**. Both retain current
 unsaved guards, browser capabilities and cancellation behavior.
 
+**Shape text editing:** Enter inserts a newline. As text grows, the shape outline,
+selection frame, connection handles and resizers grow with the editor, including
+rotated shapes. Removing lines shrinks the preview no smaller than its height at
+edit entry. Command/Ctrl+Enter or blur commits text and any required growth;
+Escape restores the original text and height without a history edit.
+
 **Tab traversal** keeps selection unchanged. The canvas remains a focusable entry
 point even when empty. After mouse selection leaves focus on the canvas, the first
 Tab **or Shift+Tab** focuses the selected drawing; with multiple drawings selected,
@@ -566,8 +572,8 @@ Or run the individual steps directly:
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test
-node --test test/direct_keyboard_test.mjs test/triangle_attachments_test.mjs
-for file in assets/js/app.js assets/js/connector_styles.js assets/js/direct_keyboard.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js; do
+node --test test/*_test.mjs
+for file in assets/js/*.js; do
   node --input-type=module --check < "$file" || exit 1
 done
 mix assets.build
@@ -597,6 +603,9 @@ Triangle attachment regressions mount Hakushi and inspect rendered edge/handle
 geometry against the transformed SVG perimeter across named/automatic source and
 target bindings, non-square sizes, rotation, resize/restore, and keyboard previews.
 Mixed standalone-arrow fixtures retain their free endpoints and markers.
+Shape-text regressions exercise native Hakushi editing and DOM-mutation rereads:
+live growth/shrink, rotated guide origins, connection remeasurement, Escape
+restoration, and grown-height commands on Command/Ctrl+Enter or blur.
 Adjacent-thought regressions cover rotated cardinal placement, blocker clearance
 after growth, non-mutating cancellation and stale-source guards, composition and
 overlong-draft refusal, chooser Save cancellation, OS-focus state, and a single
