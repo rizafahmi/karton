@@ -30,6 +30,27 @@ Saving it edits that actual example file. To start with a different file:
 CANVAS_FILE=/absolute/path/to/ideas.json mix phx.server
 ```
 
+Use **New canvas** in the document menu to start an in-memory `untitled.json`.
+It creates no file and never reuses the previous server path or browser handle.
+The blank canvas starts with Normal (`sans`) text, empty undo/redo, and **Not saved**.
+Before making edits, you can choose New again or Open without saving.
+New flushes active text and thought drafts first, then refuses if any edits remain
+unsaved or a file operation is in progress. Invalid drafts are retained and block
+New; there is no implicit discard or confirmation flow.
+
+On supporting secure-context browsers, the first **Save** opens the operating
+system's Save picker with `untitled.json` suggested. Only a successful validated
+JSON write connects that chosen file to this tab and shows **Saved to disk**;
+later saves write it in place and Reload reads it again. Cancellation or write
+failure leaves the untitled document and edits intact, without downloading instead.
+Edits made during the write remain unsaved; saving does not reset history.
+Without native writable-file support, **Save copy** downloads `untitled.json`.
+Downloads do not confirm disk persistence: the document remains unsaved, retains
+its pre-download comparison baseline, and never pretends to have an original file.
+Use **Reload: choose file again…** to load the actual copy you saved or downloaded;
+cancelling keeps your current edits. Ordinary **Open…** remains blocked until
+there are no unsaved edits. Untitled Reload never reads the previous server file.
+
 Use **Open…** in the document menu to choose a JSON canvas with the operating
 system's file picker. The selected bytes are validated by the same document
 decoder as server files. The browser provides a filename, not an absolute server
@@ -92,7 +113,7 @@ and keyboard focus. Drawing colors and typography resolve through the interface'
 theme from portable names; the document retains its authored geometry and style intent.
 
 - **Paper** sits beside the filename at the upper left. The filename opens the
-  document menu: native **Open…**, advanced server-path open/create, reload,
+  document menu: **New canvas**, native **Open…**, advanced server-path open/create, reload,
   **Default text style**, shortcut help, and project/stack details with a link
   to the GitHub repository.
 - **Download** exports an image beside **Save** at the upper right. Save writes
@@ -217,7 +238,7 @@ The document menu contains a compact **Keyboard shortcuts (?)** disclosure; **?*
 from the focused canvas opens it. Editing stays directly on the canvas—there is
 no separate properties or replacement editor panel. Tab/Shift+Tab, Enter/Space,
 and native select navigation reach the existing controls. The file menu retains
-native open, server open/create forms, reload, default font and project links.
+New canvas, native open, server open/create forms, reload, default font and project links.
 Style remains authoritative for every applicable appearance choice, including
 standalone arrowheads; Paper and arrangement retain their native menus.
 
@@ -248,8 +269,8 @@ select, contenteditable editor or toolbar button. IME composition is left alone.
 commits active shape text, connection labels, geometry previews and placed
 adjacent-thought drafts before awaiting server patches. An invalid thought draft
 blocks saving rather than writing the old graph and claiming success.
-It retains the source-specific Save/Save copy contract above; there is
-no fake New or Save As command, nor a browser New/Reload/Find shortcut takeover.
+It retains the source-specific Save/Save copy contract above. **New canvas** is a
+menu action, not a browser New/Reload/Find shortcut takeover; there is no Save As command.
 Keyboard activation of a drawing-tool button focuses the canvas for placement.
 Command/Ctrl+O invokes the existing native **Open…** workflow from any field;
 Command/Ctrl+Shift+E invokes the existing image **Download**. Both retain current
@@ -579,6 +600,15 @@ every change:
    file-input picker, edit, and **Save copy**. Inspect the downloaded JSON and
    confirm the original is unchanged and edits remain dirty. Reselect the original
    when checking reload.
+   Also start with **New canvas**: confirm the old file is unchanged, the blank
+   canvas has Normal text and fresh history, and keyboard focus reaches the ready
+   canvas. Repeat New or Open before making edits, including while the new board's
+   fonts are loading: no unsaved warning should appear, and New waits for readiness.
+   Check dirty text, valid/invalid drafts, and in-flight-save refusal.
+   First-save native-picker proof must include the real user-activated OS dialog
+   and actual saved bytes, subsequent Save and Reload; a supplied/OPFS handle alone
+   does not prove the dialog. Check cancellation/failure preservation, edits made
+   while writing, and repeated fallback downloads without a false saved state.
 6. For keyboard changes, use the **?** map as the workflow inventory. Place each
    drawing kind without a pointer; edit/commit/cancel text; select arbitrary
    objects and a connection; preview/commit/cancel resize, rotation and endpoints; create a

@@ -148,6 +148,54 @@ journey.
   used visible controls and endpoint moves used actual pointer gestures. Native
   work remains final; proposed readiness additions below are still unapproved.
 
+### First-class New canvas
+
+- **Status:** implemented as an explicitly requested web workflow; this does not
+  approve the proposed readiness additions below or move the native milestone.
+- **Scope:** primary document-menu New canvas creates an in-memory `untitled.json`
+  with Normal typography, a fresh generation and history, and no previous path or
+  handle. Advanced server-path creation remains available. New flushes valid
+  editors/drafts, then blocks unsaved work and pending persistence; invalid drafts
+  remain intact. Ready-canvas focus supports immediate keyboard editing.
+- **Persistence:** first native Save invokes the Save picker from the original
+  gesture, writes validated v1 JSON, and only then promotes the saved snapshot to
+  a browser-backed document. Later edits stay dirty and history is preserved.
+  Unsupported saving downloads a copy, retaining the unsaved baseline rather than
+  claiming a confirmed disk save. Reload selects an actual saved copy or reads the
+  promoted handle; no phantom server source is introduced.
+- **Contract and verification:** [README: Run](README.md#run) documents the state
+  transitions and [manual verification](README.md#manual-browser-verification)
+  includes New, dirty/draft/busy refusal, first-save failures, stale generations,
+  real-picker versus handle-only proof, and downloaded-byte inspection. Native
+  dialog, permissions, and cross-engine behavior require actual browser evidence;
+  automated source-mode tests alone do not certify them.
+- **Verified:** `node --check assets/js/app.js` and `mix check` passed (32 Node
+  tests and 76 ExUnit tests). Actual Chromium editor checks showed clean New
+  remounting an empty Normal-font board with ready-canvas focus and no old-file
+  write; dirty edits, valid/invalid drafts and in-flight writes refused New.
+  The same rejected 2,001-character draft was corrected through real typing,
+  committed, and dirty-blocked New without changing generation. Actual downloaded
+  JSON parsed as v1 with empty nodes/edges and sans typography, retaining honest
+  dirty state. Cancelled copy reload preserved edits; the actual file chooser
+  accepted a renamed downloaded copy and reloaded cleanly.
+- **Handle proof and limits:** actual OPFS-backed writes verified first-save
+  promotion only after success, subsequent in-place Save, conflict preservation,
+  connected-handle Reload, cancellation/write-failure retention, and aborting a
+  staged stale-generation write without changing its old bytes. SHA-256 checks
+  confirmed the prior server file unchanged; after New saved through a distinct
+  new handle, the disconnected old handle's bytes also remained identical. The real
+  `showSaveFilePicker` was invoked in an active user gesture, but headless
+  Chromium returned native `AbortError`: accepting an OS Save dialog remains
+  unverified. OPFS proves real handle I/O, not picker security or OS acceptance;
+  no Safari/Firefox, physical IME, or cross-engine certification is claimed.
+- **Action-row UI verified (2026-11-02):** one actual Chromium 150 batch at
+  1280×800 and 375×667 measured equal 167px / 151.5px columns, 44px heights,
+  an 8px gap and matching menu inner edges. Native forward Tab moved from
+  initially focused Open to New; square frames, distinct icons and acid/ink
+  New hover passed. Advanced-path and Reload controls retained their existing
+  sizing. This layout-only proof does not certify native dialogs, persistence,
+  other engines or mobile interaction.
+
 ## Proposed readiness additions — adoption and placement need approval
 
 Source-backed gaps and observed/unverified risks below do not approve new scope.
@@ -176,9 +224,12 @@ Any adopted non-native additions precede the final native milestone.
       create their own board, and choose where to keep it without editing the
       welcome source accidentally or confusing a browser filename with a server
       path.
-- **Evidence:** startup opens editable `examples/welcome.json`; Create is under
-  Advanced: server file path (`CanvasLive.render`), not an ordinary New/Save As
-  flow.
+- **Evidence:** startup still opens editable `examples/welcome.json`. The document
+  menu now includes New canvas: a pathless in-memory board whose first Save uses
+  a native Save picker when supported, or an honest Save copy download otherwise.
+  Explicit server-path Create remains under Advanced: server file path.
+  This implemented workflow does not complete or approve the broader proposed
+  audience/setup/first-personal-document journey gate.
 - **Acceptance:** from the agreed starting environment, follow canonical launch
   instructions, create/edit/save/reopen a personal document, inspect
   bytes/location, and check cancellation/failure/existing-file protection.

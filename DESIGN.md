@@ -90,6 +90,10 @@ components:
 > group. The rail ends above the dock and scrolls in short windows. Narrow windows
 > collapse Download and, at the smallest width, Style to labeled icons. All drawing
 > tools remain visible.
+> The document menu's primary action row places inverted Open before framed New
+> canvas in DOM and keyboard order. Use two equal grid columns with an 8px gap,
+> matching square frames, 16px icons and at least 44px height; keep native-open
+> help below the row and advanced-path/reload controls independent.
 > Connected arrows and self-loops reuse this Style inspector for named stroke,
 > width 1/2/4 and solid/dashed; no new panel or arrowhead mapping. Edge-only
 > multiselection edits one common property atomically; mixed selections retain

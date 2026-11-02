@@ -91,6 +91,17 @@ browser handles, and downloaded copies distinct, including truthful save/dirty
 state and external-change handling. See [README: Run](README.md#run) and
 [README: Edit](README.md#edit) for the persistence contract and its limits.
 
+`Document.new/0` returns a blank `:untitled` document without a path or revision.
+New canvas flushes drafts/text, then refuses unsaved work or a busy file operation;
+it remounts a generation-scoped board and returns keyboard focus after readiness.
+Graph notifications, selected-file callbacks and save acknowledgements are
+generation-scoped. The first successful native Save promotes only the saved
+snapshot to `:browser_file`, preserving newer graph edits and history. Unsupported
+native saving becomes `:save_copy` only after download acknowledgement, retaining
+the pre-download baseline and nil revision (no connected source), with honest
+unsaved state. Neither untitled state nor downloads may reuse a previous path or
+handle. Preserve native browser New shortcuts; no discard flow is implied.
+
 ## Decision policies
 
 Implement requested changes directly by default. Restate the plan and wait only
