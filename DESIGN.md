@@ -80,9 +80,16 @@ components:
 > the source kit's body/mono fonts while preserving all other Neo-Acid guardrails.
 >
 > **Control layout:** Paper and the file menu occupy the top left; Download and
-> Save occupy the top right. Drawing tools and Style share a bottom dock, with
-> Style's inspector above the dock, while a quiet AgentRouter credit link sits
-> at the bottom right. Undo and redo
+> Save occupy the top right. Save state sits directly below the save actions,
+> right-aligned independently of button widths; pending thought status appears
+> alongside it rather than concealing file problems. Routine save success has no
+> duplicate banner. Notifications form a compact, neutral bottom-right stack with
+> narrow severity accents, clear of the dock and credit, with bounded scrolling
+> in short windows. Informational feedback expires after five seconds unless
+> hovered/focused; errors and conflicts remain until dismissed or resolved.
+> Dismissal hides details, not the problem; the save status reopens recovery actions.
+> Drawing tools and Style share a bottom dock, with Style's inspector above the
+> dock, while a quiet AgentRouter credit link sits at the bottom right. Undo and redo
 > lead the left rail; a live zoom
 > percentage opens a non-modal popover to its right for zoom out/in, Fit to screen,
 > and Reset to 100%. Opening it must preserve zoom; repeated adjustments keep it

@@ -23,6 +23,129 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     %{view: view, path: path, source: source}
   end
 
+  test "ordinary saves persist edits without a duplicate notification", %{view: view, path: path} do
+    assert :ok = CanvasTest.move(view, board_id(view), "idea", {310, 75})
+    assert %{ok: true} = selected_event(view, "save", %{})
+
+    assert {:ok, saved} = Document.open(path)
+    assert Graph.node(saved.graph, "idea").x == 310
+    assert Graph.node(saved.graph, "idea").y == 75
+    assert has_element?(view, "#workspace[data-dirty=false]")
+    assert has_element?(view, "#save-status[role=status]")
+    refute has_element?(view, "#file-notice")
+  end
+
+  test "dismissing a file error preserves it through copy feedback and allows reopening",
+       %{view: view, path: path} do
+    original = File.read!(path)
+    generation = workspace_integer(view, "data-generation")
+    assert :ok = CanvasTest.move(view, board_id(view), "idea", {310, 75})
+    error = "The selected file cannot be written."
+
+    render_click(view, "selected-error", %{"generation" => generation, "message" => error})
+    before_copy = copy_state(view)
+    view |> element("#file-error .message-dismiss") |> render_click(%{"value" => ""})
+    refute has_element?(view, "#file-error")
+    assert has_element?(view, "button#save-status[aria-expanded=false]")
+    assert :sys.get_state(view.pid).socket.assigns.error == error
+
+    assert %{ok: true, token: token} =
+             selected_event(view, "save-copy", %{"generation" => generation})
+
+    assert %{ok: true} =
+             selected_event(view, "selected-copy-downloaded", %{
+               "generation" => generation,
+               "token" => token
+             })
+
+    assert has_element?(view, "#file-notice[role=status]")
+    assert has_element?(view, "button#save-status[aria-expanded=false]")
+    refute has_element?(view, "#file-error")
+    assert :sys.get_state(view.pid).socket.assigns.error == error
+    assert copy_state(view) == before_copy
+    assert File.read!(path) == original
+
+    view |> element("button#save-status") |> render_click()
+    assert has_element?(view, "#file-error[role=alert]")
+    refute has_element?(view, "#save-status[role=status]")
+    assert has_element?(view, "button#save-status[aria-expanded=true]")
+  end
+
+  test "notice expiry is scoped to its acknowledgement and document generation",
+       %{view: view, path: path} do
+    original = File.read!(path)
+    generation = workspace_integer(view, "data-generation")
+    before_copy = copy_state(view)
+
+    tokens =
+      for _ <- 1..2 do
+        assert %{ok: true, token: token} =
+                 selected_event(view, "save-copy", %{"generation" => generation})
+
+        assert %{ok: true} =
+                 selected_event(view, "selected-copy-downloaded", %{
+                   "generation" => generation,
+                   "token" => token
+                 })
+
+        token
+      end
+
+    [old, current] = tokens
+
+    for {id, document_generation} <- [{old, generation}, {current, generation - 1}] do
+      render_click(view, "dismiss-feedback", %{
+        "kind" => "notice",
+        "id" => id,
+        "generation" => to_string(document_generation)
+      })
+
+      assert has_element?(view, "#file-notice")
+    end
+
+    render_click(view, "dismiss-feedback", %{
+      "kind" => "notice",
+      "id" => current,
+      "generation" => to_string(generation)
+    })
+
+    refute has_element?(view, "#file-notice")
+    assert copy_state(view) == before_copy
+    assert File.read!(path) == original
+  end
+
+  test "dismissed conflicts still block writes and reopen with recovery actions",
+       %{view: view, path: path, source: source} do
+    assert :ok = CanvasTest.move(view, board_id(view), "idea", {310, 75})
+    external = Jason.encode!(put_in(source, ["nodes", Access.at(0), "data", "text"], "External"))
+    File.write!(path, external)
+    send(view.pid, :check_file)
+    render(view)
+
+    view |> element("#disk-warning .message-dismiss") |> render_click(%{"value" => ""})
+    refute has_element?(view, "#disk-warning")
+    assert has_element?(view, "button#save-status[aria-expanded=false]")
+    send(view.pid, :check_file)
+    render(view)
+    refute has_element?(view, "#disk-warning")
+
+    assert %{ok: false} = selected_event(view, "save", %{})
+    assert File.read!(path) == external
+    assert has_element?(view, "#workspace[data-dirty=true]")
+
+    view |> element("#save-status") |> render_click()
+    assert has_element?(view, "#disk-warning [data-save-copy]")
+    view |> element("#disk-warning button[phx-click=reload]") |> render_click()
+    assert has_element?(view, "#workspace[data-dirty=false]")
+    refute has_element?(view, "#disk-warning")
+    refute has_element?(view, "button#save-status")
+
+    assert Graph.node(:sys.get_state(view.pid).socket.assigns.graph, "idea").data["text"] ==
+             "External"
+
+    assert File.read!(path) == external
+  end
+
   test "unsaved rename updates filename surfaces without changing graph, dirty state or history",
        %{
          view: view,

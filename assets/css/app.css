@@ -91,6 +91,7 @@ button:disabled { opacity: .4; cursor: default; }
   --style-width: 96px;
   --save-width: 92px;
   --export-width: 112px;
+  --feedback-bottom: calc(var(--workspace-bottom) + var(--dock-height) + 12px);
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -114,14 +115,17 @@ button:disabled { opacity: .4; cursor: default; }
 .document-toggle svg { width: 16px; height: 16px; flex: none; }
 .document-toggle svg:last-child { margin-left: 8px; width: 12px; }
 .document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 12px/1.5 var(--font-mono); }
-.document-status { display: flex; align-items: center; gap: 7px; margin: 10px 2px 0; color: var(--text-secondary); font: 400 10px/1.5 var(--font-mono); white-space: nowrap; }
+.document-status { display: flex; align-items: center; gap: 7px; min-height: 24px; margin: 0; color: var(--text-secondary); font: 400 10px/1.5 var(--font-mono); }
 #thought-draft-status { display: none; }
 .canvas-workspace:has(.drawing-thought-preview) #thought-draft-status { display: flex; }
-.canvas-workspace:has(.drawing-thought-preview) #save-status { display: none; }
 .status-dot { flex: none; width: 7px; height: 7px; border: 1px solid var(--hl-ink); border-radius: 0; background: var(--hl-mint); }
 .unsaved .status-dot { background: var(--hl-violet); }
 .conflict .status-dot { background: var(--hl-magenta); }
-.canvas-actions { display: flex; margin-left: calc(var(--export-action-width, var(--export-width)) + 8px); flex: none; pointer-events: auto; }
+.canvas-actions { position: relative; display: flex; justify-content: flex-end; margin-left: calc(var(--export-action-width, var(--export-width)) + 8px); flex: none; pointer-events: auto; }
+.save-feedback { position: absolute; top: 52px; right: 0; display: grid; justify-items: end; gap: 2px; width: min(350px, calc(100vw - var(--workspace-inset) * 2)); pointer-events: none; }
+.save-feedback .document-status { justify-content: flex-end; max-width: 100%; padding: 2px 4px; box-sizing: border-box; background: var(--bg-elevated); text-align: right; overflow-wrap: anywhere; }
+.save-feedback button.document-status { min-width: 24px; border: var(--border-row); border-radius: 0; pointer-events: auto; }
+.save-feedback button.document-status:hover { color: var(--text-primary); background: var(--bg-surface); }
 .save-button, .style-button, .menu-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 10px 14px; border: var(--border-frame); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 700 11px/1.5 var(--font-mono); white-space: nowrap; }
 .save-button { flex: none; min-width: var(--save-width); background: var(--text-primary); color: var(--bg-elevated); }
 .save-button:hover:not(:disabled), .menu-button:hover { background: var(--hl-acid); color: var(--hl-ink); }
@@ -172,14 +176,20 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
 .agentrouter-credit { position: absolute; right: var(--workspace-inset); bottom: max(10px, env(safe-area-inset-bottom)); z-index: 5; padding: 2px 4px; color: var(--text-muted); font: 400 10px/1.4 var(--font-mono); text-decoration: none; opacity: 0.65; transition: opacity 0.15s ease, color 0.15s ease; }
 .agentrouter-credit:hover, .agentrouter-credit:focus-visible { color: var(--text-primary); opacity: 1; text-decoration: underline; text-underline-offset: 3px; }
 
-.canvas-messages { position: absolute; z-index: 14; top: 112px; left: 50%; transform: translateX(-50%); display: grid; gap: 8px; width: min(580px, calc(100% - 48px)); pointer-events: none; }
-.canvas-message { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px; border: var(--border-frame); border-left-width: 8px; border-radius: 0; color: var(--hl-ink); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; pointer-events: auto; }
+/* One manual popover keeps the stack together in the top layer; fixed also serves the JS fallback. */
+.canvas-messages { position: fixed; inset: auto; right: var(--workspace-inset); bottom: var(--feedback-bottom); z-index: 14; width: min(350px, calc(100% - var(--workspace-inset) * 2)); max-height: max(0px, calc(100dvh - var(--feedback-bottom) - var(--workspace-inset) - 112px)); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: 6px; border: 0; border-radius: 0; background: transparent; color: var(--text-primary); gap: 8px; }
+.canvas-messages:popover-open { display: grid; }
+.canvas-messages:not([popover]) { display: grid; }
+.canvas-messages:not([popover]):empty { display: none; }
+.canvas-messages[hidden] { display: none; }
+.canvas-message { display: flex; align-items: flex-start; gap: 8px; min-width: 0; padding: 10px 12px; border: var(--border-frame); border-left: 4px solid var(--border-strong-color); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 12px/1.5 var(--font-body); overflow-wrap: anywhere; pointer-events: auto; }
+.canvas-message[hidden] { display: none; }
 .canvas-message > span { flex: 1; min-width: 0; }
-.canvas-message.error { background: var(--hl-magenta); }
-.canvas-message.warning { background: var(--hl-sky); }
+.canvas-message.error { border-left-color: var(--hl-magenta); }
+.canvas-message.warning { border-left-color: var(--hl-sky); }
 .canvas-message p { margin: 0; }
 .message-dismiss { display: grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: inherit; }
-.message-action { flex: none; margin-left: 8px; padding: 4px 7px; border: 2px solid currentColor; border-radius: 0; background: transparent; color: inherit; font: 700 10px/1.5 var(--font-mono); white-space: nowrap; }
+.message-action { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; min-height: 24px; box-sizing: border-box; margin-left: 8px; padding: 4px 7px; border: 2px solid currentColor; border-radius: 0; background: transparent; color: inherit; font: 700 10px/1.5 var(--font-mono); white-space: nowrap; }
 .empty-state { position: absolute; inset: 120px 24px 140px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; max-width: 620px; margin-inline: auto; }
 .empty-mark { width: 40px; height: 40px; margin-bottom: 24px; padding: 8px; border: var(--border-frame); color: var(--hl-ink); background: var(--hl-acid); }
 .empty-state h1 { margin: 0 0 20px; }
@@ -344,6 +354,7 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @media (max-width: 900px) {
+  .canvas-workspace { --feedback-bottom: calc(var(--workspace-bottom) + var(--dock-height) + 40px); }
   .agentrouter-credit { bottom: calc(var(--workspace-bottom) + var(--dock-height) + 8px); }
   .canvas-workspace[data-style-open="true"] .agentrouter-credit { display: none; }
 }
@@ -361,8 +372,6 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
   .canvas-workspace .hakushi-tools { gap: 2px; }
   .canvas-workspace .hakushi-tools .hakushi-control { min-width: 30px; }
   .canvas-workspace .hakushi-controls > [data-action="export"]::after { content: none; }
-  .canvas-messages { top: 104px; width: calc(100% - 24px); }
-  .canvas-message { padding: 10px 12px; }
   .connection-warning { top: 100px; }
   .empty-state { inset: 130px 24px 170px; }
 }

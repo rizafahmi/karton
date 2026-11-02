@@ -65,6 +65,12 @@ and unresolved repository/technology decisions. No native app is implemented yet
   The compact ? map lives in the document menu.
 - [native_file.js](assets/js/native_file.js) handles browser file selection,
   native-handle persistence, and copy-download fallbacks.
+- [canvas_messages.js](assets/js/canvas_messages.js) owns notification popover
+  enhancement/fallback, informational expiry, and notification focus handling.
+  CanvasLive retains errors/conflicts when details are dismissed; the save status
+  reopens them. Notice dismissal is acknowledgement-token/generation scoped.
+  Routine save success belongs only in save status; copy feedback never replaces
+  unresolved source errors or changes persistence/dirty state.
 - [tokens.css](assets/css/tokens.css) holds shared design primitives;
   [app.css](assets/css/app.css) applies workspace and drawing styles.
 - [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and

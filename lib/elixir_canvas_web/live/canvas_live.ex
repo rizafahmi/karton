@@ -28,6 +28,10 @@ defmodule ElixirCanvasWeb.CanvasLive do
         disk_status: :unchanged,
         error: nil,
         notice: nil,
+        notice_id: nil,
+        dismissed_notice_id: nil,
+        dismissed_error: nil,
+        dismissed_disk_status: nil,
         generation: 0,
         edit_version: 0,
         pending_save: nil,
@@ -236,6 +240,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
         {:reply, %{ok: true},
          assign(socket,
            pending_save: nil,
+           notice_id: token,
            notice:
              "Copy download started; the original file and unsaved status are unchanged. Disk persistence is not confirmed."
          )}
@@ -254,13 +259,15 @@ defmodule ElixirCanvasWeb.CanvasLive do
                else: socket.assigns.document
              ),
            pending_save: nil,
+           notice_id: token,
            dirty: socket.assigns.dirty || socket.assigns.document.persistence == :untitled,
            error: nil,
            notice:
              if(socket.assigns.document.revision == nil,
                do:
-                 "Copy downloaded; use Reload: choose file again… to load the copy you saved. Disk persistence is not confirmed.",
-               else: "Copy downloaded; original file not changed"
+                 "Copy download started; disk persistence is not confirmed. Use Reload: choose file again… to open a saved copy.",
+               else:
+                 "Copy download started; original file not changed. Disk persistence is not confirmed."
              )
          )}
 
@@ -292,6 +299,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
          assign(socket,
            pending_save: nil,
            error: params["message"],
+           dismissed_error: nil,
+           dismissed_disk_status: nil,
            notice: nil,
            disk_status: status
          )}
@@ -315,7 +324,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
   def handle_event("selected-error", %{"generation" => generation, "message" => message}, socket)
       when is_binary(message) do
     if generation == socket.assigns.generation do
-      {:noreply, assign(socket, error: message, notice: nil)}
+      {:noreply, assign(socket, error: message, dismissed_error: nil, notice: nil)}
     else
       {:noreply, socket}
     end
@@ -374,8 +383,33 @@ defmodule ElixirCanvasWeb.CanvasLive do
   def handle_event("close-overlays", _params, socket),
     do: {:noreply, assign(socket, file_menu_open: false, style_open: false)}
 
-  def handle_event("dismiss-error", _params, socket),
-    do: {:noreply, assign(socket, :error, nil)}
+  def handle_event("dismiss-feedback", %{"generation" => generation} = params, socket) do
+    socket =
+      if generation == to_string(socket.assigns.generation) do
+        case params do
+          %{"kind" => "notice", "id" => id} when id == socket.assigns.notice_id ->
+            assign(socket, dismissed_notice_id: id)
+
+          %{"kind" => "error", "message" => error} when error == socket.assigns.error ->
+            assign(socket, dismissed_error: error)
+
+          %{"kind" => "disk", "status" => status} ->
+            if status == to_string(socket.assigns.disk_status),
+              do: assign(socket, dismissed_disk_status: socket.assigns.disk_status),
+              else: socket
+
+          _ ->
+            socket
+        end
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("show-feedback", _params, socket),
+    do: {:noreply, assign(socket, dismissed_error: nil, dismissed_disk_status: nil)}
 
   def handle_event("client-error", params, socket) when is_map(params) do
     :telemetry.execute(
@@ -417,7 +451,15 @@ defmodule ElixirCanvasWeb.CanvasLive do
         _ -> socket.assigns.disk_status
       end
 
-    {:noreply, assign(socket, :disk_status, status)}
+    {:noreply,
+     assign(socket,
+       disk_status: status,
+       dismissed_disk_status:
+         if(status == socket.assigns.disk_status,
+           do: socket.assigns.dismissed_disk_status,
+           else: nil
+         )
+     )}
   end
 
   defp accept_change(change, %{result: graph}, generation) do
@@ -460,6 +502,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
   end
 
   defp save_server_document(socket) do
+    socket = assign(socket, dismissed_error: nil)
     document = with_drawing_font(socket.assigns.document, socket.assigns.drawing_font)
 
     case Document.save(document, socket.assigns.graph) do
@@ -522,7 +565,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
            saved_revision: revision_hex(pending_document),
            mode: Atom.to_string(document.persistence),
            filename: document.filename
-         }, assign(socket, pending_save: pending, error: nil, notice: nil)}
+         }, assign(socket, pending_save: pending, error: nil, dismissed_error: nil, notice: nil)}
 
       {:error, reason} ->
         {:reply, %{ok: false}, assign(socket, error: reason, notice: nil)}
@@ -596,6 +639,10 @@ defmodule ElixirCanvasWeb.CanvasLive do
       disk_status: :unchanged,
       error: nil,
       notice: nil,
+      notice_id: nil,
+      dismissed_notice_id: nil,
+      dismissed_error: nil,
+      dismissed_disk_status: nil,
       file_menu_open: false,
       style_open: false,
       generation: socket.assigns.generation + 1,
@@ -613,12 +660,13 @@ defmodule ElixirCanvasWeb.CanvasLive do
     end
   end
 
-  defp status_text(document, dirty, disk_status, notice) do
+  defp status_text(document, dirty, disk_status, error, notice) do
     cond do
       disk_status == :changed -> "Changed on disk"
       disk_status == :unavailable -> "File unavailable"
+      error -> "File error"
       dirty -> "Unsaved changes"
-      notice -> notice
+      notice == "Saved to disk" -> notice
       document && document.persistence == :untitled -> "Not saved"
       document && document.persistence == :save_copy && document.revision == nil -> "Not saved"
       document && document.persistence == :save_copy -> "Opened copy"
@@ -658,6 +706,18 @@ defmodule ElixirCanvasWeb.CanvasLive do
 
   @impl true
   def render(assigns) do
+    assigns =
+      assign(assigns,
+        problem: assigns.error != nil || assigns.disk_status != :unchanged,
+        error_visible: assigns.error != nil && assigns.dismissed_error != assigns.error,
+        disk_visible:
+          assigns.document != nil && assigns.disk_status != :unchanged &&
+            assigns.dismissed_disk_status != assigns.disk_status,
+        notice_visible:
+          assigns.document != nil && assigns.notice != nil && assigns.notice != "Saved to disk" &&
+            assigns.dismissed_notice_id != assigns.notice_id
+      )
+
     ~H"""
     <main
       id="workspace"
@@ -724,19 +784,35 @@ defmodule ElixirCanvasWeb.CanvasLive do
             </span>
             <.glyph name="chevron" />
           </button>
-          <span
-            id="save-status"
-            class={["document-status", @dirty && "unsaved", @disk_status != :unchanged && "conflict"]}
-            role="status"
-          >
-            <span class="status-dot"></span>
-            {status_text(@document, @dirty, @disk_status, @notice)}
-          </span>
-          <span id="thought-draft-status" class="document-status unsaved" role="status">
-            <span class="status-dot"></span> Thought draft — not added
-          </span>
         </div>
         <div class="canvas-actions">
+          <div class="save-feedback">
+            <button
+              :if={@problem}
+              id="save-status"
+              type="button"
+              class="document-status conflict"
+              phx-click="show-feedback"
+              aria-controls="canvas-messages"
+              aria-expanded={to_string(@error_visible || @disk_visible)}
+              title="Show file problem details"
+            >
+              <span class="status-dot"></span>
+              {status_text(@document, @dirty, @disk_status, @error, @notice)}
+            </button>
+            <span
+              :if={!@problem}
+              id="save-status"
+              class={["document-status", @dirty && "unsaved"]}
+              role="status"
+            >
+              <span class="status-dot"></span>
+              {status_text(@document, @dirty, @disk_status, @error, @notice)}
+            </span>
+            <span id="thought-draft-status" class="document-status unsaved" role="status">
+              <span class="status-dot"></span> Thought draft — not added
+            </span>
+          </div>
           <button
             id="save-file"
             class="save-button"
@@ -1034,16 +1110,34 @@ defmodule ElixirCanvasWeb.CanvasLive do
         Built with free tokens via AgentRouter ↗
       </a>
 
-      <div class="canvas-messages">
+      <div
+        id="canvas-messages"
+        class="canvas-messages"
+        phx-hook="CanvasMessages"
+        popover="manual"
+        data-generation={@generation}
+      >
         <div
-          :if={@notice && @document}
+          :if={@notice_visible}
           id="file-notice"
-          class="canvas-message warning"
+          class="canvas-message info"
           role="status"
+          data-notice-id={@notice_id}
         >
           <span>{@notice}</span>
+          <button
+            type="button"
+            class="message-dismiss"
+            phx-click="dismiss-feedback"
+            phx-value-kind="notice"
+            phx-value-id={@notice_id}
+            phx-value-generation={@generation}
+            aria-label="Dismiss notification"
+          >
+            <.glyph name="close" />
+          </button>
         </div>
-        <div :if={@error} id="file-error" class="canvas-message error" role="alert">
+        <div :if={@error_visible} id="file-error" class="canvas-message error" role="alert">
           <span>
             <span>{@error}</span>
             <span :if={@document && @disk_status == :unchanged} class="file-menu-actions">
@@ -1060,12 +1154,20 @@ defmodule ElixirCanvasWeb.CanvasLive do
               </button>
             </span>
           </span>
-          <button class="message-dismiss" phx-click="dismiss-error" aria-label="Dismiss error">
+          <button
+            type="button"
+            class="message-dismiss"
+            phx-click="dismiss-feedback"
+            phx-value-kind="error"
+            phx-value-message={@error}
+            phx-value-generation={@generation}
+            aria-label="Dismiss error"
+          >
             <.glyph name="close" />
           </button>
         </div>
         <div
-          :if={@document && @disk_status != :unchanged}
+          :if={@disk_visible}
           id="disk-warning"
           class="canvas-message warning"
           role="status"
@@ -1106,6 +1208,17 @@ defmodule ElixirCanvasWeb.CanvasLive do
               </button>
             </span>
           </span>
+          <button
+            type="button"
+            class="message-dismiss"
+            phx-click="dismiss-feedback"
+            phx-value-kind="disk"
+            phx-value-status={@disk_status}
+            phx-value-generation={@generation}
+            aria-label="Dismiss file warning"
+          >
+            <.glyph name="close" />
+          </button>
         </div>
       </div>
 

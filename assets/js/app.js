@@ -8,6 +8,7 @@ import {mountNativeFile} from "./native_file"
 import {mountDirectKeyboard} from "./direct_keyboard"
 import {mountConnectorStyles} from "./connector_styles"
 import {mountTextEditorGeometry} from "./text_editor_geometry"
+import {CanvasMessages} from "./canvas_messages"
 
 async function loadDrawingFonts(workspace) {
   // Resolve the host's CSS mapping, not a second document-role → family registry.
@@ -683,7 +684,7 @@ const Workspace = {
       }
     }
     this.closeOverlays = event => {
-      if (event.key !== "Escape" || event.isComposing || this.el.querySelector(":popover-open")) return
+      if (event.key !== "Escape" || event.isComposing || this.el.querySelector(":popover-open:not(#canvas-messages)")) return
       const keyboard = this.activeCanvas()?.directKeyboard
       if (keyboard?.active) {
         if (event.target.closest("#file-menu, #file-menu-toggle, [data-save-copy]")) keyboard.key(event)
@@ -783,7 +784,7 @@ const Workspace = {
 
 const liveSocket = new LiveSocket("/live", Socket, {
   params: {_csrf_token: document.querySelector("meta[name='csrf-token']").content},
-  hooks: {Hakushi: FileCanvas, Workspace},
+  hooks: {Hakushi: FileCanvas, Workspace, CanvasMessages},
 })
 liveSocket.connect()
 window.liveSocket = liveSocket

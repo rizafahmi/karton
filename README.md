@@ -78,9 +78,9 @@ the current tab; a page/session restart requires opening the file again. Direct
 saving requires the native picker plus file-handle read, write, and permission
 methods; the document menu explains the available behavior before opening.
 Safari, Firefox, and browsers with missing or incomplete support use a genuine
-file-input picker instead. This opens a copy: **Save copy** downloads JSON, shows
-“Copy downloaded; original file not changed”, and keeps unsaved edits marked
-dirty because the app cannot confirm where you saved the download. **Reload:
+file-input picker instead. This opens a copy: **Save copy** starts a JSON download
+without changing the original and keeps unsaved edits marked dirty because the
+app cannot confirm disk persistence. **Reload:
 choose file again…** asks you to reselect the original file; it does not pretend
 an in-memory snapshot is fresh disk content.
 
@@ -162,8 +162,16 @@ theme from portable names; the document retains its authored geometry and style 
   rail and **Bring to front** / **Send to back** buttons below them. The rail ends
   above the dock and scrolls vertically in short windows.
 - Selection alone does not open Style. Escape closes the menus and inspector.
-- Unsaved state remains visible under the filename. External changes and save
-  failures appear as actionable messages rather than disappearing into a menu.
+- Save state stays at the upper right beneath **Save**, without moving the button
+  when it changes. Routine saves update this status without a second notification.
+  **Thought draft — not added** appears alongside it while a draft is pending.
+- Compact, neutral notifications sit at the bottom right, clear of the drawing
+  dock and credit. Informational messages such as copy-download initiation expire
+  after five seconds, pausing while hovered or keyboard-focused, and can also be
+  dismissed manually. Failures and source conflicts do not expire. Dismissing
+  their details does not clear the problem: click the status beside Save to
+  reopen recovery actions. A copy download never clears an original-file error
+  or means that the original was saved.
 
 New files use the generic `sans` typography role. **Default text style** selects
 the document default: **Normal**, **Title**, **Code**, or **Handwritten**. In
@@ -371,7 +379,7 @@ padding and the hint; it never zooms in or fits the full long height. The
 committed box matches the full preview, not the smaller scrolling editor.
 
 Until commit, the preview and all text are client-only: **Thought draft — not
-added** replaces the ordinary save status without dirtying the graph or changing
+added** appears beside the save status without dirtying the graph or changing
 history. Escape, an external canvas pointer action, tool/history change, explicit
 departure from the canvas, or a changed/removed source cancels without leaving a
 placeholder or clearing redo. Switching applications/tabs retains the in-memory
@@ -636,6 +644,10 @@ every change:
    desktop and narrow layouts with the relevant menus or panels open.
 2. Save, inspect the actual temporary JSON for the edit, and check that unsaved
    state clears. Reload or reopen the file and confirm the edit survives.
+   Routine saves should not create a notification. Check that informational
+   copy feedback expires (and pauses on hover/focus), while errors/conflicts
+   remain until dismissed. Dismiss a problem, then reopen it from the status
+   beside Save; recovery actions and the original error/conflict must remain.
 3. Where relevant, cancel a picker, select invalid JSON, or change the temporary
    source externally before saving. Confirm cancellation, invalid content, and
    conflicts preserve canvas edits rather than replacing them or silently saving.
