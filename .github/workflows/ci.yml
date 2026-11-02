@@ -44,21 +44,5 @@ jobs:
           mix deps.get
           mix assets.setup
 
-      - name: Check formatting
-        run: mix format --check-formatted
-
-      - name: Compile with warnings as errors
-        run: mix compile --warnings-as-errors
-
-      - name: Run ExUnit test suite
-        run: mix test
-
-      - name: Check browser JavaScript syntax
-        run: |
-          node --check assets/js/app.js
-          node --check assets/js/native_file.js
-          node --check assets/js/rotation_guides.js
-          node --check assets/js/self_loops.js
-
-      - name: Build static assets
-        run: mix assets.build
+      - name: Run full verification suite
+        run: mix check

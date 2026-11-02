@@ -36,7 +36,7 @@ defmodule ElixirCanvas.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test]
+      preferred_envs: [check: :test, precommit: :test]
     ]
   end
 
@@ -78,8 +78,54 @@ defmodule ElixirCanvas.MixProject do
         "esbuild elixir_canvas --minify",
         "phx.digest"
       ],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      check: [
+        "format --check-formatted",
+        "compile --warnings-as-errors",
+        &check_js/1,
+        "assets.build",
+        "test"
+      ],
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "test",
+        &check_js/1,
+        "assets.build"
+      ]
     ]
+  end
+
+  defp check_js(_args) do
+    js_files = Path.wildcard("assets/js/**/*.js") |> Enum.sort()
+
+    if js_files == [] do
+      Mix.raise("No JavaScript source files found under assets/js")
+    end
+
+    for file <- js_files do
+      case System.cmd("sh", ["-c", ~s(node --input-type=module --check < "$1"), "--", file],
+             into: IO.stream(:stdio, :line),
+             stderr_to_stdout: true
+           ) do
+        {_, 0} -> :ok
+        {_, status} -> Mix.raise("JavaScript syntax check failed for #{file} (exit #{status})")
+      end
+    end
+
+    js_tests = Path.wildcard("test/**/*_test.mjs") |> Enum.sort()
+
+    if js_tests == [] do
+      Mix.raise("No JavaScript test files found under test/")
+    end
+
+    case System.cmd("node", ["--test" | js_tests],
+           into: IO.stream(:stdio, :line),
+           stderr_to_stdout: true
+         ) do
+      {_, 0} -> :ok
+      {_, status} -> Mix.raise("JavaScript unit tests failed (exit #{status})")
+    end
   end
 
   defp package do

@@ -124,8 +124,8 @@ named colors, and semantic font roles, not pixel-identical rendering or a runtim
 [README: Run](README.md#run) is canonical for the current web app's prerequisites and setup;
 no npm installation is required. [README: Checks](README.md#checks) lists the
 CLI verification commands and browser-check limits. Mix aliases are defined in
-[mix.exs](mix.exs); `mix precommit` formats files and can change the lockfile,
-so it is not a read-only check.
+[mix.exs](mix.exs): `mix check` runs the full read-only verification suite, whereas
+`mix precommit` formats files and can change the lockfile.
 
 The native milestone's setup and verification instructions must be supplied with
 implementation; current Mix/browser checks are not native application proof.

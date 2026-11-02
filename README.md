@@ -487,12 +487,20 @@ history are session state and are not part of the file.
 
 ## Checks
 
+Run the full read-only verification suite:
+
+```sh
+mix check
+```
+
+Or run the individual steps directly:
+
 ```sh
 mix format --check-formatted
 mix compile --warnings-as-errors
 mix test
 node --test test/direct_keyboard_test.mjs test/triangle_attachments_test.mjs
-for file in assets/js/app.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js assets/js/direct_keyboard.js; do
+for file in assets/js/app.js assets/js/connector_styles.js assets/js/direct_keyboard.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js; do
   node --input-type=module --check < "$file" || exit 1
 done
 mix assets.build

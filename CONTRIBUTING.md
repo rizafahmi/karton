@@ -31,12 +31,14 @@ and persistence details.
   Custom Hakushi shape kit with unfilled Neo-Acid defaults, standalone lines, and
   portable typography roles.
 - [`assets/js/app.js`](assets/js/app.js),
+  [`assets/js/connector_styles.js`](assets/js/connector_styles.js),
+  [`assets/js/direct_keyboard.js`](assets/js/direct_keyboard.js),
   [`assets/js/native_file.js`](assets/js/native_file.js),
-  [`assets/js/object_properties.js`](assets/js/object_properties.js),
   [`assets/js/rotation_guides.js`](assets/js/rotation_guides.js), and
   [`assets/js/self_loops.js`](assets/js/self_loops.js) — Browser integration for
-  font readiness, File System Access handles and copy-download fallbacks, keyboard
-  object properties/help, rotated selection/resizing, and exterior self-loop arrows.
+  font readiness, File System Access handles and copy-download fallbacks,
+  connected-arrow styling, direct keyboard editing/help, rotated selection/resizing,
+  and exterior self-loop arrows.
 - [`assets/css/tokens.css`](assets/css/tokens.css) and
   [`assets/css/app.css`](assets/css/app.css) — Light-first Neo-Acid design
   tokens and workspace styling. Read [DESIGN.md](DESIGN.md) before modifying UI
@@ -64,17 +66,15 @@ and persistence details.
 
 ## Verification before opening a pull request
 
-Run the full check suite from the repository root:
+Run the full read-only check suite from the repository root:
 
 ```sh
-mix format --check-formatted
-mix compile --warnings-as-errors
-mix test
-for file in assets/js/app.js assets/js/native_file.js assets/js/rotation_guides.js assets/js/self_loops.js assets/js/object_properties.js; do
-  node --input-type=module --check < "$file" || exit 1
-done
-mix assets.build
+mix check
 ```
+
+This runs formatting verification, compilation with warnings as errors, ExUnit
+tests, JavaScript module syntax checks (`assets/js/**/*.js`), Node unit tests
+(`test/**/*_test.mjs`), and the static asset build.
 
 For UI or persistence changes, verify behavior in a real browser using a
 disposable temporary canvas copy as documented in
