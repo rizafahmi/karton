@@ -108,9 +108,13 @@ journey.
 
 ### 2. Style connected arrows
 
-- [ ] **Outcome:** select a connected arrow and edit its agreed appearance.
-- **Before implementation:** agree minimum properties and storage (decision
-  below); discuss any required format change first.
+- [x] **Outcome:** select a connected arrow and edit its agreed appearance.
+- **Approved (2026-11-02):** optional `edge.data.connector_style` with named
+  `stroke`, numeric `width` 1/2/4 and boolean `dash`, rendered through existing
+  Style. Version remains 1; omission preserves legacy appearance (including
+  animation); explicit solid retains `animated`. Existing marker semantics stay.
+  Unknown metadata remains preserved; wrong-shaped style objects refuse editing
+  atomically. Older readers preserve metadata without rendering new styles.
 - **Scope:** connected arrows, not a duplicate standalone-line inspector:
   standalone Line/Arrow already expose Style color, width, dash, and heads.
   Reuse the existing style vocabulary for supported properties; preserve
@@ -122,6 +126,26 @@ journey.
   appearance; style edits undo/redo correctly, unrelated objects remain
   unchanged, and plain Lines remain free-standing. Inspect saved bytes against
   the agreed file contract.
+- **Verified (2026-11-02):** actual bundled editor in managed
+  HeadlessChrome 150 on macOS, at 1200×800 and 360×480: ordinary animated edge
+  and self-loop color/width/solid/dashed controls, legacy omission versus explicit
+  Ink, one-step/interleaved history, saved-value no-op, atomic edge multiselection,
+  mixed-selection node inspector, visible metadata-collision refusal, both endpoint
+  shape moves, genuine temporary server-file Save and reopen. Saved bytes retained
+  endpoints/handles, labels/routes/markers/animation, unknown metadata, unrelated
+  objects and standalone Line. Selected/connected/hover line and target marker
+  colors matched, including simultaneous same-palette edges in different states;
+  invisible strokes retained 14px hit paths. Actual selected-edge SVG export,
+  reopened as a browser document, rendered authored red dashed strokes and red
+  markers (not selection cobalt). S/Tab focus entry, after-server-patch Escape
+  dismissal/focus return and narrow panel fit were exercised: styleOpen=false,
+  toggle aria-pressed=false, panel display:none, focus style-toggle (the existing
+  toggle has no aria-expanded attribute). Full Mix and existing Node regressions pass.
+- **Limits:** SVG artifact/rendering proof, not PNG pixel proof. No Safari,
+  Firefox, Edge, forced-colors, screen-reader, physical OS IME or native-picker
+  certification. Selection setup used existing canvas hooks where needed; edits
+  used visible controls and endpoint moves used actual pointer gestures. Native
+  work remains final; proposed readiness additions below are still unapproved.
 
 ## Next milestone: independent native macOS editor
 
@@ -304,14 +328,10 @@ friction.
 
 ## Needs decision
 
-- [ ] **Connected-arrow appearance (blocks current milestone 2):** agree minimum
-      properties and storage. Recommended, not approved: color, width, and dash
-      using existing vocabulary. Agree marker semantics/mapping separately; do
-      not mandate all standalone arrowheads. Check
-      [node styles](README.md#nodes) against the
-      [edge contract](README.md#edges); node fields are not already an
-      edge-style contract. Discuss any format change before code, preserving
-      version-1 compatibility.
+- [x] **Connected-arrow appearance:** approved (2026-11-02): color, width 1/2/4
+      and dash in optional `edge.data.connector_style`, keeping version 1 and
+      existing target marker semantics. See [edge contract](README.md#edges).
+      No standalone arrowhead mapping or new attachment behavior is approved.
 - [ ] **Native authoring:** recommend a minimal New → draw/text → connect
       workflow for brainstorming, but decide creation versus existing-document
       editing explicitly. If edit-only, identify where starting boards come from

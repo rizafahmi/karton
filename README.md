@@ -147,6 +147,12 @@ Font License notices are included in `priv/static/fonts/neo-acid`.
   To loop back to the same shape, drag between two different side handles.
   The connected arrow curves outside the shape and returns to its target handle;
   returning to the same handle does not create an edge.
+- Select a connected arrow (including a self-loop), then open **Style** to choose
+  named stroke color, width 1/2/4, and solid/dashed. Edge-only multiselection applies
+  one property to all selected connections in one undo step; different values
+  show no pressed option. Mixed node/connection selections retain the node
+  inspector, without changing connections. Bindings, labels, routes and existing
+  target markers are unchanged. Standalone lines keep their own controls.
 - Select a standalone line or arrow to drag either endpoint; the opposite endpoint
   stays fixed. Focus an endpoint and use the arrow keys for precise adjustments.
   An endpoint drag is one undoable edit; Escape or a cancelled pointer gesture
@@ -429,6 +435,28 @@ Endpoints reference existing node IDs. Optional fields:
 - `label`: string or null.
 - `animated`: boolean, default false.
 - `data`: an application metadata object, default `{}`.
+
+Connected-arrow appearance optionally uses `data.connector_style`:
+
+```json
+{"connector_style": {"stroke": "red", "width": 4, "dash": true}}
+```
+
+`stroke` uses the named node palette above (including `none`); `width` is `1`,
+`2`, or `4`; `dash` is boolean. Omitted members preserve existing edge rendering:
+the current ink-like edge color, 2px width, and ordinary solid stroke. Animated
+edges retain their legacy flowing dash when `dash` is omitted; explicit `false`
+draws solid without clearing `animated` (flow is then imperceptible). Existing
+`marker` semantics remain target-only `arrow`, `dot`, or `none`; there is no
+standalone arrowhead mapping.
+
+Version remains 1. Older readers preserve this metadata but do not render the
+new appearance. Unrelated metadata and unsupported members/values are preserved;
+unsupported style values are ignored for rendering. Editing merges only the
+chosen property, not a replacement style object. A historical non-object
+`connector_style` is preserved and visibly refuses style edits; a selection
+containing such a collision is refused atomically. Merely selecting/opening an
+inspector does not add defaults or dirty a file.
 
 Self-loop edges use the same node ID for `source` and `target` and distinct named
 side handles, for example `source_handle: "right"` and `target_handle: "top"`.

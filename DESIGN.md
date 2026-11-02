@@ -90,6 +90,12 @@ components:
 > group. The rail ends above the dock and scrolls in short windows. Narrow windows
 > collapse Download and, at the smallest width, Style to labeled icons. All drawing
 > tools remain visible.
+> Connected arrows and self-loops reuse this Style inspector for named stroke,
+> width 1/2/4 and solid/dashed; no new panel or arrowhead mapping. Edge-only
+> multiselection edits one common property atomically; mixed selections retain
+> the node inspector. Missing stroke keeps legacy rendering, not an implicit
+> authored Ink selection. Cobalt selection/focus must remain visible, including
+> target markers; invisible strokes retain native connection hit targets.
 >
 > **Keyboard alternatives:** Keep editing on the canvas, not in a replacement
 > properties panel. Tab traverses objects and connections without changing the

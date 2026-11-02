@@ -26,12 +26,18 @@ and unresolved repository/technology decisions. No native app is implemented yet
   Shapes kit for unfilled Neo-Acid defaults, standalone lines, and portable font roles.
 - Hakushi owns ordinary graph operations and undo/redo.
   [DrawingCanvas](lib/elixir_canvas_web/drawing_canvas.ex) delegates its lifecycle
-  and events, adding node stacking entries to the same history. Document bridges
+  and events, adding node stacking entries and validated connector-style commands
+  to the same history. Optional `edge.data.connector_style` is projected through a
+  root data attribute; unknown metadata remains server-owned. Document bridges
   the graph to the portable file contract.
 - [app.js](assets/js/app.js) integrates LiveView and Hakushi in the browser,
   including drawing-font readiness and editor behavior, alongside
   [rotation_guides.js](assets/js/rotation_guides.js) and
   [self_loops.js](assets/js/self_loops.js).
+- [connector_styles.js](assets/js/connector_styles.js) extends the existing Style
+  inspector for edge-only selections and renders persisted named connector styles.
+  Preserve native highlight/hit-target semantics and bounded, state-specific marker
+  variants; mixed node/edge selections retain the node inspector.
 - [direct_keyboard.js](assets/js/direct_keyboard.js) adds selection-preserving
   object/edge traversal, Space tap selection (Space hold still pans), G geometry
   previews, staged C connections, inline edge labels and N adjacent thoughts.
