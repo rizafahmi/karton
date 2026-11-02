@@ -6,6 +6,27 @@
   "nodes": [
     {
       "data": {
+        "align": "left",
+        "dash": false,
+        "fill": "green",
+        "kind": "rect",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "ink",
+        "text": "",
+        "width": 2
+      },
+      "height": 220.16,
+      "id": "vj2plsne",
+      "locked": false,
+      "type": "shape",
+      "width": 387.9,
+      "x": 139.9,
+      "y": 811.24
+    },
+    {
+      "data": {
         "align": "center",
         "dash": false,
         "fill": "none",
@@ -369,27 +390,6 @@
       "width": 375.7,
       "x": 154.03,
       "y": 892.32
-    },
-    {
-      "data": {
-        "align": "left",
-        "dash": false,
-        "fill": "none",
-        "kind": "rect",
-        "radius": 0,
-        "rotation": 0,
-        "size": "m",
-        "stroke": "ink",
-        "text": "",
-        "width": 2
-      },
-      "height": 220.16,
-      "id": "vj2plsne",
-      "locked": false,
-      "type": "shape",
-      "width": 387.9,
-      "x": 139.9,
-      "y": 811.24
     }
   ],
   "paper": {
