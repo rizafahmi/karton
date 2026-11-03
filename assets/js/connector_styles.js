@@ -1,5 +1,4 @@
 const colors = ['none', 'ink', 'gray', 'blue', 'green', 'yellow', 'red', 'violet', 'accent', 'surface']
-const values = {stroke: colors, width: [1, 2, 4], dash: [false, true]}
 
 export function mountConnectorStyles(canvas) {
   const markers = new Map()
@@ -13,10 +12,6 @@ export function mountConnectorStyles(canvas) {
   const authored = id => {
     const value = metadata[id]
     return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-  }
-  const effective = (edge, key) => {
-    const value = authored(edge.id)[key]
-    return values[key].includes(value) ? value : ({width: 2, dash: edge.animated})[key]
   }
   const marker = (edge, view) => {
     if (edge.marker === 'none') return
@@ -71,72 +66,6 @@ export function mountConnectorStyles(canvas) {
     else view.line.style.removeProperty('stroke-dasharray')
   }
 
-  const drawStylePanel = canvas.drawStylePanel.bind(canvas)
-  canvas.drawStylePanel = () => {
-    const edges = [...canvas.selectedEdges].map(id => canvas.edges.get(id)).filter(Boolean)
-    // Mixed node/edge selections retain the ordinary node inspector; edges are not
-    // silently edited by node controls. Edge-only multiselection is one command.
-    if (!edges.length || canvas.selected.size || canvas.tool || canvas.config.readonly || canvas.cropping) return drawStylePanel()
-    const focus = canvas.styleEl?.contains(document.activeElement) ? {key: document.activeElement.dataset.key, value: document.activeElement.dataset.value} : null
-    canvas.styleEl?.remove()
-    const panel = document.createElement('div')
-    panel.className = 'hakushi-style-panel'
-    panel.setAttribute('role', 'toolbar')
-    panel.setAttribute('aria-label', 'Connector style')
-    panel.setAttribute('aria-orientation', 'vertical')
-    panel.addEventListener('pointerdown', event => event.stopPropagation())
-    const groups = canvas.config.styles.flatMap(kit => kit.groups)
-    for (const key of ['stroke', 'width', 'dash']) {
-      const definition = groups.find(group => group.key === key)
-      const group = document.createElement('div')
-      group.className = 'hakushi-style-group'
-      group.dataset.kind = definition.kind
-      group.setAttribute('role', 'group')
-      group.setAttribute('aria-label', definition.label)
-      const label = document.createElement('span')
-      label.className = 'hakushi-style-label'
-      label.setAttribute('aria-hidden', 'true')
-      label.textContent = definition.label
-      const options = document.createElement('div')
-      options.className = 'hakushi-style-options'
-      for (const option of definition.options) {
-        if (!values[key].includes(option.value)) continue
-        const button = document.createElement('button')
-        button.type = 'button'
-        button.className = 'hakushi-style-option'
-        button.dataset.key = key
-        button.dataset.value = JSON.stringify(option.value)
-        button.setAttribute('aria-label', `${definition.label}: ${option.label}`)
-        button.title = option.label
-        button.setAttribute('aria-pressed', String(edges.every(edge => effective(edge, key) === option.value)))
-        if (key === 'stroke') {
-          button.classList.add('hakushi-style-swatch')
-          button.dataset.color = option.value
-          button.style.setProperty('--hakushi-swatch', option.value === 'none' ? 'transparent' : `var(--hakushi-shape-${option.value})`)
-        } else if (key === 'width') {
-          button.append(document.createElement('span'))
-          button.style.setProperty('--hakushi-style-width', `${option.value}px`)
-        } else button.textContent = option.label
-        button.addEventListener('click', () => canvas.push('drawing:edge-style', {edges: edges.map(edge => edge.id), key, value: option.value}, reply => {
-          if (reply.error) {
-            canvas.announce(reply.error)
-            const error = document.createElement('p')
-            error.className = 'connector-style-error'
-            error.setAttribute('role', 'alert')
-            error.textContent = reply.error
-            panel.querySelector('.connector-style-error')?.remove()
-            panel.append(error)
-          }
-        }))
-        options.append(button)
-      }
-      group.append(label, options)
-      panel.append(group)
-    }
-    canvas.styleEl = panel
-    canvas.ui.append(panel)
-    if (focus) [...panel.querySelectorAll('button')].find(button => button.dataset.key === focus.key && button.dataset.value === focus.value)?.focus({preventScroll: true})
-  }
   const observer = new MutationObserver(read)
   observer.observe(canvas.root, {attributes: true, attributeFilter: ['data-connector-styles']})
   const refresh = () => canvas.schedule()

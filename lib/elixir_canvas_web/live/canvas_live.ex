@@ -865,6 +865,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
           phx-click="toggle-style"
           aria-label="Object styles"
           aria-pressed={to_string(@style_open)}
+          aria-expanded={to_string(@style_open)}
+          aria-controls={"board-#{@generation}-style-inspector"}
         >
           <.glyph name="style" /><span>Style</span>
         </button>
@@ -1278,7 +1280,6 @@ defmodule ElixirCanvasWeb.CanvasLive do
           Supported browsers can save back with your permission; other browsers download a copy.
         </p>
       </section>
-      <div class="style-hint" role="status">Select an object to change its style.</div>
       <p :if={@document} class="font-message" role="status">Loading drawing fonts…</p>
       <p :if={@document} class="font-error" role="alert">
         The local drawing fonts could not load. Reload the page to try again.

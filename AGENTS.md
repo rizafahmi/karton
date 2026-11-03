@@ -51,10 +51,15 @@ and unresolved repository/technology decisions. No native app is implemented yet
   text growth through the guide/handle measurement path, retaining client-only
   height across native node rereads. Restore the baseline before native text
   finish so commit still persists growth and Escape leaves no preview/history.
-- [connector_styles.js](assets/js/connector_styles.js) extends the existing Style
-  inspector for edge-only selections and renders persisted named connector styles.
-  Preserve native highlight/hit-target semantics and bounded, state-specific marker
-  variants; mixed node/edge selections retain the node inspector.
+- [style_inspector.js](assets/js/style_inspector.js) owns the upper-right floating
+  Style inspector for objects and connections. Read effective native styles and
+  typography without materializing defaults; expose only properties shared by
+  the selected object types and label mixed values explicitly. Preserve native
+  control identity/focus on same-selection patches. Mixed node/edge selections
+  edit nodes only; commands retain native undo/history and metadata semantics.
+- [connector_styles.js](assets/js/connector_styles.js) renders persisted named
+  connector styles. Preserve native highlight/hit-target semantics and bounded,
+  state-specific marker variants; inspector controls live only in style_inspector.
 - [direct_keyboard.js](assets/js/direct_keyboard.js) adds selection-preserving
   object/edge traversal, Space tap selection (Space hold still pans), G geometry
   previews, staged C connections, inline edge labels and N adjacent thoughts.

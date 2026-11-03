@@ -88,9 +88,10 @@ components:
 > in short windows. Informational feedback expires after five seconds unless
 > hovered/focused; errors and conflicts remain until dismissed or resolved.
 > Dismissal hides details, not the problem; the save status reopens recovery actions.
-> Drawing tools and Style share a bottom dock, with Style's inspector above the
-> dock, while a quiet AgentRouter credit link sits at the bottom right. Undo and redo
-> lead the left rail; a live zoom
+> Drawing tools and the Style trigger share a bottom dock. Style opens a floating
+> 312px inspector at the upper right, below the save state and clear of the dock;
+> it never reserves a sidebar or follows the selection. A quiet AgentRouter
+> credit link sits at the bottom right. Undo and redo lead the left rail; a live zoom
 > percentage opens a non-modal popover to its right for zoom out/in, Fit to screen,
 > and Reset to 100%. Opening it must preserve zoom; repeated adjustments keep it
 > open, and Escape or outside clicks dismiss it. Arrangement remains a separate
@@ -110,6 +111,18 @@ components:
 > the node inspector. Missing stroke keeps legacy rendering, not an implicit
 > authored Ink selection. Cobalt selection/focus must remain visible, including
 > target markers; invisible strokes retain native connection hit targets.
+>
+> **Style inspector:** Use a selection-type/count heading and visible Close
+> control, then Appearance and Text sections. Show only properties common to the
+> selected object types. Color controls show the current name/chip and reveal an
+> inline named palette on demand; other choices use native selects, with S/M/L
+> segmented text sizes. Mixed values are explicit, including segmented choices.
+> Keep controls stable across same-selection patches and the panel open across
+> selection changes without stealing canvas focus. Mouse opening retains trigger
+> focus; keyboard opening enters the inspector. Escape closes an open palette
+> before the inspector, after active canvas edits have cancelled. Use square,
+> flat controls, neutral hover/current fills and cobalt focus. The header stays
+> reachable while the bounded panel scrolls in short/narrow windows.
 >
 > **Keyboard alternatives:** Keep editing on the canvas, not in a replacement
 > properties panel. Tab traverses objects and connections without changing the

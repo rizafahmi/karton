@@ -151,8 +151,9 @@ theme from portable names; the document retains its authored geometry and style 
 - Drawing tools and **Style** share the bottom dock, separated by a divider.
   **Line** (`L`) has a plain segment icon; **Arrow** (`A`) keeps its arrow icon.
   A quiet **AgentRouter** credit link sits at the bottom right.
-  The inspector opens above the dock, not over the drawing tools. Style becomes
-  icon-only on the smallest screens; all eight tool buttons remain visible at 320px.
+  The floating inspector opens at the upper right below the save state, without
+  reserving a sidebar or covering the dock. Style becomes icon-only on the
+  smallest screens; all eight tool buttons remain visible at 320px.
 - Undo and redo stay at the top of the left rail. The live zoom percentage below
   them opens a popover with zoom out/in, Fit to screen, and Reset to 100%.
   Repeated adjustments keep it open; Escape or an outside click closes it.
@@ -161,7 +162,13 @@ theme from portable names; the document retains its authored geometry and style 
 - Arrangement remains separate below a divider, with tidy-up options beside the
   rail and **Bring to front** / **Send to back** buttons below them. The rail ends
   above the dock and scrolls vertically in short windows.
-- Selection alone does not open Style. Escape closes the menus and inspector.
+- Selection alone does not open Style. Once opened, it stays open as selection
+  changes. The heading identifies the object type or selection count; Appearance
+  and Text sections expose only controls shared by the selected object types.
+  Color buttons show their current name and reveal a named palette on demand.
+  Other values use native selects, with S/M/L text sizes; differing values show
+  **Mixed** rather than an unexplained empty selection. Close or Escape dismisses
+  the inspector, returning focus to Style. Escape first closes an open palette.
 - Save state stays at the upper right beneath **Save**, without moving the button
   when it changes. Routine saves update this status without a second notification.
   **Thought draft — not added** appears alongside it while a draft is pending.
@@ -175,8 +182,9 @@ theme from portable names; the document retains its authored geometry and style 
 
 New files use the generic `sans` typography role. **Default text style** selects
 the document default: **Normal**, **Title**, **Code**, or **Handwritten**. In
-**Style**, the **Text style** group shows the selected shapes’ current style and
-lets them choose an explicit style. Save retains generic roles, not font-family names.
+**Style**, the **Text style** control under **Text** shows the selected shapes’
+effective role, including inheritance, and lets them choose an explicit role.
+Opening the inspector never authors defaults. Save retains generic roles, not font-family names.
 Font families and weights are listed under [Drawing appearance](#drawing-appearance)
 and in [DESIGN.md](DESIGN.md#3-typography). A different interface can choose different
 families. Text may wrap differently, but opening or changing a typography role
@@ -214,8 +222,9 @@ Font License notices are included in `priv/static/fonts/neo-acid`.
 - Select a connected arrow (including a self-loop), then open **Style** to choose
   named stroke color, width 1/2/4, and solid/dashed. Edge-only multiselection applies
   one property to all selected connections in one undo step; different values
-  show no pressed option. Mixed node/connection selections retain the node
-  inspector, without changing connections. Bindings, labels, routes and existing
+  display **Mixed**. Missing connector stroke displays **Default**, not an
+  implicitly authored Ink choice. Mixed node/connection selections retain the
+  node inspector and explain that connections remain unchanged. Bindings, labels, routes and existing
   target markers are unchanged. Standalone lines keep their own controls.
 - Select a standalone line or arrow to drag either endpoint; the opposite endpoint
   stays fixed. Focus an endpoint and use the arrow keys for precise adjustments.
@@ -432,8 +441,11 @@ edits its label using Hakushi's existing inline editor, and Delete removes it.
 Escape cancels a label or G/C/N mode before a second Escape closes Style.
 
 Escape returns file/style panels to their trigger; native popovers retain their
-own dismissal behavior. Panels scroll within short/narrow windows rather than
-trapping focus. Paper choices remain authored document edits with undo/save.
+own dismissal behavior. Style's expanded color palette closes first. Keyboard
+opening enters the inspector; mouse opening leaves focus on its trigger.
+Selection changes keep Style open without stealing canvas focus. Panels scroll
+within short/narrow windows rather than trapping focus. Paper choices remain
+authored document edits with undo/save.
 The keyboard routes do not imply screen-reader certification or native file-dialog
 automation across browsers.
 
@@ -681,9 +693,12 @@ Attachment regressions cover exact UTF-8/BOM/line-ending persistence, empty and
 invalid content, inclusive byte limits, duplicate-inclusive quotas, stale imports
 and reads, native history and source-preserving copies. Client checks cover file
 selection/drop, pending-import flushes, pointer-capture preview hit-testing,
-literal content/downloads and modal cleanup. These tests do not certify OS file
-dialogs, cross-browser behavior, DOM focus or actual pointer panning; use the
-real-editor checks below for browser integration.
+literal content/downloads and modal cleanup. Style inspector regressions cover
+selection-capability intersections, explicit mixed values, inherited fonts without
+authored defaults, retained native controls/focus across redraws, stale selection
+handlers, refusal and disposal. These tests do not certify OS file dialogs,
+cross-browser behavior, DOM focus or actual pointer panning; use the real-editor
+checks below for browser integration.
 
 
 ### Manual browser verification

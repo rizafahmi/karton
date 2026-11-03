@@ -251,6 +251,30 @@ journey.
   unobservable. The existing delayed native keyboard nudge can still land after
   an immediate Save; no attachment change attempts to fix that separate behavior.
 
+### Floating Style inspector
+
+- **Status:** implemented as the approved inspector redesign, retaining the
+  existing stack, style commands, history and version-1 contract.
+- **Behavior:** the bottom Style trigger opens a stable upper-right floating
+  inspector below Save, not a sidebar or selection-following toolbar. Appearance
+  and Text group current values; named color palettes open on demand. Controls
+  intersect selected object capabilities, mixed values are explicit, inherited
+  typography is read without authoring defaults, and mixed object/connection
+  selections edit objects only. S opens; palette Escape precedes panel Escape;
+  Close/Escape returns to Style. Same-selection patches retain native controls.
+- **Proof:** `mix check` passed (114 ExUnit, 83 Node tests). Actual Chromium
+  exercised shape/text/line/connector/mixed/locked states, selection focus,
+  mouse versus keyboard opening, palette keys and staged Escape. Opening and
+  selection changes retained clean state and unchanged temporary source bytes.
+  Style change → undo/redo → Save/reopen retained geometry and unknown metadata;
+  a mixed object/connection edit left connection data unchanged. Inspector fit
+  was checked at 1280×800, 375×667 and 1280×480, clear of header and dock, with
+  bounded scrolling and no horizontal overflow.
+- **Limits:** native select DOM identity/focus and selected-value edits passed,
+  but automated keyboard default selection did not work even in a bare native
+  select control; OS popup keyboard behavior is not certified. Chromium layout
+  checks are not other-engine, assistive-technology or mobile interaction proof.
+
 ## Readiness additions — only explicitly adopted work is approved
 
 Save a copy preservation is adopted; remaining proposed additions below require

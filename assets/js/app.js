@@ -10,6 +10,7 @@ import {mountConnectorStyles} from "./connector_styles"
 import {mountTextEditorGeometry} from "./text_editor_geometry"
 import {CanvasMessages} from "./canvas_messages"
 import {mountTextAttachments} from "./text_attachments"
+import {mountStyleInspector} from "./style_inspector"
 
 async function loadDrawingFonts(workspace) {
   // Resolve the host's CSS mapping, not a second document-role → family registry.
@@ -46,31 +47,7 @@ function setFontState(workspace, state) {
   workspace.dataset.fontState = state
 }
 
-function mountObjectTypography(canvas) {
-  const drawStylePanel = canvas.drawStylePanel.bind(canvas)
-  canvas.drawStylePanel = () => {
-    const focused = canvas.styleEl?.contains(document.activeElement) ? document.activeElement : null
-    const focusIndex = focused ? [...canvas.styleEl.querySelectorAll("button, input, select")].indexOf(focused) : -1
-    for (const id of canvas.selected) {
-      const node = canvas.nodes.get(id)
-      if (node?.type !== "shape") continue
-      const object = node.el.querySelector(".drawing-typography")
-      const shape = object?.querySelector("[data-hakushi-style]")
-      if (!shape) continue
-      const style = JSON.parse(shape.dataset.hakushiStyle)
-      const font = object.dataset.drawingFont ||
-        canvas.root.closest(".canvas-workspace").dataset.drawingFont
-      // The inspector shows the effective role without materializing inherited
-      // font metadata in the document.
-      if (style.font !== font) {
-        shape.dataset.hakushiStyle = JSON.stringify({...style, font})
-      }
-    }
-    const result = drawStylePanel()
-    if (focusIndex >= 0 && !focused.isConnected) canvas.styleEl?.querySelectorAll("button, input, select")[focusIndex]?.focus({preventScroll: true})
-    return result
-  }
-
+function mountDrawingTextEditor(canvas) {
   const editText = canvas.editText.bind(canvas)
   canvas.editText = node => {
     const text = node.el.querySelector(".drawing-typography [data-hakushi-text]")
@@ -98,7 +75,6 @@ function mountObjectTypography(canvas) {
       mountTextEditorGeometry(canvas, node, editor)
     }
   }
-  canvas.drawStylePanel()
 }
 
 function mountLineTool(canvas) {
@@ -397,13 +373,9 @@ const FileCanvas = {
     this.destroyRotationGuides = mountRotationGuides(this.canvas)
     mountSelfLoops(this.canvas)
     this.destroyLineTool = mountLineTool(this.canvas)
-    mountObjectTypography(this.canvas)
+    mountDrawingTextEditor(this.canvas)
     this.destroyConnectorStyles = mountConnectorStyles(this.canvas)
-    this.typographyObserver = new MutationObserver(() => this.canvas.drawStylePanel())
-    this.typographyObserver.observe(workspace, {
-      attributes: true,
-      attributeFilter: ["data-drawing-font"],
-    })
+    this.destroyStyleInspector = mountStyleInspector(this.canvas)
     const exportImage = this.canvas.exportImage.bind(this.canvas)
     this.canvas.exportImage = async options => {
       await loadDrawingFonts(workspace)
@@ -608,6 +580,7 @@ const FileCanvas = {
   destroyed() {
     window.removeEventListener("keydown", this.zoomKey, true)
     this.destroyLineTool?.()
+    this.destroyStyleInspector?.()
     this.destroyConnectorStyles?.()
     this.directKeyboard?.destroy()
     delete this.el.directKeyboard
@@ -615,7 +588,6 @@ const FileCanvas = {
     this.canvas.toolsEl?.removeEventListener("click", this.toolKeyboardClick)
     this.destroyRotationGuides?.()
     this.zoomObserver?.disconnect()
-    this.typographyObserver?.disconnect()
     this.headerActionsObserver?.disconnect()
     delete this.el.syncHeaderActions
     Hakushi.destroyed.call(this)
@@ -689,6 +661,13 @@ const Workspace = {
         if (download) { event.preventDefault(); download.click() }
       }
     }
+    this.styleActivation = event => {
+      if (event.target.closest("#style-toggle")) this.styleFocusRequested = event.detail === 0
+    }
+    this.closeStyle = () => {
+      this.pushEvent("close-overlays", {})
+      this.el.querySelector("#style-toggle")?.focus({preventScroll: true})
+    }
     this.closeOverlays = event => {
       if (event.target.closest("dialog")) return
       if (event.key !== "Escape" || event.isComposing || this.el.querySelector(":popover-open:not(#canvas-messages)")) return
@@ -698,6 +677,7 @@ const Workspace = {
         return
       }
       if (event.target.closest(".hakushi-paper-menu, .hakushi-layout-menu, .hakushi-text-editor, .hakushi-edge-input")) return
+      if (event.target.closest(".style-inspector")?.querySelector('.style-color-trigger[aria-expanded="true"]')) return
       const menu = this.el.querySelector("#file-menu")
       const style = this.el.dataset.styleOpen === "true"
       if (menu || style) {
@@ -752,6 +732,8 @@ const Workspace = {
     this.el.addEventListener("canvas:open", this.requestOpen)
     this.el.addEventListener("canvas:reload", this.requestReload)
     this.el.addEventListener("canvas:settled", this.settled)
+    this.el.addEventListener("canvas:close-style", this.closeStyle)
+    this.el.addEventListener("click", this.styleActivation, true)
     window.addEventListener("keydown", this.saveKey, true)
     window.addEventListener("keydown", this.closeOverlays, true)
     window.addEventListener("beforeunload", this.beforeUnload)
@@ -765,7 +747,10 @@ const Workspace = {
     const menuOpen = !!this.el.querySelector("#file-menu")
     const styleOpen = this.el.dataset.styleOpen === "true"
     if (menuOpen && !this.menuWasOpen) this.el.querySelector(".file-menu-actions #open-native-file")?.focus()
-    if (styleOpen && !this.styleWasOpen) this.el.querySelector(".hakushi-style-panel button")?.focus()
+    if (styleOpen && !this.styleWasOpen) {
+      if (this.styleFocusRequested) this.el.querySelector(".style-inspector button, .style-inspector select")?.focus({preventScroll: true})
+      this.styleFocusRequested = false
+    }
     this.menuWasOpen = menuOpen
     this.styleWasOpen = styleOpen
     // LiveView may remove client-owned inline styles without resizing buttons.
@@ -783,6 +768,8 @@ const Workspace = {
     this.el.removeEventListener("canvas:open", this.requestOpen)
     this.el.removeEventListener("canvas:reload", this.requestReload)
     this.el.removeEventListener("canvas:settled", this.settled)
+    this.el.removeEventListener("canvas:close-style", this.closeStyle)
+    this.el.removeEventListener("click", this.styleActivation, true)
     window.removeEventListener("keydown", this.saveKey, true)
     window.removeEventListener("keydown", this.closeOverlays, true)
     window.removeEventListener("beforeunload", this.beforeUnload)
