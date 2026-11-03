@@ -124,6 +124,16 @@ components:
 > flat controls, neutral hover/current fills and cobalt focus. The header stays
 > reachable while the bounded panel scrolls in short/narrow windows.
 >
+> **Zen mode:** Keep only the canvas, centered eight-tool drawing dock, compact
+> upper-left save/draft status and upper-right Exit Zen control. Hide document,
+> Style, rail, paper/export/layout controls and credit with `display: none`, not
+> opacity or focusable offscreen content. File problems, recovery actions and
+> connection/font warnings remain visible. Use a quiet square 44px exit button,
+> not an active-tool accent. Zen is session-only, not browser fullscreen; entering
+> never changes authored styles, selection, viewport or history. Shift+Z belongs
+> only to canvas focus; native editing and overlay Escape take precedence over
+> exiting. Restore normal controls without moving the canvas or losing drafts.
+>
 > **Keyboard alternatives:** Keep editing on the canvas, not in a replacement
 > properties panel. Tab traverses objects and connections without changing the
 > selected set; tapping Space toggles an item, while holding Space and dragging

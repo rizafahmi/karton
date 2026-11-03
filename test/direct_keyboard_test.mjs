@@ -168,6 +168,35 @@ test('file menu and copy focus retain geometry for one flush while unrelated dep
   assert.deepEqual(app.calls, [])
 })
 
+test('Zen controls retain uncommitted geometry, thought text and staged connections', () => {
+  for (const kind of ['geometry', 'thought', 'connection']) {
+    const app = editor()
+    app.canvas.selected.add('a')
+    app.key(kind === 'geometry' ? 'g' : kind === 'thought' ? 'n' : 'c')
+    let input
+    if (kind !== 'connection') app.key('ArrowRight')
+    if (kind === 'thought') {
+      input = app.input()
+      input.value = 'Keep this pending thought'
+      input.emit('input')
+    }
+    app.leave({closest: selector => selector === '[data-zen-toggle]'})
+    assert.equal(app.keyboard.active, true)
+    assert.deepEqual(app.calls, [])
+    assert.deepEqual([...app.canvas.selected], ['a'])
+    if (kind === 'geometry') assert.equal(app.canvas.nodes.get('a').width, 101)
+    if (kind === 'thought') {
+      assert.equal(app.input(), input)
+      assert.equal(input.value, 'Keep this pending thought')
+      input.emit('keydown', {key: 'Escape'})
+    } else app.key('Escape')
+    assert.equal(app.keyboard.active, false)
+    assert.deepEqual(app.calls, [])
+    if (kind === 'geometry') assert.equal(app.canvas.nodes.get('a').width, 100)
+    app.keyboard.destroy()
+  }
+})
+
 test('a thought draft survives direct copy-control focus and still blocks an invalid flush', () => {
   const app = editor()
   app.key('Tab'); app.key('n'); app.key('ArrowRight')

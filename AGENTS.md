@@ -71,6 +71,14 @@ and unresolved repository/technology decisions. No native app is implemented yet
   drafts/geometry and awaits success; invalid drafts block persistence. Open
   retains its unsaved guard. Escape cancels a mode/editor before closing Style.
   The compact ? map lives in the document menu.
+- [zen_mode.js](assets/js/zen_mode.js) owns session-local workspace visibility,
+  never document metadata or fullscreen state. Keep existing save/draft/error
+  feedback visible while hiding non-drawing chrome. Mode transitions preserve
+  native selection, view, tools, pending editors and history; focus recovery
+  suppresses native focus-in selection/reveal side effects and updates lastFocus.
+  Retain direct-mode drafts when focus visits `[data-zen-toggle]`. Escape defers
+  to active editors/modes/tools/overlays before exiting; explicit Style/help/Open
+  requests reveal normal UI instead of focusing hidden controls.
 - [native_file.js](assets/js/native_file.js) handles browser file selection,
   native-handle persistence, and copy-download fallbacks.
 - [text_attachments.js](assets/js/text_attachments.js) imports text snapshots via

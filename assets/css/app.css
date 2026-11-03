@@ -445,3 +445,52 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
   .canvas-workspace .hakushi-tools { grid-template-columns: repeat(auto-fit, minmax(26px, 1fr)); }
   .canvas-workspace .hakushi-tools .hakushi-control { min-width: 26px; }
 }
+
+/* Zen changes only workspace chrome; native tools and document geometry stay intact. */
+.canvas-workspace .zen-exit-control { display: none; }
+.canvas-workspace[data-zen-mode="true"] {
+  --style-width: 0px;
+  --dock-width: min(342px, calc(100% - var(--workspace-inset) * 2));
+  --zen-exit-width: 140px;
+  --feedback-bottom: calc(var(--workspace-bottom) + var(--dock-height) + 12px);
+}
+.canvas-workspace[data-zen-mode="true"] :is(.document-identity, #save-file, .drawing-dock, .style-inspector, #file-menu, .hakushi-controls, .hakushi-paper-menu, .hakushi-layout-menu, .zoom-popover, .agentrouter-credit) { display: none; }
+.canvas-workspace[data-zen-mode="true"] .canvas-header {
+  right: calc(var(--workspace-inset) + var(--zen-exit-width) + 12px);
+  justify-content: flex-start;
+}
+.canvas-workspace[data-zen-mode="true"] .canvas-actions { flex: 1; min-width: 0; margin: 0; }
+.canvas-workspace[data-zen-mode="true"] .save-feedback {
+  position: static;
+  width: 100%;
+  max-width: 350px;
+  justify-items: start;
+}
+.canvas-workspace[data-zen-mode="true"] .save-feedback .document-status { justify-content: flex-start; text-align: left; }
+.canvas-workspace[data-zen-mode="true"] .hakushi-tools { border-right: var(--border-frame); }
+.canvas-workspace[data-zen-mode="true"] .zen-exit-control {
+  position: absolute;
+  top: var(--workspace-inset);
+  right: var(--workspace-inset);
+  z-index: 11;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-width: 44px;
+  min-height: 44px;
+  max-width: var(--zen-exit-width);
+  padding: 10px 12px;
+  border: var(--border-frame);
+  border-radius: 0;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font: 700 11px/1.5 var(--font-mono);
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.canvas-workspace[data-zen-mode="true"] .zen-exit-control:hover { background: var(--bg-surface); }
+.canvas-workspace[data-zen-mode="true"] .zen-exit-control:focus-visible { outline: var(--focus-ring); outline-offset: 3px; }
+.canvas-workspace[data-zen-mode="true"] .connection-warning { top: calc(var(--workspace-inset) + 104px); }
+.canvas-workspace[data-zen-mode="true"] #attachment-import-status { top: calc(var(--workspace-inset) + 104px); }

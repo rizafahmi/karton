@@ -747,6 +747,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
       data-file-busy={to_string(@pending_save != nil)}
       data-style-open={to_string(@style_open)}
       data-font-state="loading"
+      data-zen-mode="false"
       data-attachment-file-limit={Attachment.file_limit()}
       data-attachment-total-limit={Attachment.total_limit()}
     >
@@ -871,6 +872,18 @@ defmodule ElixirCanvasWeb.CanvasLive do
           <.glyph name="style" /><span>Style</span>
         </button>
       </div>
+      <button
+        :if={@document}
+        id="exit-zen-mode"
+        type="button"
+        class="zen-exit-control"
+        data-zen-toggle
+        phx-click={JS.dispatch("canvas:exit-zen", to: "#workspace")}
+        title="Exit Zen mode (Shift+Z)"
+        aria-keyshortcuts="Shift+Z"
+      >
+        Exit Zen
+      </button>
 
       <section
         :if={@file_menu_open}
@@ -925,6 +938,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
             <dd>Commit/cancel G/C/N; N: Shift+Enter newline</dd>
             <dt>S / ?</dt>
             <dd>Style / this reference</dd>
+            <dt>Shift+Z</dt>
+            <dd>Toggle Zen mode; Escape exits after active editing</dd>
             <dt>Delete / Backspace</dt>
             <dd>Delete selection</dd>
             <dt>Mod+C X V D</dt>
@@ -974,6 +989,23 @@ defmodule ElixirCanvasWeb.CanvasLive do
           </div>
           <p id="native-open-help" class="menu-footnote" data-native-open-help>
             Choose a canvas JSON file. Supported browsers can save back with your permission; other browsers download a copy.
+          </p>
+        </div>
+        <div :if={@document} class="menu-section">
+          <button
+            id="zen-mode-toggle"
+            type="button"
+            class="menu-button"
+            data-zen-toggle
+            phx-click={JS.dispatch("canvas:toggle-zen", to: "#workspace")}
+            aria-pressed="false"
+            aria-keyshortcuts="Shift+Z"
+            aria-describedby="zen-mode-help"
+          >
+            Zen mode
+          </button>
+          <p id="zen-mode-help" class="menu-footnote">
+            Focus on the canvas and drawing tools. Save status and file problems stay visible.
           </p>
         </div>
         <div :if={@document} class="menu-section">

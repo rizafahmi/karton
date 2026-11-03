@@ -11,6 +11,7 @@ import {mountTextEditorGeometry} from "./text_editor_geometry"
 import {CanvasMessages} from "./canvas_messages"
 import {mountTextAttachments} from "./text_attachments"
 import {mountStyleInspector} from "./style_inspector"
+import {mountZenMode} from "./zen_mode"
 
 async function loadDrawingFonts(workspace) {
   // Resolve the host's CSS mapping, not a second document-role → family registry.
@@ -400,6 +401,10 @@ const FileCanvas = {
       if (command && (event.altKey || !["z", "y", "a", "c", "x", "v", "d", "0", "+", "=", "-", "[", "]", "{", "}"].includes(event.key.toLowerCase()))) return
       if (command && event.shiftKey && !["z", "+", "=", "[", "]", "{", "}"].includes(event.key.toLowerCase())) return
       if (event.altKey && !event.key.startsWith("Arrow")) return
+      if (workspace.dataset.zenMode === "true" && !this.directKeyboard.active &&
+          ((!command && !event.shiftKey && event.key.toLowerCase() === "s") || event.key === "?")) {
+        workspace.dispatchEvent(new CustomEvent("canvas:exit-zen"))
+      }
       if (this.directKeyboard.key(event)) return
       if (command && event.shiftKey && ["BracketLeft", "BracketRight"].includes(event.code)) {
         event.preventDefault()
@@ -637,6 +642,7 @@ const Workspace = {
     }
     this.nativeFile = mountNativeFile(this)
     this.textAttachments = mountTextAttachments(this)
+    this.zenMode = mountZenMode(this)
     this.requestSave = () => this.nativeFile.save()
     this.requestSaveCopy = () => this.nativeFile.saveCopy()
     this.requestOpen = () => {
@@ -655,6 +661,7 @@ const Workspace = {
         this.requestSave()
       } else if (key === "o" && !event.shiftKey) {
         event.preventDefault()
+        this.zenMode.reveal()
         this.requestOpen()
       } else if (key === "e" && event.shiftKey) {
         const download = this.el.querySelector('[data-action="export"]')
@@ -670,6 +677,7 @@ const Workspace = {
     }
     this.closeOverlays = event => {
       if (event.target.closest("dialog")) return
+      if (event.defaultPrevented || this.el.dataset.zenMode === "true") return
       if (event.key !== "Escape" || event.isComposing || this.el.querySelector(":popover-open:not(#canvas-messages)")) return
       const keyboard = this.activeCanvas()?.directKeyboard
       if (keyboard?.active) {
@@ -744,11 +752,13 @@ const Workspace = {
     this.el.dataset.fontState = this.el.drawingFontState || "loading"
     this.nativeFile.updated()
     this.textAttachments.updated()
+    this.zenMode.updated()
     const menuOpen = !!this.el.querySelector("#file-menu")
     const styleOpen = this.el.dataset.styleOpen === "true"
-    if (menuOpen && !this.menuWasOpen) this.el.querySelector(".file-menu-actions #open-native-file")?.focus()
+    const zen = this.el.dataset.zenMode === "true"
+    if (!zen && menuOpen && !this.menuWasOpen) this.el.querySelector(".file-menu-actions #open-native-file")?.focus()
     if (styleOpen && !this.styleWasOpen) {
-      if (this.styleFocusRequested) this.el.querySelector(".style-inspector button, .style-inspector select")?.focus({preventScroll: true})
+      if (!zen && this.styleFocusRequested) this.el.querySelector(".style-inspector button, .style-inspector select")?.focus({preventScroll: true})
       this.styleFocusRequested = false
     }
     this.menuWasOpen = menuOpen
@@ -758,6 +768,7 @@ const Workspace = {
     this.settled()
   },
   destroyed() {
+    this.zenMode.destroyed()
     this.nativeFile.destroyed()
     this.textAttachments.destroyed()
     for (const resolve of this.flushWaiters) resolve()

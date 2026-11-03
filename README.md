@@ -169,6 +169,8 @@ theme from portable names; the document retains its authored geometry and style 
   Other values use native selects, with S/M/L text sizes; differing values show
   **Mixed** rather than an unexplained empty selection. Close or Escape dismisses
   the inspector, returning focus to Style. Escape first closes an open palette.
+- **Zen mode** in the document menu hides non-drawing controls for brainstorming;
+  Shift+Z toggles it from canvas focus. See [Zen mode](#zen-mode).
 - Save state stays at the upper right beneath **Save**, without moving the button
   when it changes. Routine saves update this status without a second notification.
   **Thought draft — not added** appears alongside it while a draft is pending.
@@ -306,6 +308,29 @@ not dirty the canvas or enter history. Download-manager completion is not
 observable. Save waits for an in-progress import; a failed import blocks that
 save rather than omitting the requested file.
 
+### Zen mode
+
+Choose **Zen mode** in the document menu, or press **Shift+Z** with the canvas or
+an object focused. The drawing dock stays centered with all eight tools; file,
+Style, paper/export, arrangement/zoom controls and credit are hidden. A small
+**Exit Zen** button remains at the upper right, with existing save/draft status
+at the upper left. File errors, conflicts and recovery actions are still visible.
+
+Draw, type, connect thoughts, pan, zoom and undo/redo with the existing controls
+and shortcuts. Command/Ctrl+S still saves through the current source workflow,
+including its copy-download fallback and dirty-state limits. **S**, **?**, or
+Command/Ctrl+O reveals normal UI before opening Style, help or the file picker.
+
+**Exit Zen**, Shift+Z, or Escape returns to the normal workspace. Escape from
+canvas focus cancels active text/edge editing, G/C/N modes or drawing tools first;
+another Escape exits Zen. Shift+Z never hijacks fields, composing text or an
+inline draft. Mode buttons preserve pending drafts/previews instead of committing
+or cancelling them just to change the view.
+
+Zen changes only the current mounted workspace: it does not remount the board,
+change selection/zoom/styles, enter undo history, dirty JSON or invoke browser
+fullscreen. Reloading the page starts in the normal view.
+
 ### Keyboard editing
 
 The document menu contains a compact **Keyboard shortcuts (?)** disclosure; **?**
@@ -333,6 +358,7 @@ select, contenteditable editor or toolbar button. IME composition is left alone.
 | Grow an independent thought from a focused or singly selected unlocked text-bearing shape | N; cardinal arrow; type inline; Enter adds; Shift+Enter newline; Escape cancels |
 | Pan | Hold Space and drag; with no selection, arrows (Shift for larger steps) |
 | Existing Style / compact shortcut reference | S / ? |
+| Toggle Zen mode | Shift+Z; Exit Zen or Escape after active editing to leave |
 | Create / reconnect selected connection | C; arrows or Tab choose; Enter advances/commits; Escape cancels |
 | Copy / cut / paste / duplicate | Command/Ctrl+C / X / V / D |
 | Delete; undo; redo | Delete or Backspace; Command/Ctrl+Z; Shift+Command/Ctrl+Z or Ctrl+Y |
@@ -696,9 +722,11 @@ selection/drop, pending-import flushes, pointer-capture preview hit-testing,
 literal content/downloads and modal cleanup. Style inspector regressions cover
 selection-capability intersections, explicit mixed values, inherited fonts without
 authored defaults, retained native controls/focus across redraws, stale selection
-handlers, refusal and disposal. These tests do not certify OS file dialogs,
-cross-browser behavior, DOM focus or actual pointer panning; use the real-editor
-checks below for browser integration.
+handlers, refusal and disposal. Zen regressions cover view-only transitions,
+scoped shortcuts, staged Escape, hidden-control focus recovery, patch/replacement
+handling, and retained pending text/geometry/connection drafts. These tests do
+not certify OS file dialogs, cross-browser behavior, DOM focus or actual pointer
+panning; use the real-editor checks below for browser integration.
 
 
 ### Manual browser verification

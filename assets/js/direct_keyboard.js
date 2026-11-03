@@ -505,6 +505,7 @@ export function mountDirectKeyboard(canvas) {
   const focusOut = event => {
     spacePending = null
     if (!mode || root.contains(event.relatedTarget)) return
+    if (event.relatedTarget?.closest('[data-zen-toggle]')) return
     if (mode.kind === 'thought') {
       if (!event.relatedTarget && document.hasFocus?.() === false) return
       if (event.relatedTarget?.closest('#save-file, [data-save-copy], #file-menu, #new-canvas, #open-native-file, #empty-open-file, #file-menu-toggle')) return

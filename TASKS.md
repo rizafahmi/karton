@@ -275,6 +275,29 @@ journey.
   select control; OS popup keyboard behavior is not certified. Chromium layout
   checks are not other-engine, assistive-technology or mobile interaction proof.
 
+### Zen brainstorming view
+
+- **Status:** implemented as explicitly requested session-only canvas/drawing
+  focus mode. No dependencies, document-format, fullscreen or autosave changes.
+- **Contract:** Document-menu Zen mode or canvas-scoped Shift+Z keeps all drawing
+  tools, Exit Zen and save/draft status while hiding file/style/rail/credit
+  chrome. Errors, conflicts and recovery remain visible. Transitions retain the
+  same board, selection/view, active tools, pending drafts/previews and history.
+  Native editors/modes/overlays consume Escape before Zen exits. Explicit
+  Style/help/Open reveals normal UI; ordinary Save works without leaving Zen.
+- **Proof:** final `mix check` passed (114 ExUnit, 99 Node tests).
+  Actual Chromium menu/Shift+Z toggles retained selection/tool/view/root and
+  source bytes. Keyboard drawing and adjacent thoughts, undo/redo and real disk
+  Save worked while Zen remained active. G/C/N previews and draft content/focus
+  survived toggles; Shift+Z stayed text in drafts. Native text Escape cancelled
+  first, then exited Zen. S/? revealed controls; Tab reached only visible
+  controls. A real external-file conflict stayed visible with reachable
+  recovery actions and no overwrite. Desktop and 375×667 layouts retained eight
+  centered tools, visible exit/status and no hidden-control focus.
+- **Limits:** Chromium proof only; narrow layouts are not mobile interaction,
+  other-engine or screen-reader certification. Existing source-specific saving,
+  download confirmation and interruption/recovery limits remain unchanged.
+
 ## Readiness additions — only explicitly adopted work is approved
 
 Save a copy preservation is adopted; remaining proposed additions below require
