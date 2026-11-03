@@ -13,7 +13,7 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     path = Path.join(directory, "portable.json")
 
     source =
-      Path.expand("../../fixtures/document.json", __DIR__)
+      Path.expand("../../../shared/fixtures/v1/document.json", __DIR__)
       |> File.read!()
       |> Jason.decode!()
 

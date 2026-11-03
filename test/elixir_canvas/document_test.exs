@@ -8,7 +8,7 @@ defmodule ElixirCanvas.DocumentTest do
 
   setup %{tmp_dir: directory} do
     path = Path.join(directory, "ideas.json")
-    File.cp!(Path.expand("../fixtures/document.json", __DIR__), path)
+    File.cp!(Path.expand("../../shared/fixtures/v1/document.json", __DIR__), path)
     {:ok, document} = Document.open(path)
     %{path: path, document: document}
   end

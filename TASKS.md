@@ -10,6 +10,10 @@ implemented below; other proposed readiness additions remain **unapproved scope*
 Decide their adoption and placement before the final native milestone.
 No app scaffolding, toolchain installation, dependencies, build steps, or CI
 changes until implementation is requested.
+Repository preparation was explicitly requested on 2026-11-03: web at root,
+`macos/` for the independent native project, and `shared/fixtures/v1/` for JSON
+contract fixtures. This does not approve native app scaffolding, technology,
+features, or the other proposed readiness work.
 
 ## Product outcome and existing baseline
 
@@ -514,11 +518,13 @@ requirements and acceptance in Later; they are not a precondition to this milest
   not a runtime; preserve authored geometry, semantic font roles, and named
   colors. Native font/palette resolution may differ; pixel-identical rendering
   is not required.
-- **Before project creation:** confirm repository organization. Recommended, not
-  approved: monorepo with the web app left at the root, a separate `macos/`
-  project, and shared contract fixtures; independent builds and runtimes. Swift
-  with AppKit, SwiftUI, and Core Graphics is a candidate, not an approved
-  architecture.
+- **Repository organization (prepared 2026-11-03):** one repository, the web app
+  left at the root, a separate `macos/` project location, and shared version-1
+  fixtures in `shared/fixtures/v1/`; independent builds and runtimes. The
+  existing document fixture was moved byte-for-byte and web consumers migrated.
+  See [repository layout](README.md#repository-layout). No native app or build
+  configuration exists yet. Swift with AppKit, SwiftUI, and Core Graphics remains
+  a candidate, not an approved architecture.
 - **Before implementation:** decide minimum macOS, SwiftUI/AppKit
   responsibilities, the initial supported document-content/editing scope, and
   PNG default dimensions and maximum output size. Do not imply full web feature
@@ -552,6 +558,8 @@ requirements and acceptance in Later; they are not a precondition to this milest
 
 ### Native delivery tasks within this milestone
 
+- [x] Prepare repository organization for the native project without moving
+      the working web app or changing its commands.
 - [ ] Resolve native decisions before project creation/implementation as
       applicable.
 - [ ] Agree compatibility fixtures and prove round-trips before editable saves.
@@ -569,11 +577,12 @@ requirements and acceptance in Later; they are not a precondition to this milest
       editing explicitly. If edit-only, identify where starting boards come from
       and describe that boundary honestly; neither decision implies full web
       parity.
-- [ ] **Native repository/technology:** confirm organization before project
-      creation; decide minimum macOS, stack and UI/rendering responsibilities,
-      supported content and editing scope, shared fixtures, and independent
-      build/check instructions. The monorepo and Swift/AppKit/SwiftUI/Core
-      Graphics proposal above is not approval.
+- [x] **Native repository organization:** web at root, `macos/` for native code,
+      `shared/fixtures/v1/` for shared JSON; independent builds and runtimes.
+- [ ] **Native technology and compatibility:** decide minimum macOS, stack and
+      UI/rendering responsibilities, supported content and editing scope,
+      additional shared fixtures, and independent build/check instructions.
+      Swift/AppKit/SwiftUI/Core Graphics remains a proposal, not approval.
 - [ ] **PNG output:** agree default dimensions/scale and maximum output size;
       retain transparency, font readiness, clipping, zoom/DPR, and Keynote proof
       above.

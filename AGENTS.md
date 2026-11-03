@@ -13,7 +13,19 @@ unless requested, not permanently prohibited directions.
 
 An independent native Mac editor is planned, sharing version-1 JSON rather than
 the web runtime. [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof,
-and unresolved repository/technology decisions. No native app is implemented yet.
+and unresolved technology/product decisions. No native app is implemented yet.
+
+## Repository organization
+
+Keep the working Phoenix app and its Mix commands at the repository root.
+[`macos/`](macos/) owns the future independent native project;
+[`shared/fixtures/v1/`](shared/fixtures/v1/) owns runtime-independent JSON
+contract fixtures. Web tests consume the shared fixtures today; native checks
+must use the same corpus rather than fork it. Copy fixtures to temporary files
+before editing/saving. [`examples/`](examples/) remains editable user content.
+Do not introduce a shared runtime or root build orchestrator for the native app.
+Native technology and product scope remain decisions in TASKS.md; repository
+preparation is not native implementation or native compatibility proof.
 
 ## Architecture map
 

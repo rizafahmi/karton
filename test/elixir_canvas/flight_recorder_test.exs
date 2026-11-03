@@ -12,7 +12,7 @@ defmodule ElixirCanvas.FlightRecorderTest do
     crashes_dir = Path.join(tmp_dir, "crashes")
     logs_dir = Path.join(tmp_dir, "logs")
     canvas_path = Path.join(tmp_dir, "ideas.json")
-    File.cp!(Path.expand("../fixtures/document.json", __DIR__), canvas_path)
+    File.cp!(Path.expand("../../shared/fixtures/v1/document.json", __DIR__), canvas_path)
 
     handler_id = {:test_flight_recorder, System.unique_integer([:positive])}
 

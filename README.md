@@ -10,7 +10,30 @@ Mac editor sharing the version-1 JSON document contract, with Apple-native UI an
 transparent high-resolution PNG export for Keynote. It is not implemented yet and
 will not require the web app's runtime.
 See [TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) for scope,
-acceptance proof, and open repository/technology decisions.
+acceptance proof, and open technology/product decisions.
+
+## Repository layout
+
+The web and planned native editors live in one repository with independent
+builds and runtimes. The existing Phoenix app stays at the root; web commands
+continue to run from here.
+
+| Path | Responsibility |
+| --- | --- |
+| `mix.exs`, `lib/`, `config/`, `assets/`, `priv/`, `test/` | Existing Phoenix/LiveView web app and its tests |
+| [`macos/`](macos/) | Native macOS project location; no application or build configuration yet |
+| [`shared/fixtures/v1/`](shared/fixtures/v1/) | Runtime-independent version-1 JSON contract fixtures consumed by web tests and intended for future native checks |
+| [`examples/`](examples/) | Editable user-facing boards, not disposable test fixtures |
+| `README.md`, `TASKS.md`, `DESIGN.md`, `CONTRIBUTING.md`, `SECURITY.md` | Shared contract, plans, and project guidance; web visual rules remain web-only |
+
+`shared/fixtures/v1/document.json` is the existing two-shape/one-connection
+fixture, moved without changing its bytes. Tests copy it into temporary files
+before editing or saving. It is a compatibility baseline, not the complete
+native compatibility corpus; content coverage remains a
+[native milestone decision](TASKS.md#final-milestone-independent-native-macos-editor).
+Shared data does not imply shared Elixir/JavaScript code or a web runtime inside
+the native app. Native setup and verification will accompany implementation;
+`mix check` verifies only the web app.
 
 ## Run
 
@@ -736,7 +759,7 @@ disposable copy, never the editable welcome source:
 
 ```sh
 canvas_check_dir="$(mktemp -d)"
-cp test/fixtures/document.json "$canvas_check_dir/canvas.json"
+cp shared/fixtures/v1/document.json "$canvas_check_dir/canvas.json"
 printf 'Temporary canvas: %s\n' "$canvas_check_dir/canvas.json"
 CANVAS_FILE="$canvas_check_dir/canvas.json" PORT=4001 mix phx.server
 ```

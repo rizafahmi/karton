@@ -20,6 +20,14 @@ and persistence details.
 
 ## Architecture overview
 
+The [repository layout](README.md#repository-layout) keeps the web app at the
+root and reserves [`macos/`](macos/) for the independent native editor. Run the
+commands below from the repository root; they verify the web app only.
+Version-1 contract fixtures live in [`shared/fixtures/v1/`](shared/fixtures/v1/).
+Both editors should consume these files directly in their checks, copying them
+to temporary locations before writes rather than maintaining divergent copies.
+Native setup/check commands will be supplied when the native app is implemented.
+
 - [`ElixirCanvas.Document`](lib/elixir_canvas/document.ex) — Version-1 JSON
   schema validation, unknown-metadata retention, SHA-256 revision checks, and
   atomic server-file persistence.

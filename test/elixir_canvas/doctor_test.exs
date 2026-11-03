@@ -15,7 +15,7 @@ defmodule ElixirCanvas.DoctorTest do
     File.mkdir_p!(examples_dir)
 
     File.cp!(
-      Path.expand("../fixtures/document.json", __DIR__),
+      Path.expand("../../shared/fixtures/v1/document.json", __DIR__),
       Path.join(examples_dir, "ok.json")
     )
 
