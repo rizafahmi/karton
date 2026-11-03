@@ -136,6 +136,12 @@ components:
 > trigger only after active text/geometry/connection/thought editing has cancelled.
 > Canvas-scoped character/zoom commands never hijack fields, IME composition or
 > browser chrome zoom outside the canvas.
+>
+> **Text attachments:** Keep normal shape cards with a quiet embedded-type badge
+> inside the rotating outline. Import belongs in the document menu and file drop,
+> not another drawing-tool dock. Source previews use a square, flat native modal
+> with bounded scrolling, literal monospace text, visible Download attachment and
+> Close controls, and native Escape/focus return. No rendered Markdown is implied.
 
 
 ## 1. Overview

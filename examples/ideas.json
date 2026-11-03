@@ -390,6 +390,144 @@
       "width": 375.7,
       "x": 154.03,
       "y": 892.32
+    },
+    {
+      "data": {
+        "align": "center",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "The Everything Calculator",
+        "width": 2
+      },
+      "height": 50,
+      "id": "gnm3uwbg",
+      "locked": false,
+      "type": "shape",
+      "width": 180,
+      "x": -106.25,
+      "y": 328.9
+    },
+    {
+      "data": {
+        "align": "left",
+        "dash": false,
+        "fill": "none",
+        "kind": "text",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "none",
+        "text": "https://ghuntley.com/lisp/",
+        "width": 2
+      },
+      "height": 50,
+      "id": "l776fmmg",
+      "locked": false,
+      "type": "shape",
+      "width": 227.43,
+      "x": -165.84,
+      "y": 234.26
+    },
+    {
+      "data": {
+        "arrow": "end",
+        "dash": false,
+        "from": [
+          144.4,
+          71.5
+        ],
+        "stroke": "ink",
+        "to": [
+          11.990000000000002,
+          12.03000000000003
+        ],
+        "width": 2
+      },
+      "height": 83.5,
+      "id": "qyzgnbze",
+      "locked": false,
+      "type": "shape-line",
+      "width": 156.4,
+      "x": 21.9,
+      "y": 351.8
+    },
+    {
+      "data": {
+        "arrow": "end",
+        "dash": false,
+        "from": [
+          43.8,
+          58.3
+        ],
+        "stroke": "ink",
+        "to": [
+          12,
+          12
+        ],
+        "width": 2
+      },
+      "height": 70.3,
+      "id": "otuhk2zz",
+      "locked": false,
+      "type": "shape-line",
+      "width": 55.8,
+      "x": -84.7,
+      "y": 271.9
+    },
+    {
+      "data": {
+        "align": "left",
+        "attachment": {
+          "content": "# Product concept brief: a growing calculator workspace\n\n## Status and purpose\n\nConcept capture for a future discussion, not an implementation specification or commitment to build. No product name, launch scope, language, or execution architecture has been selected.\n\nThe user proposed two directions: an **everything calculator** and a **self-growing personal knowledge workspace**. The current recommendation is calculator-first, with a possible decision-notebook direction connecting calculations to personal knowledge. That recommendation is not a confirmed product decision.\n\n## 1. Product thesis\n\n**Let people create calculators that remember their assumptions, work together, and preserve their past decisions.**\n\nThe product would let a user describe a calculation in natural language, inspect and try the resulting calculator, save it, and reuse it with new inputs. Later requests could extend an existing calculator or build another calculator from it.\n\nThe value is not “an app built with Lisp or Elixir.” It is durable, inspectable, composable behavior that users can teach the product through conversation.\n\nAn isolated calculator generated on demand is already useful. A growing workspace becomes meaningfully different when users reuse calculations, evolve assumptions, and need previous results to remain reproducible.\n\n## 2. Original product directions\n\n### A. The everything calculator\n\nA workspace where users create their own calculators for:\n\n- Freelance fees, hourly rates, and project pricing.\n- Savings and financial planning.\n- Mortgage payments and renting versus buying.\n- Food quantities, meal planning, and related decisions.\n\n“Everything” describes the broad vision, not a validated scope. Some requests are formula problems; others, such as “what should I eat?”, require preferences, reliable data, and potentially health-sensitive judgment. A calculator alone does not solve those requirements.\n\n**Recommendation:** begin with one connected domain, freelance income and personal finances. It offers understandable inputs, reusable calculations, and concrete examples for checking correctness. Start with rates, project pricing, and savings scenarios rather than immediately promising tax, mortgage, or nutrition advice.\n\n### B. A self-growing second brain\n\nA personal notes workspace that becomes more useful for learning, teaching, research, and content creation.\n\nThis is a less direct showcase of program growth: retrieval, summarization, and writing can all work through ordinary LLM interactions without modifying application behavior.\n\nA stronger version lets users teach persistent workflows, not just ask questions about notes. For example: “Save a study workflow that identifies prerequisites, generates practice questions, and tracks concepts I struggle with.” Some workflow steps would still require inference; persistence does not make language generation deterministic or inference-free.\n\n### Possible synthesis: a decision notebook\n\nCombine calculators with saved scenarios, assumptions, sources, and notes explaining why a decision was made.\n\nThe calculator supplies executable reasoning; the notebook preserves its context. This gives the second-brain direction a concrete purpose without requiring a general-purpose knowledge product at the outset.\n\nThis synthesis is a proposal, not a selected scope.\n\n## 3. Inspiration and what the proof of concept demonstrates\n\nGeoffrey Huntley’s article presents **Jiti**, a Common Lisp kernel for extending a running application through conversation with an LLM.\n\nThe model can inspect existing functions, add or redefine behavior, execute expressions, and observe actual results. Accepted functions remain ordinary Lisp functions; executing them does not inherently require another inference request. New functions can compose existing ones.\n\nJiti also provides managed checkpoints, previews, caller-owned checks, durable revisions, recovery, and rollback. These are kernel and adapter features, not automatic properties of Lisp. Its reference adapter manages named functions and supported state-table data, not arbitrary external resources.\n\nThe broader idea is **development inside the product**: using the application can include teaching it new capabilities. This is generated application code, not model-weight training.\n\nThe article’s claim about replacing conventional build/deployment workflows is a thesis. Live programming can shorten feedback loops; it does not eliminate compilation, verification, permissions, or deployment needs for the host application.\n\n## 4. Critical distinction: three approaches\n\n| Approach | What persists and executes? | Consequence for the user |\n| --- | --- | --- |\n| LLM answers each calculation | Prompts and responses; every new calculation goes through the model | Model latency and cost; arithmetic and assumptions may vary |\n| LLM generates a saved calculator | Executable code or a formula definition handles later inputs | Repeatable calculations without inference for each run |\n| Application accumulates calculators | Saved definitions can reference and extend other definitions | A reusable system grows across requests, with dependencies and revisions to manage |\n\n**At the first interaction, all three can look similar.** A working calculator on screen does not reveal its implementation.\n\nOrdinary LLM code generation plus persistence already achieves the second approach. Jiti-style live programming is not necessary for that benefit. If an app builder also manages composition and evolution, it can achieve the third approach too.\n\nThe differentiation therefore must be user-visible: reuse, shared assumptions, composition, understandable changes, and reproducible historical decisions. Runtime code loading is an implementation mechanism, not the product proposition.\n\n## 5. Illustrative user journey\n\nThe following is a proposed demonstration, not a committed feature list:\n\n1. “Build a freelance-rate calculator from my target income, annual business expenses, and annual billable hours.”\n2. Inspect its inputs, units, formula, assumptions, and independently checked examples.\n3. Save the calculator and run it with different inputs without another LLM call.\n4. “Build a project-pricing calculator using my saved freelance rate.”\n5. “Add a contingency percentage.” Preview the proposed change and its effect on sample quotes.\n6. Approve the new revision while preserving earlier quotes and their original dependencies.\n7. Restart or reopen the application. Saved calculators and scenarios remain available.\n8. Select an earlier calculator revision for future use without deleting the intervening history.\n\nThe showcase is **creation → execution → composition → controlled modification → persistence → reuse**, not just a chat answer or hot-loading demonstration.\n\n## 6. Trust and behavioral requirements\n\nRequirements to evaluate if the concept proceeds:\n\n- **Inspectability:** show inputs, units, formula or executable definition, assumptions, outputs, and rounding policy.\n- **Independent correctness checks:** use established expected results and relevant boundary cases. The model’s own approval or self-authored examples are not independent evidence of correctness.\n- **Visible change intent:** distinguish “run this calculator” from “change this calculator.” Preview a candidate before publishing it.\n- **Reproducibility:** record input values, calculator revision, dependency revisions, and relevant external-data versions for saved scenarios.\n- **Controlled dependency evolution:** recommended default is pinning dependencies to specific revisions. Updating a freelance-rate calculator should not silently alter historical project quotes. Upgrades should be explicit and comparable.\n- **Durability:** saved capability definitions must survive process and application restarts; conversation history alone is insufficient.\n- **Bounded execution:** calculations should have resource limits. Native generated code requires a real isolation boundary.\n- **Domain honesty:** financial and nutrition calculations must state assumptions and limits. Repeatable execution does not establish that a model, formula, or recommendation is appropriate.\n\nPrefer pure calculations initially. Restoring application state cannot undo an email, payment, or external database write. Autonomous external actions are outside the recommended starting scope.\n\n## 7. Common Lisp versus Elixir\n\n“Elixir” is a requested option under consideration, not a confirmed choice. “Lisp” here means the Common Lisp/SBCL approach used by Jiti.\n\n| Concern | Common Lisp / Jiti | Elixir / BEAM |\n| --- | --- | --- |\n| Live evolution | Individual function definitions can change in the running world | Runtime compilation and module-level code replacement are supported |\n| Error recovery | Conditions and restarts can preserve a paused call and offer continuation paths | Typical OTP approach is to fail an operation, correct it, then retry |\n| Product infrastructure | Requires choosing and integrating an appropriate web and operational stack | Phoenix LiveView, processes, messaging, and supervision fit an interactive web workspace |\n| Durability and rollback | Supplied by Jiti’s managed-world and revision-store machinery | Must be implemented explicitly for calculator definitions and scenarios |\n| Arithmetic | Built-in integers, exact ratios, and floats | Integers and floats; Decimal supports explicit decimal arithmetic |\n| Generated-code security | Cooperative code is assumed; arbitrary code needs isolation | BEAM processes are not security sandboxes; arbitrary code needs isolation |\n\n**Recommendation:** Elixir is a good fit for the calculator product. Common Lisp is the closer fit for reproducing Jiti’s exact live-programming and paused-repair experiment.\n\nPure calculators usually can be restarted after correction, so live continuation repair is not essential to this product. Neither runtime automatically replaces every already-executing frame.\n\nElixir can compile and load capabilities without rebuilding and redeploying the whole application. That remains compilation, and safe publication is still an application responsibility. BEAM’s current/old module versions are not durable product version history. Supervision restarts workers; it does not automatically restore their state or persist generated capabilities.\n\n## 8. Execution architecture options\n\n### Option A: generate native Elixir code\n\nClosest to the article’s mechanism: the model creates real functions, receives execution feedback, and extends the application’s executable vocabulary.\n\nCompile and run generated code in an isolated worker environment, separate from the Phoenix application VM. Compilation itself can execute code with VM privileges. A supervised Task or AST screening alone is not sufficient isolation.\n\nKeep durable definitions outside replaceable workers; exclude host credentials and enforce resource and filesystem/network restrictions. Avoid unlimited generated module-name atoms, because atoms are not garbage-collected. User-facing calculator IDs should not require dynamically created atoms.\n\n**Best fit:** a faithful native-code-growth demonstration. Additional isolation and compiled-code lifecycle work are the tradeoff.\n\n### Option B: generate a restricted calculator language\n\nThe model creates an executable representation supporting permitted arithmetic, conditions, bounded operations, and references to saved calculators. A trusted Elixir interpreter evaluates it without arbitrary Elixir evaluation.\n\nThis can create genuinely new calculations, not just select templates. Its expressiveness and resource use are deliberately bounded.\n\n**Best fit:** a public calculator product. It demonstrates constrained capability growth, not unrestricted Elixir self-modification. Its safety depends on the interpreter and limits, not merely labeling the representation a DSL.\n\n### Shared design recommendation\n\nUse versioned, pure calculator definitions as the durable core. A definition would retain a stable ID, immutable revision, input/output schema, units, executable representation, assumptions, rounding policy, dependencies, and acceptance evidence.\n\nPhoenix LiveView can provide chat, input forms, previews, results, and revision controls. Keep LLM work asynchronous. Calculators need not each have a permanent process; saved definitions can be evaluated on demand.\n\nFor money, prefer decimal-string inputs and explicit Decimal precision/rounding rather than introducing binary floating-point approximations first.\n\nNo execution option has been selected. A simpler saved-calculator architecture may be sufficient if composition is not important to early users.\n\n## 9. Questions to revisit\n\n1. Is the main need isolated calculators, reusable calculator families, or decision records?\n2. Who is the first audience: freelancers, general consumers, or another group?\n3. Is the priority a live-programming showcase or a trustworthy public product?\n4. Should execution use native Elixir or a restricted calculator language?\n5. Which calculations and independently established examples define the first useful scope?\n6. How should shared assumptions and dependency upgrades work?\n7. Which capabilities require external data or further inference, and how should those be labeled?\n8. Does the notes direction belong in the initial experience or remain a separate concept?\n\n## 10. Evidence to seek before expanding\n\n- A user can create, understand, and reuse a calculator without developer intervention.\n- A saved calculator runs with inference disabled and survives an application restart.\n- A second calculator reuses the first rather than duplicating its logic.\n- A revision changes intended future behavior while preserving saved historical results.\n- Invalid candidates are rejected using checks independent of the generated implementation.\n- Users find composition or decision history materially more useful than generating isolated calculators elsewhere.\n\nThe final point is a product hypothesis, not established demand. Technical feasibility alone does not validate it.\n\n## Sources\n\n- [Huntley: an application in lisp you grow by talking to it](https://ghuntley.com/lisp/)\n- [Jiti implementation, capabilities, and boundaries](https://github.com/ghuntley/jiti#readme)\n- [Jiti expense-tracker example](https://github.com/ghuntley/jiti/blob/HEAD/examples/expense-tracker.lisp)\n- [Jiti caller-governed evolution](https://github.com/ghuntley/jiti/blob/HEAD/docs/adr/0008-caller-governed-evolution.md)\n- [Elixir runtime compilation and safety warning](https://hexdocs.pm/elixir/Code.html#compile_string/2)\n- [BEAM code replacement](https://www.erlang.org/doc/system/code_loading.html#code-replacement)\n- [Phoenix LiveView](https://hexdocs.pm/phoenix_live_view/Phoenix.LiveView.html)\n- [Decimal arithmetic](https://hexdocs.pm/decimal/Decimal.html)\n- [Elixir dynamic-name atom warning](https://hexdocs.pm/elixir/GenServer.html#module-name-registration)\n",
+          "encoding": "utf-8",
+          "filename": "PRODUCT_BRIEF.md",
+          "media_type": "text/markdown"
+        },
+        "dash": false,
+        "fill": "none",
+        "kind": "rect",
+        "radius": 0,
+        "rotation": 0,
+        "size": "m",
+        "stroke": "ink",
+        "text": "PRODUCT_BRIEF.md",
+        "width": 2
+      },
+      "height": 112,
+      "id": "cjnegalc",
+      "locked": false,
+      "type": "shape",
+      "width": 240,
+      "x": -420.8,
+      "y": 342.13
+    },
+    {
+      "data": {
+        "arrow": "end",
+        "dash": false,
+        "from": [
+          75.9,
+          12
+        ],
+        "stroke": "ink",
+        "to": [
+          12,
+          34.9
+        ],
+        "width": 2
+      },
+      "height": 46.9,
+      "id": "v6lhmkdu",
+      "locked": false,
+      "type": "shape-line",
+      "width": 87.9,
+      "x": -180.8,
+      "y": 344.1
     }
   ],
   "paper": {

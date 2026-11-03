@@ -9,7 +9,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
   """
   use ElixirCanvasWeb, :live_view
 
-  alias ElixirCanvas.Document
+  alias ElixirCanvas.{Attachment, Document}
   alias ElixirCanvasWeb.DrawingShapes
 
   @impl true
@@ -470,11 +470,25 @@ defmodule ElixirCanvasWeb.CanvasLive do
           edge && edge.source == edge.target && edge.source_handle == edge.target_handle
         end)
 
-    if invalid do
-      {:error, "Choose a different connection handle on this item."}
-    else
-      send(self(), {:canvas_changed, generation, graph})
-      :ok
+    attachment_result =
+      if (change.op in [:add, :connect] and change.nodes != []) or
+           (change.op == :update and
+              Enum.any?(change.nodes, &(Map.has_key?(&1, :data) or Map.has_key?(&1, :type)))) do
+        Attachment.validate_graph(graph)
+      else
+        :ok
+      end
+
+    cond do
+      invalid ->
+        {:error, "Choose a different connection handle on this item."}
+
+      attachment_result != :ok ->
+        attachment_result
+
+      true ->
+        send(self(), {:canvas_changed, generation, graph})
+        :ok
     end
   end
 
@@ -733,6 +747,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
       data-file-busy={to_string(@pending_save != nil)}
       data-style-open={to_string(@style_open)}
       data-font-state="loading"
+      data-attachment-file-limit={Attachment.file_limit()}
+      data-attachment-total-limit={Attachment.total_limit()}
     >
       <input
         id="canvas-file-input"
@@ -740,6 +756,14 @@ defmodule ElixirCanvasWeb.CanvasLive do
         type="file"
         accept=".json,application/json"
         aria-label="Canvas JSON file"
+        tabindex="-1"
+        phx-update="ignore"
+      />
+      <input
+        id="attachment-file-input"
+        class="sr-only"
+        type="file"
+        aria-label="Text attachment file"
         tabindex="-1"
         phx-update="ignore"
       />
@@ -878,7 +902,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
             <dt>T L A</dt>
             <dd>Text, line, arrow</dd>
             <dt>Enter / F2</dt>
-            <dd>Enter places tool; either edits text/edge label</dd>
+            <dd>Enter places tool; either edits text/edge label or previews an attachment</dd>
             <dt>Tab / Shift+Tab</dt>
             <dd>Focus selected drawing first, then objects/edges; keep selection</dd>
             <dt>Space</dt>
@@ -948,6 +972,21 @@ defmodule ElixirCanvasWeb.CanvasLive do
           </div>
           <p id="native-open-help" class="menu-footnote" data-native-open-help>
             Choose a canvas JSON file. Supported browsers can save back with your permission; other browsers download a copy.
+          </p>
+        </div>
+        <div :if={@document} class="menu-section">
+          <button
+            id="attach-text-file"
+            type="button"
+            class="menu-button"
+            phx-click={JS.dispatch("canvas:attach", to: "#workspace")}
+            disabled={@pending_save != nil}
+            aria-describedby="attachment-help"
+          >
+            <.glyph name="file-plus" />Attach text file…
+          </button>
+          <p id="attachment-help" class="menu-footnote">
+            Embed a UTF-8 text or Markdown copy, up to 256 KiB per file and 1 MiB total. Drop a file onto the canvas, or choose one here. Original files are never synced or changed.
           </p>
         </div>
         <div :if={@document} class="menu-section">

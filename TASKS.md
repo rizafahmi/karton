@@ -223,6 +223,34 @@ journey.
   I/O, not OS-picker proof; masked fallback does not certify Safari/Firefox.
 
 
+### Embedded text attachments
+
+- **Status:** implemented as explicitly requested text-based embeds. Native work
+  remains the final milestone; no new dependencies, external assets or live-file
+  linking are introduced.
+- **Contract:** [Text attachments](README.md#text-attachments) import one UTF-8
+  file into a normal connectable card via one native add/history action.
+  [Optional shape metadata](README.md#embedded-attachment-metadata) preserves exact
+  source text outside the ordinary caption; 256 KiB/file and 1 MiB aggregate
+  include duplicates. Read-only previews show literal source, including Markdown;
+  Download attachment retrieves the embedded snapshot, never the original file.
+  Generation guards, import flushes, clean read/download state and existing
+  source-specific save/copy behavior remain intact.
+- **Verified:** final `mix check` passed (114 ExUnit, 74 Node tests), including
+  dismissal-focus polish. Real temporary saved JSON, native undo/redo, save-copy/reopen, metadata,
+  quota refusal and stale/readonly commands are covered. Actual Chromium file
+  selection and drop preserved 195-byte Markdown and a maximum 262,144-byte UTF-8
+  attachment; preview/download and saved/reopened bytes matched. Physical
+  double-click exposed pointer-capture retargeting; native hit-testing fixed it,
+  with a deterministic regression and passing repeated browser interaction.
+  Enter/F2, native Escape/focus, C binding and moved endpoints worked. Binary and
+  over-limit refusal retained nodes/edges/clean state. At 375×667 the menu and
+  source dialog fit, with 44px actions and no horizontal overflow.
+- **Limits:** Chromium proof only, not other engines, assistive technology,
+  physical OS file dialogs or mobile interaction. Download-manager completion is
+  unobservable. The existing delayed native keyboard nudge can still land after
+  an immediate Save; no attachment change attempts to fix that separate behavior.
+
 ## Readiness additions — only explicitly adopted work is approved
 
 Save a copy preservation is adopted; remaining proposed additions below require

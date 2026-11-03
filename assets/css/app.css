@@ -213,6 +213,27 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
 }
 .drawing-typography { display: contents; }
 
+/* Attachment cards remain native shapes; the type badge rotates with their outline. */
+.drawing-typography[data-attachment] .hakushi-shape::after { content: "TEXT · EMBEDDED"; position: absolute; inset: auto 12px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--hakushi-muted); font: 400 9px/1.4 var(--font-mono); pointer-events: none; }
+.drawing-typography[data-attachment="text/markdown"] .hakushi-shape::after { content: "MARKDOWN · EMBEDDED"; }
+.drawing-typography[data-attachment] .hakushi-shape[data-hakushi-style*='"fill":"ink"']::after { color: var(--hakushi-surface); }
+.drawing-typography[data-attachment] .hakushi-shape-text { padding-bottom: 24px; }
+#attachment-import-status { position: absolute; top: 104px; left: max(var(--workspace-inset), calc(50% - 210px)); z-index: 12; width: min(420px, calc(100% - var(--workspace-inset) * 2)); box-sizing: border-box; margin: 0; padding: 10px 12px; border: var(--border-frame); background: var(--bg-elevated); color: var(--text-primary); font: 12px/1.5 var(--font-body); overflow-wrap: anywhere; }
+#attachment-import-status[hidden] { display: none; }
+.attachment-import-dismiss { float: right; min-height: 24px; margin-left: 8px; padding: 2px 6px; border: var(--border-row); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 700 10px/1.5 var(--font-mono); }
+.attachment-import-dismiss:hover { background: var(--bg-surface); }
+.attachment-preview { width: min(760px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); box-sizing: border-box; padding: 24px; border: var(--border-frame); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 13px/1.5 var(--font-body); }
+.attachment-preview[open] { display: flex; flex-direction: column; gap: 12px; }
+.attachment-preview:modal { overscroll-behavior: contain; }
+.attachment-preview::backdrop { background: #0006; overflow: hidden; overscroll-behavior: contain; }
+.attachment-preview-title { margin: 0; font: 700 16px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.attachment-preview-meta, .attachment-preview-status { margin: 0; color: var(--text-secondary); }
+.attachment-preview-content { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; margin: 0; padding: 16px; border: var(--border-row); background: var(--bg-surface); white-space: pre-wrap; overflow-wrap: anywhere; font: 400 12px/1.6 var(--font-mono); tab-size: 4; }
+.attachment-preview-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.attachment-preview-actions form { margin: 0; }
+.attachment-preview-actions button { min-height: 44px; padding: 8px 12px; border: var(--border-frame); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 700 11px/1.5 var(--font-mono); }
+.attachment-preview-actions button:hover { background: var(--bg-surface); }
+
 /* The authored node stays axis-aligned; only its single-shape guides turn. */
 .canvas-workspace .hakushi-node[data-type="shape"] > :is(.hakushi-resizer, .hakushi-rotator) { rotate: 0deg; }
 .canvas-workspace .hakushi-node.drawing-rotation-guides > :is(.hakushi-resizer, .hakushi-rotator) { rotate: var(--drawing-guide-angle, 0deg); }

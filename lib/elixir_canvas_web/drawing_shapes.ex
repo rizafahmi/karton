@@ -1,7 +1,8 @@
 defmodule ElixirCanvasWeb.DrawingShapes do
-  @moduledoc "Editable shapes with the canvas's explicit, unfilled drawing defaults."
+  @moduledoc "Editable shapes and embedded text cards using the canvas's unfilled defaults."
   use Hakushi.Kit
 
+  alias ElixirCanvas.Attachment
   alias Hakushi.Kits.Shapes
 
   @impl true
@@ -38,7 +39,14 @@ defmodule ElixirCanvasWeb.DrawingShapes do
   end
 
   @impl true
-  defdelegate label(node, messages), to: Shapes
+  def label(%{data: %{"attachment" => %{"filename" => filename}}} = node, messages)
+      when is_binary(filename) do
+    if node.data["text"] in [nil, ""],
+      do: Shapes.label(%{node | data: Map.put(node.data, "text", filename)}, messages),
+      else: Shapes.label(node, messages)
+  end
+
+  def label(node, messages), do: Shapes.label(node, messages)
 
   @theme_colors ~w(accent surface)
   @font_roles ~w(sans heading mono handwritten)
@@ -135,6 +143,30 @@ defmodule ElixirCanvasWeb.DrawingShapes do
   def new_node(_item, _position, _messages), do: nil
 
   @impl true
+  def drawn(
+        "attachment",
+        %{"box" => [x, y, width, height], "attachment" => attachment},
+        _messages
+      )
+      when is_number(x) and is_number(y) and is_number(width) and is_number(height) and
+             width > 0 and height > 0 do
+    case Attachment.validate(attachment) do
+      :ok ->
+        node = Shapes.shape("rect", [x, y, 240, 112], defaults("rect"))
+
+        %{
+          node
+          | data:
+              Map.merge(node.data, %{"text" => attachment["filename"], "attachment" => attachment})
+        }
+
+      {:error, _reason} ->
+        nil
+    end
+  end
+
+  def drawn("attachment", _params, _messages), do: nil
+
   def drawn("straight-line", params, messages) do
     style = params["style"] || %{}
     style = style |> Map.take(~w(stroke width dash)) |> Map.put("arrow", "none")

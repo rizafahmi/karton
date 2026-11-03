@@ -9,6 +9,7 @@ import {mountDirectKeyboard} from "./direct_keyboard"
 import {mountConnectorStyles} from "./connector_styles"
 import {mountTextEditorGeometry} from "./text_editor_geometry"
 import {CanvasMessages} from "./canvas_messages"
+import {mountTextAttachments} from "./text_attachments"
 
 async function loadDrawingFonts(workspace) {
   // Resolve the host's CSS mapping, not a second document-role → family registry.
@@ -392,6 +393,7 @@ const FileCanvas = {
     setFontState(workspace, "ready")
     // Keep initialization outside the font catch: a canvas error is not a font error.
     Hakushi.mounted.call(this)
+    this.el.fileCanvas = this.canvas
     this.destroyRotationGuides = mountRotationGuides(this.canvas)
     mountSelfLoops(this.canvas)
     this.destroyLineTool = mountLineTool(this.canvas)
@@ -609,6 +611,7 @@ const FileCanvas = {
     this.destroyConnectorStyles?.()
     this.directKeyboard?.destroy()
     delete this.el.directKeyboard
+    delete this.el.fileCanvas
     this.canvas.toolsEl?.removeEventListener("click", this.toolKeyboardClick)
     this.destroyRotationGuides?.()
     this.zoomObserver?.disconnect()
@@ -629,6 +632,7 @@ const Workspace = {
       return !canvas || canvas.fileCanvasReady && !canvas.pendingFileEdits
     }
     this.hasUnsaved = () => this.el.dataset.dirty === "true" || this.pending() > 0 ||
+      this.el.dataset.attachmentBusy === "true" ||
       !!this.el.querySelector(".hakushi-text-editor, .hakushi-edge-input") || this.el.directPreview === true
     this.flushWaiters = new Set()
     this.flushEdits = () => {
@@ -660,6 +664,7 @@ const Workspace = {
       this.settled()
     }
     this.nativeFile = mountNativeFile(this)
+    this.textAttachments = mountTextAttachments(this)
     this.requestSave = () => this.nativeFile.save()
     this.requestSaveCopy = () => this.nativeFile.saveCopy()
     this.requestOpen = () => {
@@ -670,6 +675,7 @@ const Workspace = {
     this.requestNew = () => this.nativeFile.newCanvas()
     this.requestReload = () => this.nativeFile.reload()
     this.saveKey = event => {
+      if (event.target.closest("dialog")) return
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || (!event.metaKey && !event.ctrlKey)) return
       const key = event.key.toLowerCase()
       if (key === "s" && !event.shiftKey) {
@@ -684,6 +690,7 @@ const Workspace = {
       }
     }
     this.closeOverlays = event => {
+      if (event.target.closest("dialog")) return
       if (event.key !== "Escape" || event.isComposing || this.el.querySelector(":popover-open:not(#canvas-messages)")) return
       const keyboard = this.activeCanvas()?.directKeyboard
       if (keyboard?.active) {
@@ -701,7 +708,7 @@ const Workspace = {
       }
     }
     this.beforeUnload = event => {
-      if (this.hasUnsaved() || this.el.dataset.nativeBusy === "true" || this.el.dataset.fileBusy === "true") {
+      if (this.hasUnsaved() || this.el.dataset.nativeBusy === "true" || this.el.dataset.fileBusy === "true" || this.el.dataset.attachmentBusy === "true") {
         event.preventDefault()
         event.returnValue = ""
       }
@@ -754,6 +761,7 @@ const Workspace = {
   updated() {
     this.el.dataset.fontState = this.el.drawingFontState || "loading"
     this.nativeFile.updated()
+    this.textAttachments.updated()
     const menuOpen = !!this.el.querySelector("#file-menu")
     const styleOpen = this.el.dataset.styleOpen === "true"
     if (menuOpen && !this.menuWasOpen) this.el.querySelector(".file-menu-actions #open-native-file")?.focus()
@@ -766,6 +774,7 @@ const Workspace = {
   },
   destroyed() {
     this.nativeFile.destroyed()
+    this.textAttachments.destroyed()
     for (const resolve of this.flushWaiters) resolve()
     this.flushWaiters.clear()
     this.el.removeEventListener("canvas:save", this.requestSave)

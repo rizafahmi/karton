@@ -35,6 +35,12 @@ safety boundaries:
    types, duplicate IDs, dangling edges, and oversized text fields (>2,000
    Unicode characters) are rejected without modifying the open document or disk
    source.
+5. **Embedded text isolation:** Attachments contain validated UTF-8 snapshots,
+   never paths or live links. Previews render literal text rather than HTML;
+   downloads use `text/plain`. Per-file and aggregate content limits include
+   duplicated cards. Embedded content is saved in the canvas JSON and may appear
+   in development crash reproduction bundles; review those as sensitive document
+   copies before sharing them.
 
 ## In-scope security issues
 

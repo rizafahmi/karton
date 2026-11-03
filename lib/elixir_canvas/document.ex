@@ -9,8 +9,11 @@ defmodule ElixirCanvas.Document do
   Appearance metadata is optional; omitted fonts retain the generic sans role.
   Shapes may override that default with a portable data.font role; omission inherits.
   Newly created canvases explicitly select sans. Interfaces resolve roles and colors.
+  Embedded text attachments live outside labels and retain exact UTF-8 content.
+  Per-file and graph byte limits apply on open and before any save is prepared.
   """
 
+  alias ElixirCanvas.Attachment
   alias Hakushi.Graph
 
   defstruct [:path, :filename, :revision, :graph, persistence: :server_file, source: %{}]
@@ -145,10 +148,12 @@ defmodule ElixirCanvas.Document do
   def drawing_font(%__MODULE__{}), do: "sans"
 
   def prepare_save(%__MODULE__{} = document, %Graph{} = graph) do
-    bytes = encode(document, graph)
+    with :ok <- Attachment.validate_graph(graph) do
+      bytes = encode(document, graph)
 
-    with {:ok, _graph, source} <- decode(bytes) do
-      {:ok, bytes, %{document | graph: graph, revision: digest(bytes), source: source}}
+      with {:ok, _graph, source} <- decode(bytes) do
+        {:ok, bytes, %{document | graph: graph, revision: digest(bytes), source: source}}
+      end
     end
   end
 
@@ -274,7 +279,8 @@ defmodule ElixirCanvas.Document do
     with :ok <- validate_each(nodes, &validate_node/1),
          :ok <- validate_each(edges, &validate_edge/1),
          :ok <- validate_paper(source["paper"]),
-         :ok <- validate_appearance(Map.fetch(source, "appearance")) do
+         :ok <- validate_appearance(Map.fetch(source, "appearance")),
+         :ok <- Attachment.validate_graph(nodes) do
       :ok
     end
   end

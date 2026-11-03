@@ -2,9 +2,11 @@ defmodule ElixirCanvasWeb.DrawingCanvas do
   @moduledoc """
   Local drawing canvas adapter. Hakushi owns ordinary edits and their history;
   order entries share that same history because Hakushi has no reorder change.
+  Text imports use Hakushi's native add/history path; on-demand reads never edit.
   """
   use ElixirCanvasWeb, :live_component
 
+  alias ElixirCanvas.Attachment
   alias Hakushi.{Canvas, Graph}
 
   @connector_options %{
@@ -75,6 +77,51 @@ defmodule ElixirCanvasWeb.DrawingCanvas do
   end
 
   @impl true
+  def handle_event("hakushi:draw", %{"tool" => "drawing:attachment"} = params, socket) do
+    with :ok <- validate_attachment_import(params, socket),
+         :ok <- Attachment.validate(params["attachment"]) do
+      case Canvas.handle_event("hakushi:draw", params, socket) do
+        {:reply, %{"ok" => true} = reply, socket} ->
+          {:reply, reply, socket}
+
+        {:reply, reply, socket} ->
+          reply =
+            reply
+            |> Map.put("ok", false)
+            |> Map.put_new("error", "The attachment was refused; nothing was added.")
+
+          {:reply, reply, socket}
+      end
+    else
+      {:error, reason} -> attachment_error(reason, socket)
+    end
+  end
+
+  def handle_event(
+        "drawing:attachment-read",
+        %{"generation" => generation, "node" => id},
+        socket
+      )
+      when is_integer(generation) and is_binary(id) do
+    if generation != socket.assigns.generation do
+      attachment_error("This attachment request belongs to an older canvas.", socket)
+    else
+      case Graph.node(socket.assigns.graph, id) do
+        %{type: "shape", data: %{"attachment" => attachment}} ->
+          case Attachment.validate(attachment) do
+            :ok -> {:reply, %{"ok" => true, "attachment" => attachment}, socket}
+            {:error, reason} -> attachment_error(reason, socket)
+          end
+
+        _node ->
+          attachment_error("This node has no text attachment.", socket)
+      end
+    end
+  end
+
+  def handle_event("drawing:attachment-read", _params, socket),
+    do: attachment_error("Attachment reads need the current generation and a node id.", socket)
+
   def handle_event(
         "drawing:edge-style",
         %{"edges" => ids, "key" => key, "value" => value},
@@ -202,6 +249,36 @@ defmodule ElixirCanvasWeb.DrawingCanvas do
     |> assign(:graph, graph)
     |> stream(:nodes, Graph.nodes(graph), reset: true)
   end
+
+  defp validate_attachment_import(params, socket) do
+    cond do
+      not is_integer(params["generation"]) or
+          params["generation"] != socket.assigns.generation ->
+        {:error, "This attachment import belongs to an older canvas."}
+
+      socket.assigns.readonly ->
+        {:error, "This canvas is read-only."}
+
+      params["parent"] != nil ->
+        {:error, "Attachment imports cannot be placed in groups."}
+
+      not attachment_box?(params["box"]) ->
+        {:error, "Attachment imports need a numeric box with positive dimensions."}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp attachment_box?([x, y, width, height]),
+    do:
+      is_number(x) and is_number(y) and is_number(width) and is_number(height) and
+        width > 0 and height > 0
+
+  defp attachment_box?(_box), do: false
+
+  defp attachment_error(reason, socket),
+    do: {:reply, %{"ok" => false, "error" => reason}, socket}
 
   defp edge_default(_edge, "stroke"), do: nil
   defp edge_default(_edge, "width"), do: 2

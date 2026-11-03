@@ -273,13 +273,37 @@ not excluded. Take turns editing externally; automatic merging is absent.
 Server paths refuse symbolic links. Server saves do not preserve extended
 attributes or guarantee parent-directory power-loss durability; browser file
 permissions and filesystem write behavior are controlled by the browser.
+
+### Text attachments
+
+Choose **Attach text file…** in the document menu, or drop one file onto the
+canvas. Markdown, TXT, JSON, CSV, source code and other UTF-8 text files become
+ordinary rectangular cards that can be moved, styled, connected, duplicated and
+removed with the existing canvas controls and undo/redo. Importing creates one
+history entry; cancelling or refusing a file creates no card.
+
+These are **embedded snapshots**, not links: the original file is never changed,
+deleted or synced. Save and Save a copy include the complete attachment in the
+canvas JSON. Each file may contain at most 256 KiB of UTF-8 content, with 1 MiB
+total across all cards, including duplicates. Empty files are supported. Invalid
+UTF-8, binary control characters and larger files are refused without truncation.
+
+Double-click an attachment, or focus it and press Enter/F2, to open its read-only
+source preview. Markdown/HTML display literally, without executing scripts,
+rendering markup or fetching remote images. **Download attachment** starts a
+download of the embedded text under its original filename, not a read of the
+original disk file. Escape or Close dismisses the preview; preview/download do
+not dirty the canvas or enter history. Download-manager completion is not
+observable. Save waits for an in-progress import; a failed import blocks that
+save rather than omitting the requested file.
+
 ### Keyboard editing
 
 The document menu contains a compact **Keyboard shortcuts (?)** disclosure; **?**
 from the focused canvas opens it. Editing stays directly on the canvas—there is
 no separate properties or replacement editor panel. Tab/Shift+Tab, Enter/Space,
 and native select navigation reach the existing controls. The file menu retains
-New canvas, native open, server open/create forms, reload, default font and project links.
+New canvas, native open, Attach text file, server open/create forms, reload, default font and project links.
 Style remains authoritative for every applicable appearance choice, including
 standalone arrowheads; Paper and arrangement retain their native menus.
 
@@ -290,7 +314,8 @@ select, contenteditable editor or toolbar button. IME composition is left alone.
 | --- | --- |
 | Select; rectangle; ellipse; diamond; triangle; text; line; arrow | V; R; O; D; I; T; L; A |
 | Place the active drawing tool at viewport center | Enter |
-| Edit selected shape text / connection label | Enter or F2; Escape cancels; blur commits |
+| Edit ordinary shape text / connection label | Enter or F2; Escape cancels; blur commits |
+| Preview embedded attachment source | Double-click; Enter/F2 on focused card; Escape closes |
 | Visit objects then connections without changing selection | Tab / Shift+Tab |
 | Toggle focused object or connection / select all objects | Tap Space / Command/Ctrl+A |
 | Select nearest object | Alt+arrows |
@@ -477,6 +502,35 @@ Supported types:
   Standalone lines have no text or font role. Connections between objects belong
   in `edges`.
 
+#### Embedded attachment metadata
+
+A `shape` may include optional `data.attachment`:
+
+```json
+"attachment": {
+  "filename": "notes.md",
+  "media_type": "text/markdown",
+  "encoding": "utf-8",
+  "content": "# Notes\r\nPortable text.\r\n"
+}
+```
+
+All four members are required. `filename` is a nonblank basename of at most 255
+UTF-8 bytes, without `/`, backslash or control characters; it is not a server
+path. `media_type` is `text/plain` or `text/markdown`; imported non-Markdown text
+uses `text/plain`. `encoding` is exactly `utf-8`. `content` preserves Unicode,
+BOM and line endings, including an empty string. It may contain tab, LF and CR,
+but not other C0/C1 control characters or DEL. Limits count decoded UTF-8 content
+bytes: 262,144 per attachment and 1,048,576 across the current graph. Unknown
+members are retained. Attachments on standalone lines are rejected.
+
+The initial card is a 240×112 rectangle with its filename as `data.text`; that
+ordinary caption remains separate from the attachment and retains its existing
+2,000-character limit. Version stays 1: older readers can show the fallback
+shape/caption and retain metadata without attachment-specific preview support.
+
+#### Drawing style fields
+
 Style fields in `data` follow the Shapes kit:
 
 | Field | Supported values | Default when omitted |
@@ -549,9 +603,10 @@ are rejected rather than silently dropped. Saving normalizes formatting and may
 make implicit Hakushi defaults explicit; it does not preserve source whitespace
 or key ordering. Deleted objects and their metadata are removed.
 
-To move or back up a canvas, copy its JSON file. Current documents have no external
-assets, hidden storage, or database dependencies. Selection, viewport, and undo
-history are session state and are not part of the file.
+To move or back up a canvas, copy its JSON file, including embedded attachment
+content. Documents have no external assets, hidden storage, or database
+dependencies. Selection, viewport, and undo history are session state and are
+not part of the file.
 
 ## Checks
 
@@ -566,6 +621,8 @@ writes rotating server logs to `tmp/logs/dev.log`, a crash summary log to
 `tmp/logs/crashes.jsonl`, and self-contained crash reproduction bundles (with
 git SHA, event parameters, stacktraces, and the in-memory version-1 graph) to
 `tmp/crashes/crash-*.json` for both server exceptions and uncaught browser errors.
+Bundles can contain complete embedded attachments as part of that graph; treat
+them as sensitive document copies before sharing.
 Inspect build/asset freshness, example corpus validity, recent log errors, and
 recorded crash bundles with:
 
@@ -620,7 +677,12 @@ overlong-draft refusal, chooser Save cancellation, OS-focus state, and a single
 editor across pending-reply re-entry. A LiveView consumer regression proves a
 2,000-grapheme authored add, one-step undo/redo with stable identity, and temporary
 save/reload retaining the source objects and metadata.
-These tests do not certify DOM focus or actual pointer panning; use the
+Attachment regressions cover exact UTF-8/BOM/line-ending persistence, empty and
+invalid content, inclusive byte limits, duplicate-inclusive quotas, stale imports
+and reads, native history and source-preserving copies. Client checks cover file
+selection/drop, pending-import flushes, pointer-capture preview hit-testing,
+literal content/downloads and modal cleanup. These tests do not certify OS file
+dialogs, cross-browser behavior, DOM focus or actual pointer panning; use the
 real-editor checks below for browser integration.
 
 

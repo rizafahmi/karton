@@ -19,6 +19,9 @@ and unresolved repository/technology decisions. No native app is implemented yet
 
 - [Document](lib/elixir_canvas/document.ex) owns version-1 JSON validation,
   metadata retention, source identity, and server-file persistence.
+- [Attachment](lib/elixir_canvas/attachment.ex) validates embedded UTF-8 snapshots
+  in shape metadata and duplicate-inclusive byte limits. Ordinary Hakushi graph
+  history owns import, removal and duplication; content stays outside captions.
 - [FlightRecorder](lib/elixir_canvas/flight_recorder.ex) writes rotating development
   logs (`tmp/logs/dev.log`), a crash index (`tmp/logs/crashes.jsonl`), and
   self-contained server/client crash reproduction bundles (`tmp/crashes/crash-*.json`)
@@ -65,6 +68,12 @@ and unresolved repository/technology decisions. No native app is implemented yet
   The compact ? map lives in the document menu.
 - [native_file.js](assets/js/native_file.js) handles browser file selection,
   native-handle persistence, and copy-download fallbacks.
+- [text_attachments.js](assets/js/text_attachments.js) imports text snapshots via
+  the native draw/history path and fetches full content only for a read-only
+  native-dialog preview/download. `app.js` exposes the generation-scoped
+  `fileCanvas` instance on its hook element. Preview hit-tests double-clicks
+  because native pointer capture may retarget them to the canvas root; Enter/F2
+  defer to active editing modes. Keep source text literal and downloads inert.
 - [canvas_messages.js](assets/js/canvas_messages.js) owns notification popover
   enhancement/fallback, informational expiry, and notification focus handling.
   CanvasLive retains errors/conflicts when details are dismissed; the save status
@@ -82,6 +91,14 @@ and unresolved repository/technology decisions. No native app is implemented yet
 Preserve compatibility with existing version-1 canvas files. Discuss format
 changes before implementing them. The canonical schema and round-trip rules are
 in [README: Document format](README.md#document-format-version-1).
+
+Text attachments are embedded copies, never filesystem links or browser handles.
+Preserve UTF-8 content, BOM, line endings and unknown attachment metadata; enforce
+per-file/aggregate limits on decode, save and node additions/data/type updates,
+including paste/duplicate/undo. Avoid rescanning content on ordinary geometry
+changes. Pending imports participate in file flushes and unload warnings; stale
+generations cannot add or preview content. Development crash bundles can contain
+the complete attachments as document data.
 
 Preserve metadata on retained objects, authored geometry and corner choices,
 portable named colors, and generic typography roles. Resolve theme colors and
