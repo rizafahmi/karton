@@ -11,7 +11,7 @@ defmodule ElixirCanvas.FlightRecorder do
      (`[:elixir_canvas, :client, :error]`).
   3. Writes atomic, self-contained crash reproduction bundles to
      `tmp/crashes/crash-<timestamp>-<id>.json` (including git SHA, event name,
-     sanitized parameters, stacktrace, and the in-memory version-1 canvas graph)
+     sanitized parameters, stacktrace, and the in-memory versioned canvas graph)
      and appends an index line to `tmp/logs/crashes.jsonl`.
   """
 
@@ -435,7 +435,8 @@ defmodule ElixirCanvas.FlightRecorder do
     else
       _ ->
         %{
-          "version" => 1,
+          "version" =>
+            if(match?(%Document{}, document), do: Document.format_version(document), else: nil),
           "node_order" => graph.node_order,
           "nodes" =>
             Enum.map(Graph.nodes(graph), fn node ->

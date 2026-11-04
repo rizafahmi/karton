@@ -78,6 +78,8 @@ components:
 > Shared dark-first palette tokens remain available; a dark-mode switch is not
 > part of this design pass. The approved Mona Sans/Monaspace Neon pairing replaces
 > the source kit's body/mono fonts while preserving all other Neo-Acid guardrails.
+> This is the web design system, not the independent native macOS app's design:
+> native UI follows Apple's HIG rather than reproducing web Neo-Acid chrome.
 >
 > **Control layout:** Paper and the file menu occupy the top left; Download and
 > Save occupy the top right. Save state sits directly below the save actions,
@@ -124,7 +126,7 @@ components:
 > flat controls, neutral hover/current fills and cobalt focus. The header stays
 > reachable while the bounded panel scrolls in short/narrow windows.
 >
-> **Zen mode:** Keep only the canvas, centered eight-tool drawing dock, compact
+> **Zen mode:** Keep only the canvas, centered drawing dock, compact
 > upper-left save/draft status and upper-right Exit Zen control. Hide document,
 > Style, rail, paper/export/layout controls and credit with `display: none`, not
 > opacity or focusable offscreen content. File problems, recovery actions and
@@ -165,6 +167,31 @@ components:
 > not another drawing-tool dock. Source previews use a square, flat native modal
 > with bounded scrolling, literal monospace text, visible Download attachment and
 > Close controls, and native Escape/focus return. No rendered Markdown is implied.
+>
+> **Code blocks (v2):** Code is an explicit drawing tool, not the Mono text style
+> or an attachment. Keep the literal source textarea separate from the tokenized
+> canvas renderer: a bounded, scrolling, square-framed editor with visible labels,
+> native language select, neutral surfaces and cobalt focus. Source always uses
+> the Mono role, never the document's default font. Preserve preformatted spacing
+> and scrolling; Fit to source is an explicit geometry action. Token colors and
+> light/dark highlighting themes are view-only, never saved style metadata.
+> Hide actions, highlighting status and overflow hints marked `data-code-ui` in
+> image exports; the source renderer remains visible.
+> Use a distinct `</>` toolbar glyph for Code, retaining its accessible name.
+> Language badges are content-width and inset from the outline; neither their
+> background nor overflow/status strips may paint over the node's border.
+> V1 Code activation must show visible format guidance and a reachable document
+> workflow action, not merely a screen-reader announcement or inert active tool.
+> V2 supports click placement as well as dragging a box before entering source.
+> Keep Copy as a separate left-side utility with a native Fit to content checkbox.
+> Put Cancel before the primary Finish on the right; preserve this keyboard order
+> when the footer wraps. Finish uses the existing inverted primary treatment
+> with neutral hover, not the acid active-tool color. The fit choice is an option,
+> never a competing commit button, and toggling it must not close the editor.
+> With Select active, the displayed code body is an object drag surface, not a
+> text editor. Preserve native movement/selection affordances; controls and
+> scrollbar tracks stay interactive, and overflow scrolling must not pan the
+> canvas. Literal text selection belongs in the source editor; Copy stays available.
 
 
 ## 1. Overview
@@ -236,7 +263,7 @@ CSS roles before measurement or editing without changing saved geometry.
 
 Shapes can optionally override the document default with a generic `data.font`
 role. Missing object roles inherit; **Text style** shows the effective role and
-offers Normal, Title, Code, and Handwritten as explicit object styles.
+offers Normal, Title, Mono, and Handwritten as explicit object styles.
 Changing a role never resizes authored boxes. Inline text editors and exports must
 use the same resolved per-object family, weight, and metrics as displayed text.
 Connector labels retain document typography; standalone lines have no font role.

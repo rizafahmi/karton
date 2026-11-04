@@ -77,6 +77,64 @@ defmodule ElixirCanvasWeb.DrawingCanvas do
   end
 
   @impl true
+  def handle_event("hakushi:edit", %{"action" => "source", "node" => id} = params, socket) do
+    case Graph.node(socket.assigns.graph, id) do
+      %{type: "code", locked: true} ->
+        {:reply, %{"ok" => false, "error" => "This code block is locked."}, socket}
+
+      %{type: "code", data: data} ->
+        candidate = Map.put(data, "content", params["content"])
+
+        candidate =
+          if Map.has_key?(params, "language"),
+            do: Map.put(candidate, "language", params["language"]),
+            else: candidate
+
+        with :ok <- ElixirCanvas.CodeSnippet.validate(candidate),
+             true <- not Map.has_key?(params, "box") or attachment_box?(params["box"]) do
+          Canvas.handle_event("hakushi:edit", params, socket)
+        else
+          {:error, reason} ->
+            {:reply, %{"ok" => false, "error" => reason}, socket}
+
+          false ->
+            {:reply,
+             %{
+               "ok" => false,
+               "error" => "Code updates need a numeric box with positive dimensions."
+             }, socket}
+        end
+
+      _ ->
+        {:reply, %{"ok" => false, "error" => "Choose a code block to edit source."}, socket}
+    end
+  end
+
+  def handle_event("hakushi:edit", %{"action" => "style", "style" => style} = params, socket)
+      when is_map(style) do
+    ids = params["nodes"] || [params["node"]]
+
+    invalid_code? =
+      Enum.any?(ids, fn id ->
+        case Graph.node(socket.assigns.graph, id) do
+          %{type: "code", data: data} ->
+            ElixirCanvasWeb.DrawingCode.edit("style", params, data) == :error
+
+          _ ->
+            false
+        end
+      end)
+
+    if invalid_code?,
+      do:
+        {:reply,
+         %{
+           "ok" => false,
+           "error" => "This style is not supported for code blocks; nothing was changed."
+         }, socket},
+      else: Canvas.handle_event("hakushi:edit", params, socket)
+  end
+
   def handle_event("hakushi:draw", %{"tool" => "drawing:attachment"} = params, socket) do
     with :ok <- validate_attachment_import(params, socket),
          :ok <- Attachment.validate(params["attachment"]) do
@@ -198,7 +256,8 @@ defmodule ElixirCanvasWeb.DrawingCanvas do
       Enum.split_with(graph.node_order, fn id ->
         node = Graph.node(graph, id)
 
-        MapSet.member?(selected, id) and node.type in ElixirCanvasWeb.DrawingShapes.types() and
+        MapSet.member?(selected, id) and
+          node.type in ["code" | ElixirCanvasWeb.DrawingShapes.types()] and
           not node.locked
       end)
 

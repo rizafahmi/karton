@@ -8,12 +8,12 @@ styling's additive v1 metadata scope is now approved (details below); the native
 editor remains last. Save a copy preservation is separately approved and
 implemented below; other proposed readiness additions remain **unapproved scope**.
 Decide their adoption and placement before the final native milestone.
-No app scaffolding, toolchain installation, dependencies, build steps, or CI
-changes until implementation is requested.
-Repository preparation was explicitly requested on 2026-11-03: web at root,
-`macos/` for the independent native project, and `shared/fixtures/v1/` for JSON
-contract fixtures. This does not approve native app scaffolding, technology,
-features, or the other proposed readiness work.
+The implementation boundary for remaining native work is unchanged: no native
+app scaffolding, toolchain installation, dependencies, build steps, or CI changes
+until implementation is requested. Repository preparation was explicitly requested
+on 2026-11-03: web at root, `macos/` for the independent native project, and
+versioned JSON fixtures under `shared/fixtures/`. Both v1 and v2 fixtures now exist.
+This does not approve native app technology or the other proposed readiness work.
 
 ## Product outcome and existing baseline
 
@@ -25,11 +25,11 @@ diagrams → presentation, not four equal feature sets. Facilitated use can be
 single-driver, not multiplayer. Agree the intended user and which editor
 completes this journey.
 
-Keep the [version-1 contract](README.md#document-format-version-1),
-local-file-first trust boundary, and [agent policy](AGENTS.md). No database,
-accounts, cloud, collaboration, automatic merging, or full native/web parity is
-implied. Discuss format changes before implementation; preserve existing v1
-files.
+Keep the [version-1 contract](README.md#document-format-version-1) for existing
+files and the implemented [version-2 contract](shared/CODE_SNIPPETS.md) for new
+documents, the local-file-first trust boundary, and [agent policy](AGENTS.md).
+No database, accounts, cloud, collaboration, automatic merging, or full native/web
+parity is implied. Further format changes require approval; preserve existing v1 files.
 
 **Source-backed baseline, not fresh runtime certification:**
 
@@ -446,26 +446,63 @@ approval. Any adopted non-native additions precede the final native milestone.
       and overflow-y). Improve compactness, keyboard access, and short-window
       reachability; do not merely hide the scrollbar. Promotion into readiness
       is not yet approved.
-- [ ] **Code snippets:** confirmed dedicated code blocks, not only the existing
-      shape Code typography; monospace text with syntax highlighting, in both
-      the web editor and the planned independent native Mac editor.
-      Web code snippets precede the final native milestone; native code snippets
-      remain part of that final milestone, not a prerequisite to starting it.
-      Enter inserts a newline; Tab/ShiftTab indent/unindent; Escape finishes
-      editing. Disable canvas commands while editing a snippet.
-      Paste only inside an open snippet editor; canvas paste must not
-      automatically create a code block. No code execution is implied.
-      Support common programming languages including Elixir; automatically detect
-      the language with manual override. Agree the exact inventory before implementation.
-      Provide a dedicated Copy code action copying literal text and whitespace.
-      Preserve the local JSON/version-1 compatibility policy; discuss format
-      changes before implementation. No schema or dependency choice is approved,
-      and this scope does not require full web/native parity.
-      **Proposed acceptance:** in each implementation when available, type and
-      paste a multiline snippet inside its editor; exercise language autodetection
-      and manual override; verify Copy code preserves literal text and whitespace.
-      Preserve indentation; exercise the agreed controls and keyboard isolation;
-      edit, undo/redo, and save/reopen with unrelated content intact.
+- [ ] **Code snippets — web implemented; native pending:** dedicated code blocks,
+      not only shape Mono typography. The web editor now implements the
+      [shared v2 contract](shared/CODE_SNIPPETS.md), dedicated source editor,
+      literal Copy code, language control, highlighting, Fit, keyboard isolation,
+      clipboard/history, and save integration. This delivers the web code
+      prerequisite; the unchecked combined milestone still requires native code
+      support within the final native milestone, not before it starts.
+      Enter inserts a newline; Tab/Shift-Tab indent/unindent; Escape finishes.
+      Plain-source paste creates no block outside an open snippet editor.
+      Code is neither an attachment nor a caption and is never executed.
+      **Settled format/policy:** new documents use `version: 2` and explicit
+      `type: "code"` nodes; existing v1 files keep saving as v1. Explicit v1→v2
+      conversion downloads a separate snapshot with only the root version changed,
+      leaving original source, baseline, dirty/errors, and history untouched.
+      Download initiation does not prove final persistence or expose the user's
+      final path. No hidden migration/downgrade; v2 stays v2 after deleting code.
+      Literal UTF-8 source retains BOM, tabs, CR/LF/mixed endings and whitespace;
+      other C0/C1 controls and DEL are refused. Limits are 256 KiB per source and
+      1 MiB across all copies, independent of attachment quotas.
+      **Settled languages/web dependencies:** Auto, Plain text, Elixir, Erlang,
+      JavaScript, TypeScript, JSON, HTML, CSS, Shell, Python, SQL, Swift, Rust.
+      Omitted language means Auto; unknown nonempty IDs remain retained as plain
+      text. Manual choices persist; detection/tokens/themes are never metadata.
+      Approved npm-managed Shiki 4.6 uses fine-grained grammars and its JavaScript
+      engine; Highlight.js 11.12 provides conservative Auto detection with plain
+      text fallback. This does not select a native engine or approve a web runtime
+      in the native app. Shared fixtures exist at `shared/fixtures/v1/document.json`
+      and `shared/fixtures/v2/document.json`.
+      **Native acceptance still pending:** type/paste multiline source, exercise
+      detection/manual override and literal Copy code, preserve indentation and
+      keyboard isolation, and edit/undo/redo/save/reopen across both editors with
+      unrelated content intact. Native engine, implementation, and workflow proof
+      remain undelivered; web acceptance below does not prove native workflows.
+      **Web verification:** `mix check` passes 141 ExUnit and 138 Node tests,
+      formatting, warnings-as-errors compilation, JS syntax and both asset entries.
+      Temporary-file smoke verifies exact source/metadata saves, external-change
+      refusal and version-only copy conversion. Chromium smoke verifies menu and
+      dragged creation, source/draft saves, literal clipboard, manual/Auto
+      persistence, ink highlighting, invalid-draft retention, 640×480 action
+      reachability, offviewport clipped-export refusal, fitted PNG pixels/alpha,
+      and separate v2 download plus explicit Open without promoting the original.
+      Paste was synthetic; native OS picker, real IME and other browsers remain
+      unverified. These checks do not establish native Mac support.
+      Activation repair additionally verifies real v2 click/drag placement,
+      literal typing, Finish and saved JSON; v1 shows visible conversion/New
+      guidance without arming Code. Wide/narrow Cancel and Copy retain the
+      expected draft/history boundaries after fixing action-button blur ordering.
+      Editor-action verification covers native fit-label/Space toggles without
+      committing, literal Copy/Cancel isolation, unchecked geometry retention,
+      checked source+fit as one Undo/Redo transaction, actual JSON metadata
+      retention, ephemeral fit reset, and reachable 640×480 completion controls.
+      Code-body movement proof uses real text/padding drags, one-step Undo/Redo,
+      connected-edge remeasurement, actual saved geometry with exact source/
+      metadata retained, wheel scrolling without view/dirty changes, Space pan,
+      Control-wheel zoom, locked-drag refusal and Copy/edit isolation.
+      Classic scrollbar tracks have Node boundary coverage only; the browser
+      exposed overlay scrollbars, so no thumb/track interaction was certified.
 
 Promote optional work only as ranked hypotheses grounded in observed session
 friction.
@@ -476,10 +513,11 @@ friction.
       and dash in optional `edge.data.connector_style`, keeping version 1 and
       existing target marker semantics. See [edge contract](README.md#edges).
       No standalone arrowhead mapping or new attachment behavior is approved.
-- [ ] **Audience and delivery:** personal/developer setup versus broader users;
-      agree first-install/launch expectations and native install/distribution
-      needs. Do not presume signing, notarization, an app store, or a packaging
-      toolchain.
+- [x] **Native first audience (2026-11-04):** personal use first, for the author's
+      brainstorming, developer diagrams, and Keynote workflow. Prove local
+      build/launch; public distribution, signing/notarization, updates, and an app
+      store are not first-release requirements. Decide them before wider release.
+      The broader product-MVP audience and readiness scope remain unresolved.
 - [ ] **Restart/local recovery:** agree supported interruption cases, loss
       warnings, and whether recovery beyond explicit save/preservation copies is
       required. Decide storage/lifetime/privacy implications before adding any
@@ -501,10 +539,18 @@ friction.
 
 ## Final milestone: independent native macOS editor
 
-Start native work only after the remaining non-native work and non-native scope
-decisions, including web code snippets and any adopted readiness work, are complete.
-Native code snippets remain included here under the shared Code snippets
-requirements and acceptance in Later; they are not a precondition to this milestone.
+Start native work only after remaining non-native work and scope decisions,
+including any adopted readiness work, are complete. The web code-snippet
+prerequisite is implemented. Native code snippets remain included here under the
+shared Code snippets requirements and acceptance in Later; they are not a
+precondition to this milestone.
+
+The [native implementation specification](macos/SPEC.md) was drafted on
+2026-11-04 as requested. It details interactions, autosave/recovery, compatibility,
+native components, export, and acceptance proof. Only the product directions
+marked approved here are settled; the spec's deployment target, architecture,
+coverage, timing/recovery policy, and PNG defaults remain recommendations.
+Specification completion is not project creation or native implementation.
 
 - [ ] **Outcome:** open an existing version-1 JSON canvas in an independent
       native Mac editor, select/move objects, edit text, undo/redo, save, and
@@ -514,14 +560,14 @@ requirements and acceptance in Later; they are not a precondition to this milest
   facilitated sessions, and illustrations for presentations.
 - **Committed direction:** native UI follows Apple Human Interface Guidelines,
   not Neo-Acid. No wrapper, webview, Phoenix server, or BEAM runtime in the Mac
-  app. Share the [version-1 file contract](README.md#document-format-version-1),
-  not a runtime; preserve authored geometry, semantic font roles, and named
-  colors. Native font/palette resolution may differ; pixel-identical rendering
-  is not required.
+  app. Share the [v1 contract](README.md#document-format-version-1) and implemented
+  [v2 code-node contract](shared/CODE_SNIPPETS.md), not a runtime.
+  Preserve v1 compatibility, authored geometry, semantic font roles, and named
+  colors. Native font/palette resolution may differ; pixel identity is not required.
 - **Repository organization (prepared 2026-11-03):** one repository, the web app
-  left at the root, a separate `macos/` project location, and shared version-1
-  fixtures in `shared/fixtures/v1/`; independent builds and runtimes. The
-  existing document fixture was moved byte-for-byte and web consumers migrated.
+  left at the root, a separate `macos/` project location, and versioned fixtures
+  in `shared/fixtures/v1/` and `shared/fixtures/v2/`; independent builds and runtimes.
+  The existing v1 fixture was moved byte-for-byte and web consumers migrated.
   See [repository layout](README.md#repository-layout). No native app or build
   configuration exists yet. Swift with AppKit, SwiftUI, and Core Graphics remains
   a candidate, not an approved architecture.
@@ -534,16 +580,19 @@ requirements and acceptance in Later; they are not a precondition to this milest
   Unsupported content must be identified before editing: reject it clearly or
   open read-only without loss; never silently omit it or permit a lossy save.
 - **Round-trip proof:** on temporary fixture copies, open → render → select/move
-  → edit text → undo/redo → save → reopen in web and native. Compare actual
+  → edit text → undo/redo → autosave → reopen in web and native. Compare actual
   JSON: stable IDs, node stacking order, bindings and handles, styles, unknown
   metadata, named colors/font roles, and unedited authored geometry survive;
   only intended edits differ. Plain Line remains free-standing. Renderer
   font/theme choices must not dirty files.
 - **Mac workflow proof:** native menus, keyboard commands, file dialogs, and
-  window lifecycle work together. Exercise dirty close/quit/open prompts,
-  cancel, invalid files, failed writes, and external-change conflicts; keep
-  edits and source intact. Use atomic replacement with conflict checks; document
-  remaining race/durability limits rather than claiming filesystem locking.
+  window lifecycle work together. Exercise autosave after completed edits,
+  explicit Save, untitled-file destination choice and recovery, close/quit/open
+  with pending or failed writes, cancellation, invalid files, and external-change
+  conflicts. Retain edits and the original source on refusal/failure; never
+  silently overwrite an external change. Use atomic replacement with conflict
+  checks; document remaining race/durability limits rather than claiming
+  filesystem locking. Autosave must not clear or split undo history.
 - **PNG proof:** choose explicit output pixel width/height or scale, independent
   of viewport zoom and screen DPR. Wait for resolved fonts; include padding and
   full labels/strokes/arrowheads, with true alpha and no paper/grid/UI
@@ -560,11 +609,13 @@ requirements and acceptance in Later; they are not a precondition to this milest
 
 - [x] Prepare repository organization for the native project without moving
       the working web app or changing its commands.
+- [x] Write the native implementation specification, separating approved direction
+      from proposed behavior and executable acceptance requirements.
 - [ ] Resolve native decisions before project creation/implementation as
       applicable.
 - [ ] Agree compatibility fixtures and prove round-trips before editable saves.
-- [ ] Deliver the agreed native workflow/history and failure/conflict proof.
-      New/create/connect behavior remains unresolved, not implied by “editor.”
+- [ ] Deliver the agreed native creation/editing workflow, keyboard and pointer
+      interactions, history, autosave, and failure/conflict proof.
 - [ ] Meet the PNG/Keynote gate using actual exported files.
 - [ ] Supply audience-appropriate setup/launch/check instructions and prove
       runtime independence; decide install/distribution needs before release
@@ -572,20 +623,37 @@ requirements and acceptance in Later; they are not a precondition to this milest
 
 ### Native decisions
 
-- [ ] **Native authoring:** recommend a minimal New → draw/text → connect
-      workflow for brainstorming, but decide creation versus existing-document
-      editing explicitly. If edit-only, identify where starting boards come from
-      and describe that boundary honestly; neither decision implies full web
-      parity.
+- [x] **Native authoring (2026-11-04):** create and edit canvases, not only edit
+      web-created files. The first complete workflow starts with a blank canvas:
+      New → add shapes/text → connect/rearrange → autosave JSON → export for Keynote.
+      The native app must be useful without launching the web app. Detailed
+      content/tool coverage remains to be agreed; this does not approve full
+      web parity or every proposed feature.
+- [x] **Native interaction (2026-11-04):** keyboard-first, pointer-complete.
+      Prioritize rapid thought entry, adjacent thoughts, and keyboard connections;
+      retain direct manipulation, discoverable controls, native text editing,
+      and standard Mac commands. Exact shortcuts remain to be designed.
+- [x] **Native persistence direction (2026-11-04):** autosave to the document,
+      not an explicit-Save-only workflow. Connected JSON files update
+      automatically; untitled documents need recovery before a source is chosen.
+      Explicit Save remains available. This is native-only; the web app's
+      persistence contract is unchanged.
+- [ ] **Native autosave/recovery policy:** adopt or revise the concrete
+      recommendations in [SPEC section 4](macos/SPEC.md#4-proposed-autosave-and-recovery-contract):
+      transaction/debounce timing, untitled recovery location,
+      retention/deletion/privacy, restoration, external-change UX, and close/quit
+      behavior with pending/failed writes. No automatic merging or locking promise.
 - [x] **Native repository organization:** web at root, `macos/` for native code,
-      `shared/fixtures/v1/` for shared JSON; independent builds and runtimes.
-- [ ] **Native technology and compatibility:** decide minimum macOS, stack and
-      UI/rendering responsibilities, supported content and editing scope,
-      additional shared fixtures, and independent build/check instructions.
+      versioned shared JSON in `shared/fixtures/`; independent builds and runtimes.
+- [ ] **Native technology and compatibility:** adopt or revise
+      [SPEC section 2](macos/SPEC.md#2-proposed-implementation-decisions) and
+      [section 5](macos/SPEC.md#5-proposed-compatibility-and-editing-surface):
+      minimum macOS, stack/UI/rendering, supported content/editing, fixtures,
+      attachment import scope, and native build/check instructions.
       Swift/AppKit/SwiftUI/Core Graphics remains a proposal, not approval.
-- [ ] **PNG output:** agree default dimensions/scale and maximum output size;
-      retain transparency, font readiness, clipping, zoom/DPR, and Keynote proof
-      above.
+- [ ] **PNG output:** adopt or revise the concrete dimensions/scale/padding and
+      allocation limits in [SPEC section 7](macos/SPEC.md#7-proposed-png-contract);
+      retain transparency, font readiness, clipping, zoom/DPR, and Keynote proof.
 
 ## Done
 

@@ -12,6 +12,7 @@ import {CanvasMessages} from "./canvas_messages"
 import {mountTextAttachments} from "./text_attachments"
 import {mountStyleInspector} from "./style_inspector"
 import {mountZenMode} from "./zen_mode"
+import {mountCodeSnippets, codeIsClipped} from "./code_snippets"
 
 async function loadDrawingFonts(workspace) {
   // Resolve the host's CSS mapping, not a second document-role → family registry.
@@ -92,6 +93,14 @@ function mountLineTool(canvas) {
       path.setAttribute("d", "M5 19L19 5")
       line.querySelector("svg").replaceChildren(path)
       line.setAttribute("aria-keyshortcuts", "L")
+    }
+    const code = canvas.toolsEl?.querySelector('[data-tool="code:block"]')
+    if (code) {
+      // Hakushi's icon registry has no code glyph; adapt the native SVG just
+      // like Line, retaining the button's Code name and pressed state.
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+      path.setAttribute("d", "m8 7-5 5 5 5m8-10 5 5-5 5m-3-14-2 18")
+      code.querySelector("svg").replaceChildren(path)
     }
     dockObserver.disconnect()
     if (canvas.toolsEl) dockObserver.observe(canvas.toolsEl)
@@ -377,10 +386,36 @@ const FileCanvas = {
     mountDrawingTextEditor(this.canvas)
     this.destroyConnectorStyles = mountConnectorStyles(this.canvas)
     this.destroyStyleInspector = mountStyleInspector(this.canvas)
+    this.codeSnippets = mountCodeSnippets(this.canvas)
     const exportImage = this.canvas.exportImage.bind(this.canvas)
-    this.canvas.exportImage = async options => {
+    const download = this.canvas.download.bind(this.canvas)
+    const refuseExport = message => {
+      this.codeSnippets.notify(message)
+      return Object.assign(new Error(message), {code: "canvas-export-refused"})
+    }
+    const prepareExport = async () => {
+      const generation = workspace.dataset.generation
+      const flushed = workspace.workspaceHook?.flushEdits()
+      if (!flushed?.ok) throw refuseExport("Finish a valid pending editor before exporting.")
+      try { await flushed.settled } catch (error) { throw refuseExport(error.message || "The pending edit could not finish.") }
       await loadDrawingFonts(workspace)
+      if (!this.el.isConnected || workspace.dataset.generation !== generation) throw refuseExport("Canvas changed before export.")
+      if (codeIsClipped(this.canvas.root)) throw refuseExport("Some code source is hidden. Fit or resize every code block before exporting.")
+    }
+    this.canvas.exportImage = async options => {
+      await prepareExport()
       return exportImage(options)
+    }
+    this.canvas.download = async (...args) => {
+      try {
+        await prepareExport()
+        return await download(...args)
+      } catch (error) {
+        // Refusals are feedback, not renderer failures that should retry as SVG
+        // or become uncaught client crash reports.
+        if (error.code === "canvas-export-refused") return false
+        throw error
+      }
     }
     this.mountZoomControls()
     this.mountStackingControls()
@@ -394,6 +429,7 @@ const FileCanvas = {
     this.canvas.keyDown = event => {
       const target = event.composedPath()[0]
       if (event.isComposing || event.keyCode === 229 || event.defaultPrevented) return
+      if (workspace.codeDraft) return
       if (target.closest("input, textarea, select, [contenteditable]:not([contenteditable=false]), [role=slider]")) return
       const onCanvas = target === this.canvas.root || target.classList.contains("hakushi-node") || target.classList.contains("drawing-line-endpoint")
       if (!onCanvas) return
@@ -584,6 +620,7 @@ const FileCanvas = {
   },
   destroyed() {
     window.removeEventListener("keydown", this.zoomKey, true)
+    this.codeSnippets?.destroy()
     this.destroyLineTool?.()
     this.destroyStyleInspector?.()
     this.destroyConnectorStyles?.()
@@ -601,6 +638,7 @@ const FileCanvas = {
 
 const Workspace = {
   mounted() {
+    this.el.workspaceHook = this
     this.activeCanvas = () => this.el.querySelector('[phx-hook="Hakushi"]')
     this.pending = () => this.activeCanvas()?.pendingFileEdits || 0
     // Loading a fresh board is not an edit, but flushes still await readiness.
@@ -610,7 +648,7 @@ const Workspace = {
     }
     this.hasUnsaved = () => this.el.dataset.dirty === "true" || this.pending() > 0 ||
       this.el.dataset.attachmentBusy === "true" ||
-      !!this.el.querySelector(".hakushi-text-editor, .hakushi-edge-input") || this.el.directPreview === true
+      !!this.el.querySelector(".hakushi-text-editor, .hakushi-edge-input") || this.el.directPreview === true || this.el.codeDraft === true
     this.flushWaiters = new Set()
     this.flushEdits = () => {
       const waiters = []
@@ -618,7 +656,7 @@ const Workspace = {
       if (!this.el.dispatchEvent(event)) return {ok: false, settled: Promise.resolve()}
       document.activeElement?.blur()
       const settled = Promise.all(waiters).then(results => {
-        if (results.includes(false)) throw new Error("The adjacent thought was not added. Your draft is still here.")
+        if (results.includes(false)) throw new Error("An edit was not accepted. Your draft is still here.")
         if (this.canvasSettled()) return
         return new Promise(resolve => this.flushWaiters.add(resolve))
       })
@@ -645,6 +683,7 @@ const Workspace = {
     this.zenMode = mountZenMode(this)
     this.requestSave = () => this.nativeFile.save()
     this.requestSaveCopy = () => this.nativeFile.saveCopy()
+    this.requestVersionCopy = () => this.nativeFile.convertVersionCopy()
     this.requestOpen = () => {
       // Flush synchronously before Open's user-activated picker/unsaved guard.
       const event = new CustomEvent("canvas:flush", {cancelable: true})
@@ -684,7 +723,7 @@ const Workspace = {
         if (event.target.closest("#file-menu, #file-menu-toggle, [data-save-copy]")) keyboard.key(event)
         return
       }
-      if (event.target.closest(".hakushi-paper-menu, .hakushi-layout-menu, .hakushi-text-editor, .hakushi-edge-input")) return
+      if (event.target.closest(".hakushi-paper-menu, .hakushi-layout-menu, .hakushi-text-editor, .hakushi-edge-input, .drawing-code-editor")) return
       if (event.target.closest(".style-inspector")?.querySelector('.style-color-trigger[aria-expanded="true"]')) return
       const menu = this.el.querySelector("#file-menu")
       const style = this.el.dataset.styleOpen === "true"
@@ -736,6 +775,7 @@ const Workspace = {
     }
     this.el.addEventListener("canvas:save", this.requestSave)
     this.el.addEventListener("canvas:save-copy", this.requestSaveCopy)
+    this.el.addEventListener("canvas:version-copy", this.requestVersionCopy)
     this.el.addEventListener("canvas:new", this.requestNew)
     this.el.addEventListener("canvas:open", this.requestOpen)
     this.el.addEventListener("canvas:reload", this.requestReload)
@@ -769,12 +809,14 @@ const Workspace = {
   },
   destroyed() {
     this.zenMode.destroyed()
+    delete this.el.workspaceHook
     this.nativeFile.destroyed()
     this.textAttachments.destroyed()
     for (const resolve of this.flushWaiters) resolve()
     this.flushWaiters.clear()
     this.el.removeEventListener("canvas:save", this.requestSave)
     this.el.removeEventListener("canvas:save-copy", this.requestSaveCopy)
+    this.el.removeEventListener("canvas:version-copy", this.requestVersionCopy)
     this.el.removeEventListener("canvas:new", this.requestNew)
     this.el.removeEventListener("canvas:open", this.requestOpen)
     this.el.removeEventListener("canvas:reload", this.requestReload)

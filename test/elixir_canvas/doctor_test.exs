@@ -61,7 +61,7 @@ defmodule ElixirCanvas.DoctorTest do
 
     File.write!(
       Path.join(examples_dir, "broken.json"),
-      ~s({"version": 2, "nodes": [], "edges": []})
+      ~s({"version":)
     )
 
     File.write!(

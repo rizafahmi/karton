@@ -234,6 +234,55 @@ kbd { padding: 2px 4px; border: var(--border-row); border-radius: 0; font: 10px 
 .attachment-preview-actions button { min-height: 44px; padding: 8px 12px; border: var(--border-frame); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 700 11px/1.5 var(--font-mono); }
 .attachment-preview-actions button:hover { background: var(--bg-surface); }
 
+/* Code source is literal document data; syntax colors are renderer-only. */
+.drawing-code { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; min-width: 0; min-height: 0; color: var(--hakushi-shape-ink); }
+.drawing-code[data-code-fill="ink"] { background: var(--hakushi-shape-ink); color: var(--hakushi-surface); }
+.drawing-code-source { position: relative; z-index: 1; flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; height: 100%; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; margin: 0; padding: 14px; border: 0; background: transparent; color: inherit; white-space: pre; word-break: normal; overflow-wrap: normal; tab-size: 2; font: 400 16px/1.3 var(--font-mono); }
+.drawing-code-source code { font: inherit; white-space: inherit; }
+.drawing-code[data-code-size="s"] .drawing-code-source { font-size: 13px; }
+.drawing-code[data-code-size="l"] .drawing-code-source { font-size: 24px; }
+.drawing-code-node-actions { position: relative; z-index: 2; flex: 0 0 28px; display: flex; align-items: center; gap: 4px; min-width: 0; box-sizing: border-box; padding: 2px 6px; }
+.drawing-code-node-actions button { min-height: 24px; padding: 2px 6px; border: var(--border-row); border-radius: 0; background: var(--hakushi-surface); color: var(--hakushi-shape-ink); font: 400 10px/1.4 var(--font-mono); }
+.drawing-code-node-actions button:hover { background: var(--bg-surface); }
+.drawing-code-node-actions button:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+.hakushi-node:not([data-ui-selected]) .drawing-code-node-actions button { visibility: hidden; }
+.drawing-code-overflow, .drawing-code-highlight-status { position: relative; z-index: 2; flex: none; margin: 0 8px; padding: 2px 6px; background: var(--hakushi-surface); color: var(--text-secondary); font: 400 10px/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.drawing-code-highlight-status { align-self: flex-start; max-width: calc(100% - 16px); }
+.drawing-code-overflow { color: var(--text-primary); border-top: var(--border-row); }
+.drawing-code-overflow[hidden], .drawing-code-highlight-status[hidden] { display: none; }
+.hakushi-export .drawing-code [data-code-ui] { visibility: hidden !important; }
+.drawing-code-editor { position: absolute; z-index: 12000; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; width: min(760px, calc(100% - 48px)); max-height: calc(100% - (var(--workspace-bottom) + var(--dock-height) + 16px) * 2); overflow: auto; overscroll-behavior: contain; padding: 16px; border: var(--border-frame); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 12px/1.5 var(--font-body); }
+.drawing-code-editor[hidden] { display: none; }
+.drawing-code-editor h2, .drawing-code-editor h3 { margin: 0; font: 700 14px/1.4 var(--font-mono); }
+.drawing-code-editor label { display: block; font-weight: 700; }
+.drawing-code-input { display: block; flex: 1 1 auto; box-sizing: border-box; width: 100%; min-height: 120px; height: min(40vh, 320px); max-height: 50vh; resize: vertical; overflow: auto; overscroll-behavior: contain; margin: 0; padding: 12px; border: var(--border-frame); border-radius: 0; background: var(--bg-surface); color: var(--text-primary); white-space: pre; tab-size: 2; font: 400 14px/1.5 var(--font-mono); }
+.drawing-code-input:focus-visible, .drawing-code-language:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.drawing-code-language { min-height: 44px; max-width: 100%; box-sizing: border-box; padding: 8px 12px; border: var(--border-frame); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 12px/1.4 var(--font-mono); }
+.drawing-code-instructions { margin: 0; color: var(--text-secondary); font: 11px/1.5 var(--font-body); }
+.drawing-code-draft-status { margin: 0; color: var(--text-secondary); font: 400 11px/1.4 var(--font-mono); }
+.drawing-code-feedback { position: absolute; z-index: 11000; top: calc(var(--workspace-inset) + 80px); left: 50%; transform: translateX(-50%); display: flex; flex-wrap: wrap; align-items: center; gap: 12px; box-sizing: border-box; width: min(600px, calc(100% - 48px)); padding: 10px 12px; border: var(--border-frame); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 12px/1.5 var(--font-body); }
+.drawing-code-feedback span { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.drawing-code-feedback button { flex: none; min-height: 44px; padding: 6px 10px; border: var(--border-row); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 700 11px/1.4 var(--font-mono); }
+.drawing-code-feedback button:hover { background: var(--bg-surface); }
+.drawing-code-feedback button:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.drawing-code-editor .drawing-code-feedback { position: static; transform: none; width: 100%; }
+.drawing-code-error { margin: 0; max-height: 15vh; overflow: auto; padding: 8px; border: var(--border-row); color: var(--text-primary); font: 12px/1.5 var(--font-body); white-space: pre-wrap; overflow-wrap: anywhere; }
+.drawing-code-error[hidden] { display: none; }
+.drawing-code-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.drawing-code-utilities { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-width: 0; }
+.drawing-code-completion { display: flex; gap: 8px; margin-inline-start: auto; }
+.drawing-code-editor .drawing-code-fit-option { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 400; cursor: pointer; }
+.drawing-code-fit { flex: none; inline-size: 1.125rem; block-size: 1.125rem; margin: 0; accent-color: var(--accent-cobalt); }
+.drawing-code-fit:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.drawing-code-fit:disabled { opacity: 0.5; cursor: not-allowed; }
+.drawing-code-actions button { min-height: 44px; padding: 8px 12px; border: var(--border-frame); border-radius: 0; background: var(--bg-elevated); color: var(--text-primary); font: 700 11px/1.5 var(--font-mono); }
+.drawing-code-actions button:hover { background: var(--bg-surface); }
+.drawing-code-actions button:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+.drawing-code-actions button:disabled { opacity: 0.5; }
+.drawing-code-actions .drawing-code-finish { background: var(--text-primary); color: var(--bg-elevated); }
+.drawing-code-actions .drawing-code-finish:hover:not(:disabled) { background: var(--text-secondary); }
+.canvas-workspace[data-code-draft="true"] #save-status { text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 3px; }
+
 /* The authored node stays axis-aligned; only its single-shape guides turn. */
 .canvas-workspace .hakushi-node[data-type="shape"] > :is(.hakushi-resizer, .hakushi-rotator) { rotate: 0deg; }
 .canvas-workspace .hakushi-node.drawing-rotation-guides > :is(.hakushi-resizer, .hakushi-rotator) { rotate: var(--drawing-guide-angle, 0deg); }

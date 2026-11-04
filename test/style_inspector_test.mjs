@@ -204,3 +204,21 @@ test('inspector title identifies its editing scope and mixed segmented sizes are
   f.draw(); assert.equal(mixedLabel.hidden, true)
   assert.equal(f.calls.length, 0)
 })
+
+test('mixed code and shapes share only meaningful properties, without source or font edits', () => {
+  for (const kind of ['rect', 'text', 'line']) {
+    const f = fixture()
+    f.node('shape', kind)
+    const code = f.node('code', 'rect').node
+    code.type = 'code'
+    code.el.querySelector = selector => selector === '[data-code-node]' ? {dataset: {codeSize: 'm'}} : selector === '[data-hakushi-style]' ? {dataset: {hakushiStyle: '{"fill":"none","stroke":"ink","width":2,"dash":false,"radius":0}'}} : null
+    f.canvas.config.styles.push({types: ['code'], groups: definitions.filter(group => ['fill', 'stroke', 'width', 'dash', 'radius', 'size'].includes(group.key))})
+    f.canvas.selected = new Set(['shape', 'code']); f.mount()
+    const keys = new Set(walk(f.canvas.styleEl).map(el => el.dataset.key).filter(Boolean))
+    const expected = kind === 'text' ? ['fill', 'size'] : kind === 'line' ? ['stroke', 'width', 'dash'] : ['fill', 'stroke', 'width', 'dash', 'radius', 'size']
+    assert.deepEqual([...keys].sort(), expected.sort())
+    assert.equal(f.calls.length, 0)
+    f.workspace.codeDraft = true; f.draw()
+    assert.ok(walk(f.canvas.styleEl).filter(el => el.dataset.key).every(el => el.disabled || el.tag === 'span'))
+  }
+})

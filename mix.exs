@@ -71,7 +71,8 @@ defmodule ElixirCanvas.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "assets.setup", "assets.build"],
+      setup: ["deps.get", "assets.deps", "assets.setup", "assets.build"],
+      "assets.deps": ["cmd npm --prefix assets ci --ignore-scripts --no-audit --no-fund"],
       "assets.setup": ["esbuild.install --if-missing"],
       "assets.build": ["compile", "esbuild elixir_canvas"],
       "assets.deploy": [

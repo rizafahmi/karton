@@ -482,3 +482,28 @@ test('draft reveal clears persistent chrome and fits one text line with screen-s
     assert.equal(app.calls.length, 0)
   }
 })
+
+test('code participates in native keyboard connections without becoming eligible for thought cloning', async () => {
+  const {canvas, key, calls, draft} = editor()
+  canvas.nodes.get('a').type = 'code'
+  canvas.nodes.get('b').type = 'code'
+  canvas.nodes.get('a').el.focus()
+  key('n')
+  assert.equal(draft(), undefined)
+  key('c'); key('Enter'); key('Enter'); key('Enter')
+  await Promise.resolve()
+  const connection = calls.find(call => call.event === 'hakushi:change')
+  assert.equal(connection.payload.op, 'connect')
+  assert.equal(connection.payload.edges[0].source, 'a')
+  assert.equal(connection.payload.edges[0].target, 'b')
+})
+
+test('pending code draft prevents direct keyboard geometry, connection and thought modes', () => {
+  const {canvas, key, calls, workspace, draft, keyboard} = editor()
+  canvas.selected.add('a')
+  workspace.codeDraft = true
+  for (const command of ['n', 'g', 'c']) key(command)
+  assert.equal(draft(), undefined)
+  assert.equal(keyboard.active, false)
+  assert.deepEqual(calls, [])
+})

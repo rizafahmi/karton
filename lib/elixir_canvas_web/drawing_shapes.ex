@@ -73,7 +73,7 @@ defmodule ElixirCanvasWeb.DrawingShapes do
           options: [
             %{value: "sans", label: "Normal"},
             %{value: "heading", label: "Title"},
-            %{value: "mono", label: "Code"},
+            %{value: "mono", label: "Mono"},
             %{value: "handwritten", label: "Handwritten"}
           ]
         }

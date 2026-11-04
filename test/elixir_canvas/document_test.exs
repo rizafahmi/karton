@@ -65,7 +65,7 @@ defmodule ElixirCanvas.DocumentTest do
       assert {:ok, bytes, prepared} = Document.prepare_save(renamed, renamed.graph)
       assert prepared.filename == "Chosen.JSON"
       json = Jason.decode!(bytes)
-      assert json["version"] == 1
+      assert json["version"] == 2
       refute Map.has_key?(json, "title")
       refute Map.has_key?(json, "name")
       refute Map.has_key?(json, "filename")
@@ -101,7 +101,7 @@ defmodule ElixirCanvas.DocumentTest do
     assert document.filename == "untitled.json"
     assert document.persistence == :untitled
     assert document.revision == nil
-    assert document.source == %{"appearance" => %{"font" => "sans"}}
+    assert document.source == %{"version" => 2, "appearance" => %{"font" => "sans"}}
     assert Document.drawing_font(document) == "sans"
     assert Document.status(document) == :client_managed
     assert {:error, _} = Document.save(document, document.graph)
@@ -110,7 +110,7 @@ defmodule ElixirCanvas.DocumentTest do
     bytes = Document.encode(document, document.graph)
     assert {:ok, graph, source} = Document.decode(bytes)
     assert graph == Graph.new()
-    assert source["version"] == 1
+    assert source["version"] == 2
     assert source["nodes"] == []
     assert source["edges"] == []
     assert source["appearance"] == %{"font" => "sans"}
@@ -158,7 +158,7 @@ defmodule ElixirCanvas.DocumentTest do
           "{",
           "[]",
           <<0xEF, 0xBB, 0xBF>> <> original,
-          Jason.encode!(Map.put(document.source, "version", 2)),
+          Jason.encode!(Map.put(document.source, "version", 3)),
           Jason.encode!(Map.put(document.source, "appearance", %{"font" => "Mona Sans"})),
           Jason.encode!(
             put_in(document.source, ["nodes", Access.at(0), "data", "font"], "serif")
@@ -782,7 +782,7 @@ defmodule ElixirCanvas.DocumentTest do
     for invalid <- [
           "{",
           "[]",
-          Jason.encode!(Map.put(source, "version", 2)),
+          Jason.encode!(Map.put(source, "version", 3)),
           Jason.encode!(Map.put(source, "version", 1.0)),
           Jason.encode!(Map.put(source, "nodes", [])),
           Jason.encode!(put_in(source, ["nodes", Access.at(0), "type"], "unknown-widget")),
@@ -830,13 +830,11 @@ defmodule ElixirCanvas.DocumentTest do
     assert {:ok, %{type: :symlink}} = File.lstat(link)
   end
 
-  test "all bundled example canvases open cleanly and round-trip through version-1 encoding" do
+  test "bundled examples and versioned fixtures retain their graphs through encoding" do
     examples =
-      Path.expand("../../examples/*.json", __DIR__)
-      |> Path.wildcard()
+      ["../../examples/*.json", "../../shared/fixtures/v*/*.json"]
+      |> Enum.flat_map(&(Path.expand(&1, __DIR__) |> Path.wildcard()))
       |> Enum.sort()
-
-    assert examples != []
 
     for example_path <- examples do
       assert {:ok, document} = Document.open(example_path)

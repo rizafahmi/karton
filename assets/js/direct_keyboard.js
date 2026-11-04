@@ -394,8 +394,8 @@ export function mountDirectKeyboard(canvas) {
     if (canvas.config.readonly || canvas.gesture) return
     const focused = document.activeElement?.classList.contains('hakushi-node')
     const existing = !focused && edge(), node = existing ? canvas.nodes.get(existing.source) : canvas.focusedNode()
-    if (!mutable(node) || node.type !== 'shape') return
-    const candidates = [...canvas.nodes.values()].filter(value => mutable(value) && value.type === 'shape')
+    if (!mutable(node) || !['shape', 'code'].includes(node.type)) return
+    const candidates = [...canvas.nodes.values()].filter(value => mutable(value) && ['shape', 'code'].includes(value.type))
     mode = {kind: 'connect', stage: existing ? 0 : 1, candidates, id: existing?.id, source: node.id, target: existing?.target || candidates.find(value => value.id !== node.id)?.id || node.id, sourceHandle: existing?.sourceHandle ?? 'right', targetHandle: existing?.targetHandle ?? 'left'}
     root.focus({preventScroll: true})
     describeMode()
@@ -524,6 +524,7 @@ export function mountDirectKeyboard(canvas) {
   })
   observer.observe(canvas.nodesEl, {childList: true, subtree: true, attributes: true, attributeFilter: ['data-locked']})
   function key(event) {
+    if (workspace.codeDraft) return false
     if (event.key === 'Escape' && helpObserver) { helpObserver.disconnect(); helpObserver = null }
     if (event.metaKey || event.ctrlKey || event.altKey) {
       const conflicts = (event.metaKey || event.ctrlKey) && (

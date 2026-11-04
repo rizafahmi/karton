@@ -63,8 +63,8 @@ export function mountNativeFile(workspace) {
         ? "Choose a canvas JSON file. With your permission, Save writes back to that file while this tab stays open."
         : "This browser cannot save back to a selected file. Open a canvas JSON file, then Save copy downloads JSON without changing the original."
     }
-    for (const button of root.querySelectorAll("#save-file, [data-save-copy], #new-canvas, #open-native-file, #empty-open-file, #reload-file, #server-file-options button, #disk-warning .message-action, #rename-document-form input, #rename-document-form button")) {
-      button.disabled = disabled || button.id === "save-file" && mode() === "none"
+    for (const button of root.querySelectorAll("#save-file, [data-save-copy], [data-version-copy], #new-canvas, #open-native-file, #empty-open-file, #reload-file, #server-file-options button, #disk-warning .message-action, #rename-document-form input, #rename-document-form button")) {
+      button.disabled = disabled || button.id === "save-file" && mode() === "none" || button.matches?.("[data-version-copy]") && root.dataset.documentVersion !== "1"
     }
     const saveButton = root.querySelector("#save-file")
     if (saveButton && root.dataset.sourceMissing === "true") {
@@ -281,9 +281,9 @@ export function mountNativeFile(workspace) {
     }
   }
 
-  const saveCopy = async () => {
+  const saveCopy = async (conversion = false) => {
     if (busy || root.dataset.fileBusy === "true" || mode() === "none") return
-    const request = {generation: generation(), trigger: document.activeElement, action: "save-copy"}
+    const request = {generation: generation(), trigger: document.activeElement, action: conversion ? "version-copy" : "save-copy"}
     let reply
     setBusy(true)
     try {
@@ -291,16 +291,16 @@ export function mountNativeFile(workspace) {
       if (!flushed.ok) return
       await flushed.settled
       if (!isCurrent(request)) return
-      reply = await send("save-copy", {generation: request.generation})
+      reply = await send(request.action, {generation: request.generation})
       if (!reply.ok || !reply.token) return
       if (!isCurrent(request) || reply.generation !== request.generation) {
         throw new Error("The canvas changed before the copy could be downloaded. Nothing was overwritten.")
       }
       downloadCopy(reply)
-      const acknowledgment = await send("selected-copy-downloaded", {token: reply.token, generation: reply.generation})
+      const acknowledgment = await send(conversion ? "selected-version-copy-downloaded" : "selected-copy-downloaded", {token: reply.token, generation: reply.generation})
       if (!acknowledgment.ok) throw new Error("Copy download started, but the canvas could not acknowledge it. Disk persistence is not confirmed.")
     } catch (error) {
-      const message = `Could not complete Save a copy: ${error.message}`
+      const message = `Could not complete ${conversion ? "separate v2 copy" : "Save a copy"}: ${error.message}`
       if (reply?.token) {
         await send("selected-save-error", {token: reply.token, generation: reply.generation, message})
       } else if (isCurrent(request)) workspace.pushEvent("selected-error", {generation: request.generation, action: request.action, message})
@@ -418,7 +418,8 @@ export function mountNativeFile(workspace) {
     open: () => open("open"),
     reload: () => open("reload"),
     save,
-    saveCopy,
+    saveCopy: () => saveCopy(false),
+    convertVersionCopy: () => saveCopy(true),
     updated() {
       if (selectedFile && (selectedFile.generation !== generation() || selectedFile.filename !== root.dataset.fileName || ["server_file", "none", "untitled"].includes(mode()))) {
         selectedFile = null

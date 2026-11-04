@@ -23,6 +23,408 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     %{view: view, path: path, source: source}
   end
 
+  test "code preserves literal source and metadata with a single source-and-box history entry and save reload",
+       %{view: view, path: path, source: source} do
+    literal = "\uFEFF\t" <> String.duplicate("λ = 1\r\n", 500) <> "\rtrail  \n"
+
+    code = %{
+      "id" => "literal",
+      "type" => "code",
+      "x" => 20,
+      "y" => 30,
+      "width" => 480,
+      "height" => 240,
+      "data" => %{"content" => literal, "language" => "elixir", "custom" => %{"keep" => true}}
+    }
+
+    File.write!(
+      path,
+      Jason.encode!(source |> Map.put("version", 2) |> Map.update!("nodes", &(&1 ++ [code])))
+    )
+
+    render_click(view, "reload")
+    board = board_id(view)
+    updated = literal <> "\t  "
+
+    assert :ok =
+             CanvasTest.edit(view, board, "literal", "source", %{
+               "content" => updated,
+               "language" => "plaintext",
+               "box" => [40, 50, 600, 300]
+             })
+
+    render(view)
+    node = Graph.node(copy_state(view).graph, "literal")
+    assert node.data["content"] == updated
+    assert node.data["custom"] == %{"keep" => true}
+    assert node_box(view, board, "literal") == {40, 50, 600, 300}
+    assert :ok = CanvasTest.undo(view, board)
+    assert Graph.node(copy_state(view).graph, "literal").data["content"] == literal
+    assert node_box(view, board, "literal") == {20, 30, 480, 240}
+    assert :ok = CanvasTest.redo(view, board)
+    assert %{ok: true} = selected_event(view, "save", %{})
+    assert {:ok, saved} = Document.open(path)
+    assert Graph.node(saved.graph, "literal").data["content"] == updated
+    assert Graph.node(saved.graph, "literal").data["custom"] == %{"keep" => true}
+    render_click(view, "reload")
+    assert Graph.node(copy_state(view).graph, "literal").data["content"] == updated
+  end
+
+  test "version-copy is download-only and preserves errors, conflict state, newer edits and history",
+       %{view: view, path: path} do
+    original = File.read!(path)
+
+    for mode <- [:server_file, :browser_file, :save_copy] do
+      if mode != :server_file do
+        assert %{ok: true} =
+                 selected_event(view, "selected-open", %{
+                   "generation" => workspace_integer(view, "data-generation"),
+                   "filename" => "legacy.json",
+                   "bytes" => original,
+                   "mode" => Atom.to_string(mode)
+                 })
+      end
+
+      board = board_id(view)
+      generation = workspace_integer(view, "data-generation")
+      assert :ok = CanvasTest.move(view, board, "idea", {310, 75})
+
+      render_click(view, "selected-error", %{
+        "generation" => generation,
+        "message" => "Source write failed."
+      })
+
+      before_copy = copy_state(view)
+
+      assert %{ok: true, token: token, bytes: bytes, filename: filename} =
+               selected_event(view, "version-copy", %{"generation" => generation})
+
+      assert String.ends_with?(filename, "-v2.json")
+      assert Jason.decode!(bytes)["version"] == 2
+      assert copy_state(view) == before_copy
+      assert %{ok: false} = selected_event(view, "version-copy", %{"generation" => generation})
+
+      assert %{ok: false} =
+               selected_event(view, "selected-version-copy-downloaded", %{
+                 "generation" => generation,
+                 "token" => "stale"
+               })
+
+      assert :ok = CanvasTest.move(view, board, "idea", {320, 85})
+      newer = copy_state(view)
+
+      assert %{ok: true} =
+               selected_event(view, "selected-version-copy-downloaded", %{
+                 "generation" => generation,
+                 "token" => token
+               })
+
+      assert copy_state(view) == newer
+      assert :sys.get_state(view.pid).socket.assigns.error == "Source write failed."
+      assert :ok = CanvasTest.undo(view, board)
+      assert node_box(view, board, "idea") |> elem(0) == 310
+      assert :ok = CanvasTest.undo(view, board)
+      refute copy_state(view).dirty
+      assert File.read!(path) == original
+    end
+  end
+
+  test "native code drawing commits final source once with undo, redo and real save", %{
+    view: view,
+    path: path,
+    source: source
+  } do
+    File.write!(path, Jason.encode!(Map.put(source, "version", 2)))
+    render_submit(view, "open", %{"path" => path})
+    board = board_id(view)
+    literal = "const café = \"😀\";\r\n\t// source stays literal\r"
+
+    view
+    |> element("##{board}-hook")
+    |> render_hook("hakushi:draw", %{
+      "tool" => "code:block",
+      "box" => [500, 250, 320, 180],
+      "style" => %{"content" => literal, "language" => "auto"}
+    })
+
+    %{proxy: {ref, _topic, _pid}} = view
+    assert_receive {^ref, {:reply, %{"ok" => true, "drawn" => drawn_id}}}
+
+    graph = :sys.get_state(view.pid).socket.assigns.graph
+    [code] = Enum.filter(Graph.nodes(graph), &(&1.type == "code"))
+    assert code.id == drawn_id
+    assert code.data["content"] == literal
+    assert code.data["language"] == "auto"
+    assert :ok = CanvasTest.undo(view, board)
+
+    refute Enum.any?(
+             Graph.nodes(:sys.get_state(view.pid).socket.assigns.graph),
+             &(&1.type == "code")
+           )
+
+    assert :ok = CanvasTest.redo(view, board)
+
+    assert Graph.node(:sys.get_state(view.pid).socket.assigns.graph, code.id).data["content"] ==
+             literal
+
+    assert %{ok: true} = selected_event(view, "save", %{})
+    saved = Jason.decode!(File.read!(path))
+    assert saved["version"] == 2
+    assert Enum.find(saved["nodes"], &(&1["id"] == code.id))["data"]["content"] == literal
+  end
+
+  test "locked code refuses source and geometry edits without changing history or disk", %{
+    view: view,
+    path: path,
+    source: source
+  } do
+    code = %{
+      "id" => "locked-code",
+      "type" => "code",
+      "locked" => true,
+      "x" => 10,
+      "y" => 20,
+      "width" => 320,
+      "height" => 180,
+      "data" => %{"content" => "keep literal\r\n", "language" => "plaintext"}
+    }
+
+    source = source |> Map.put("version", 2) |> Map.update!("nodes", &(&1 ++ [code]))
+    File.write!(path, Jason.encode!(source))
+    render_submit(view, "open", %{"path" => path})
+    before = copy_state(view)
+    bytes = File.read!(path)
+
+    view
+    |> element("##{board_id(view)}-hook")
+    |> render_hook("hakushi:edit", %{
+      "node" => "locked-code",
+      "action" => "source",
+      "content" => "must not replace",
+      "box" => [90, 90, 640, 480]
+    })
+
+    %{proxy: {ref, _topic, _pid}} = view
+    assert_receive {^ref, {:reply, %{"ok" => false}}}
+    assert copy_state(view) == before
+    assert File.read!(path) == bytes
+  end
+
+  test "v1 refuses native code creation without changing graph or history", %{view: view} do
+    board = board_id(view)
+    before = copy_state(view)
+
+    view
+    |> element("##{board}-hook")
+    |> render_hook("hakushi:draw", %{
+      "tool" => "code:block",
+      "box" => [0, 0, 400, 200],
+      "style" => %{"content" => "literal", "language" => "plaintext"}
+    })
+
+    assert copy_state(view) == before
+  end
+
+  test "version-copy remains available for changed or unavailable server sources without acknowledging them",
+       %{view: view, path: path, source: source} do
+    original = File.read!(path)
+
+    for status <- [:changed, :unavailable] do
+      if status == :changed,
+        do: File.write!(path, Jason.encode!(Map.put(source, "external", true))),
+        else: File.rm!(path)
+
+      send(view.pid, :check_file)
+      render(view)
+      assert :ok = CanvasTest.move(view, board_id(view), "idea", {321, 87})
+      assert %{ok: false} = selected_event(view, "save", %{})
+      before = copy_state(view)
+      assert before.disk_status == status
+      error = :sys.get_state(view.pid).socket.assigns.error
+      generation = before.generation
+
+      assert %{ok: true, token: token, bytes: bytes} =
+               selected_event(view, "version-copy", %{"generation" => generation})
+
+      assert Jason.decode!(bytes)["version"] == 2
+
+      assert %{ok: true} =
+               selected_event(view, "selected-version-copy-downloaded", %{
+                 "generation" => generation,
+                 "token" => token
+               })
+
+      assert copy_state(view) == before
+      assert :sys.get_state(view.pid).socket.assigns.error == error
+      File.write!(path, original)
+      render_click(view, "reload")
+    end
+  end
+
+  test "new v2 untitled documents refuse unnecessary conversion without adopting a source", %{
+    view: view
+  } do
+    assert %{ok: true, generation: generation} =
+             selected_event(view, "new", %{
+               "generation" => workspace_integer(view, "data-generation")
+             })
+
+    before = copy_state(view)
+    assert Document.format_version(before.document) == 2
+    assert before.document.persistence == :untitled
+    assert %{ok: false} = selected_event(view, "version-copy", %{"generation" => generation})
+    assert copy_state(view) == before
+    assert :sys.get_state(view.pid).socket.assigns.pending_save == nil
+  end
+
+  test "type changes cannot inject code into v1 or destructively convert code back to shapes", %{
+    view: view,
+    path: path,
+    source: source
+  } do
+    board = board_id(view)
+    before = copy_state(view)
+
+    Phoenix.LiveView.send_update(view.pid, ElixirCanvasWeb.DrawingCanvas,
+      id: board,
+      hakushi_change:
+        Change.update(nodes: [%{id: "idea", type: "code", data: %{"content" => "literal"}}])
+    )
+
+    render(view)
+    assert copy_state(view) == before
+
+    code = %{
+      "id" => "literal",
+      "type" => "code",
+      "x" => 0,
+      "y" => 0,
+      "width" => 480,
+      "height" => 240,
+      "data" => %{"content" => "source"}
+    }
+
+    File.write!(
+      path,
+      Jason.encode!(source |> Map.put("version", 2) |> Map.update!("nodes", &(&1 ++ [code])))
+    )
+
+    render_click(view, "reload")
+    board = board_id(view)
+    before = copy_state(view)
+
+    Phoenix.LiveView.send_update(view.pid, ElixirCanvasWeb.DrawingCanvas,
+      id: board,
+      hakushi_change:
+        Change.update(
+          nodes: [
+            %{id: "literal", type: "shape", data: %{"kind" => "rect", "text" => "replacement"}}
+          ]
+        )
+    )
+
+    render(view)
+    assert copy_state(view) == before
+  end
+
+  test "code duplicate quotas and mixed selection styles reject atomically", %{
+    view: view,
+    path: path,
+    source: source
+  } do
+    content = String.duplicate("x", ElixirCanvas.CodeSnippet.source_limit())
+
+    nodes =
+      for index <- 1..4 do
+        %{
+          "id" => "code-#{index}",
+          "type" => "code",
+          "x" => index * 40,
+          "y" => 0,
+          "width" => 480,
+          "height" => 240,
+          "data" => %{"content" => content, "language" => "plaintext"}
+        }
+      end
+
+    File.write!(
+      path,
+      Jason.encode!(source |> Map.put("version", 2) |> Map.update!("nodes", &(&1 ++ nodes)))
+    )
+
+    render_click(view, "reload")
+    board = board_id(view)
+    before = copy_state(view)
+    assert {:error, _} = CanvasTest.duplicate(view, board, ["code-1"])
+    assert copy_state(view) == before
+    assert {:error, _} = CanvasTest.copy_paste(view, board, ["code-1"])
+    assert copy_state(view) == before
+
+    assert {:error, _} =
+             CanvasTest.edit(view, board, ["idea", "code-1"], "style", %{
+               "style" => %{"font" => "heading"}
+             })
+
+    assert copy_state(view) == before
+
+    assert :ok =
+             CanvasTest.edit(view, board, ["idea", "code-1"], "style", %{
+               "style" => %{"stroke" => "red"}
+             })
+
+    state = copy_state(view)
+    assert Graph.node(state.graph, "idea").data["stroke"] == "red"
+    assert Graph.node(state.graph, "code-1").data["stroke"] == "red"
+    assert :ok = CanvasTest.undo(view, board)
+
+    assert Map.take(copy_state(view), [:graph, :document, :dirty]) ==
+             Map.take(before, [:graph, :document, :dirty])
+
+    assert :ok = CanvasTest.move(view, board, "code-1", {81, 32})
+  end
+
+  test "version-copy failure preserves source failure and releases only its own busy token", %{
+    view: view
+  } do
+    generation = workspace_integer(view, "data-generation")
+
+    render_click(view, "selected-error", %{
+      "generation" => generation,
+      "message" => "Permission denied."
+    })
+
+    before = copy_state(view)
+
+    assert %{ok: true, token: token} =
+             selected_event(view, "version-copy", %{"generation" => generation})
+
+    assert %{ok: false} =
+             selected_event(view, "selected-save-error", %{
+               "generation" => generation - 1,
+               "token" => token,
+               "message" => "stale"
+             })
+
+    assert has_element?(view, "#workspace[data-file-busy=true]")
+
+    assert %{ok: false} =
+             selected_event(view, "selected-save-error", %{
+               "generation" => generation,
+               "token" => token,
+               "message" => "Download failed."
+             })
+
+    assert has_element?(view, "#workspace[data-file-busy=false]")
+    assert copy_state(view) == before
+    assert :sys.get_state(view.pid).socket.assigns.error == "Permission denied. Download failed."
+
+    assert %{ok: false} =
+             selected_event(view, "selected-version-copy-downloaded", %{
+               "generation" => generation,
+               "token" => token
+             })
+  end
+
   test "ordinary saves persist edits without a duplicate notification", %{view: view, path: path} do
     assert :ok = CanvasTest.move(view, board_id(view), "idea", {310, 75})
     assert %{ok: true} = selected_event(view, "save", %{})
@@ -230,7 +632,6 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
              })
 
     json = Jason.decode!(bytes)
-    assert json["version"] == 1
     refute Map.has_key?(json, "title")
     refute Map.has_key?(json, "name")
     refute Map.has_key?(json, "filename")
@@ -311,7 +712,7 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
         "generation" => to_string(generation)
       })
 
-      assert %{ok: true, token: token, bytes: bytes} =
+      assert %{ok: true, token: token} =
                selected_event(view, "save", %{
                  "generation" => generation,
                  "mode" => "browser_file",
@@ -329,7 +730,6 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
       assert has_element?(view, ".document-name", chosen)
       render_click(view, "toggle-file-menu")
       refute has_element?(view, "#rename-document-form")
-      assert Jason.decode!(bytes)["version"] == 1
     end
 
     assert File.read!(path) == original
@@ -468,7 +868,6 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
     assert {:ok, snapshot} = Document.open_selected("my-new-canvas.json", bytes, :browser_file)
     assert snapshot.path == nil
     assert snapshot.graph == Graph.new()
-    assert snapshot.source["version"] == 1
     assert snapshot.source["appearance"]["font"] == "mono"
     assert revision == Base.encode16(:crypto.hash(:sha256, bytes), case: :lower)
     render_change(view, "appearance", %{"font" => "heading"})
@@ -543,7 +942,6 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
              })
 
     assert {:ok, copy} = Document.open_selected("untitled.json", bytes, :save_copy)
-    assert copy.source["version"] == 1
     assert copy.source["appearance"]["font"] == "mono"
 
     assert %{ok: false} =
@@ -999,7 +1397,6 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
                selected_event(view, "save-copy", %{"generation" => generation})
 
       json = Jason.decode!(bytes)
-      assert json["version"] == 1
       assert json["nodes"] == []
       assert json["edges"] == []
       assert json["appearance"]["font"] == font

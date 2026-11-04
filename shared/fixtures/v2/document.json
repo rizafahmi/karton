@@ -1,0 +1,57 @@
+{
+  "version": 2,
+  "appearance": {"font": "sans", "future": {"keep": true}},
+  "paper": {"background": "none", "grid": 20, "future": "retained"},
+  "future": {"large_integer": 9007199254740993},
+  "nodes": [
+    {
+      "id": "z-thought",
+      "type": "shape",
+      "x": 80,
+      "y": 100,
+      "width": 200,
+      "height": 120,
+      "data": {
+        "kind": "rect",
+        "text": "Literal source stays portable",
+        "fill": "none",
+        "stroke": "ink",
+        "width": 2,
+        "radius": 8,
+        "align": "left"
+      }
+    },
+    {
+      "id": "a-code",
+      "type": "code",
+      "x": 360,
+      "y": 80,
+      "width": 480,
+      "height": 240,
+      "future-node": {"keep": true},
+      "data": {
+        "content": "\ufeffdefmodule Hello do\r\n\tdef greet(name), do: \"hello #{name}\"\rend\n# café 😀\t \n",
+        "language": "elixir",
+        "fill": "none",
+        "stroke": "ink",
+        "width": 2,
+        "radius": 0,
+        "size": "s",
+        "rotation": 0,
+        "future": {"reviewed": true}
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "code-to-thought",
+      "source": "a-code",
+      "source_handle": "left",
+      "target": "z-thought",
+      "target_handle": "right",
+      "path": "bezier",
+      "marker": "arrow",
+      "data": {"future": "retained"}
+    }
+  ]
+}

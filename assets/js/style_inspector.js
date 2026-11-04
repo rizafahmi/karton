@@ -37,7 +37,9 @@ export function mountStyleInspector(canvas) {
     const nodes = [...canvas.selected].map(id => canvas.nodes.get(id)).filter(node => node && !canvas.gone.has(node.id))
     const edges = [...canvas.selectedEdges].map(id => canvas.edges.get(id)).filter(Boolean)
     const connector = !nodes.length && edges.length > 0
-    const kit = (canvas.config.styles || []).find(kit => nodes.length ? nodes.every(node => kit.types.includes(node.type)) : kit.groups.some(group => group.key === 'stroke'))
+    const kits = canvas.config.styles || []
+    const kit = kits.find(kit => nodes.length ? nodes.every(node => kit.types.includes(node.type)) : kit.groups.some(group => group.key === 'stroke')) ||
+      (nodes.length && nodes.every(node => ['shape', 'shape-line', 'code'].includes(node.type)) ? {groups: [...new Map(kits.flatMap(kit => kit.groups).filter(group => group.kind !== 'action').map(group => [group.key, group])).values()]} : null)
     const styles = nodes.map(node => {
       const shape = node.el.querySelector('[data-hakushi-style]')
       const style = parse(shape?.dataset.hakushiStyle)
@@ -50,6 +52,10 @@ export function mountStyleInspector(canvas) {
         return Object.fromEntries([...keys.map(key => [key, style[key] ?? defaults[key]]), ['font', node.el.querySelector('.drawing-typography[data-drawing-font]')?.dataset.drawingFont || workspace?.dataset.drawingFont || 'sans']])
       }
       if (node.type === 'shape-line') return {stroke: style.stroke ?? 'ink', width: style.width ?? 2, dash: style.dash ?? false, arrow: style.arrow ?? 'end'}
+      if (node.type === 'code') {
+        const code = node.el.querySelector('[data-code-node]')
+        return {fill: style.fill ?? 'none', stroke: style.stroke ?? 'ink', width: style.width ?? 2, dash: style.dash ?? false, radius: style.radius ?? 0, size: code?.dataset.codeSize || style.size || 'm'}
+      }
       return style
     })
     const metadata = parse(canvas.root.dataset.connectorStyles)
@@ -61,7 +67,7 @@ export function mountStyleInspector(canvas) {
     const groups = (kit?.groups || []).filter(group => connector ? ['stroke', 'width', 'dash'].includes(group.key) : group.kind === 'action' ? nodes.length === 1 : values.length && values.every(style => Object.hasOwn(style, group.key)))
     const order = ['fill', 'stroke', 'width', 'dash', 'radius', 'arrow', 'font', 'size', 'align']
     groups.sort((a, b) => (order.indexOf(a.key) < 0 ? order.length : order.indexOf(a.key)) - (order.indexOf(b.key) < 0 ? order.length : order.indexOf(b.key)))
-    const blocked = canvas.config.readonly ? 'This canvas is read-only.' : canvas.cropping ? 'Finish cropping before changing styles.' : canvas.tool ? 'Finish the active drawing tool to change selection styles.' : nodes.some(node => node.locked) ? 'Unlock the selected objects before changing styles.' : ''
+    const blocked = canvas.config.readonly ? 'This canvas is read-only.' : workspace?.codeDraft ? 'Finish or cancel the code draft before changing styles.' : canvas.cropping ? 'Finish cropping before changing styles.' : canvas.tool ? 'Finish the active drawing tool to change selection styles.' : nodes.some(node => node.locked) ? 'Unlock the selected objects before changing styles.' : ''
     return {nodes, edges, connector, values, groups, blocked, id: encode([[...canvas.selected].sort(), [...canvas.selectedEdges].sort()])}
   }
 
@@ -213,8 +219,8 @@ export function mountStyleInspector(canvas) {
       build(state)
     }
     const node = state.nodes[0]
-    const kind = node?.type === 'shape-line' ? 'line' : node?.el.querySelector('[data-hakushi-style]')?.dataset.kind
-    const names = {rect: 'Rectangle', text: 'Text', line: 'Line', ellipse: 'Ellipse', diamond: 'Diamond', triangle: 'Triangle'}
+    const kind = node?.type === 'code' ? 'code' : node?.type === 'shape-line' ? 'line' : node?.el.querySelector('[data-hakushi-style]')?.dataset.kind
+    const names = {code: 'Code block', rect: 'Rectangle', text: 'Text', line: 'Line', ellipse: 'Ellipse', diamond: 'Diamond', triangle: 'Triangle'}
     title.textContent = state.nodes.length > 1 ? `${state.nodes.length} objects` : node ? names[kind] || 'Object' : state.edges.length > 1 ? `${state.edges.length} connections` : state.edges.length ? 'Connection' : 'Style'
     message.textContent = state.blocked || (!state.nodes.length && !state.edges.length ? 'Select an object or connection to inspect its style.' : !state.groups.length ? 'No shared style controls for this selection.' : '')
     if (state.nodes.length && state.edges.length) message.textContent += `${message.textContent ? ' ' : ''}Only objects will change; connections remain unchanged.`

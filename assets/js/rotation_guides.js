@@ -1,7 +1,7 @@
 // Hakushi rotates the rendered shape, but mounts selection controls on its
 // unrotated authored box. Keep those native controls in the same local frame.
 export function mountRotationGuides(canvas) {
-  const rotationElement = node => node.type === "shape" && node.el.querySelector("[data-hakushi-rotate]")
+  const rotationElement = node => ["shape", "code"].includes(node.type) && node.el.querySelector("[data-hakushi-rotate]")
   const rotationOf = element => parseFloat(getComputedStyle(element).getPropertyValue("--hakushi-rotation")) || 0
   const setStyle = (element, property, value) => {
     if (element.style.getPropertyValue(property) !== value) element.style.setProperty(property, value)

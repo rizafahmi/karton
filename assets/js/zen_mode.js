@@ -1,4 +1,4 @@
-const editors = '.hakushi-text-editor, .hakushi-edge-input, .drawing-thought-input'
+const editors = '.hakushi-text-editor, .hakushi-edge-input, .drawing-thought-input, .drawing-code-input'
 const fields = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]'
 const dialogs = 'dialog[open], [role="dialog"][aria-modal="true"]'
 const hiddenChrome = '.document-identity, #save-file, #file-menu, #style-toggle, .style-inspector, .drawing-dock, .hakushi-controls, .hakushi-paper-menu, .hakushi-layout-menu, .zoom-popover, .hakushi-credit, .agentrouter-credit'

@@ -30,17 +30,26 @@ safety boundaries:
    the SHA-256 revision of the last-read bytes, and atomically rename over the
    target. Browser-handle saves verify the file's SHA-256 digest before and
    after writing to the exclusive stream.
-4. **Strict version-1 decoding:** Untrusted or malformed JSON files are validated
-   before replacing the active canvas graph. Invalid schemas, unsupported node
-   types, duplicate IDs, dangling edges, and oversized text fields (>2,000
-   Unicode characters) are rejected without modifying the open document or disk
-   source.
+4. **Strict version-1/version-2 decoding:** Untrusted or malformed JSON files are
+   validated before replacing the active canvas graph. Invalid schemas,
+   unsupported node types, duplicate IDs, dangling edges, and oversized ordinary
+   text fields (>2,000 graphemes) are rejected without modifying the open document
+   or disk source. Only v2 accepts code nodes; v1 is never silently upgraded.
 5. **Embedded text isolation:** Attachments contain validated UTF-8 snapshots,
    never paths or live links. Previews render literal text rather than HTML;
    downloads use `text/plain`. Per-file and aggregate content limits include
-   duplicated cards. Embedded content is saved in the canvas JSON and may appear
-   in development crash reproduction bundles; review those as sensitive document
-   copies before sharing them.
+   duplicated cards. Embedded attachments and code source are saved in the canvas
+   JSON and may appear in development crash reproduction bundles; review those
+   bundles as sensitive document copies before sharing them.
+6. **Literal code isolation:** Code source is validated UTF-8, preserving BOM,
+   TAB and mixed CR/LF line endings; other C0/C1 controls and DEL are rejected.
+   Limits are 256 KiB per source and 1 MiB across code nodes, counting duplicates,
+   independently of attachment quotas. Code is never evaluated, rendered as
+   markup, or used to load remote resources. Highlighting and language detection
+   run in a local worker using npm dependencies locked in
+   `assets/package-lock.json`; unsupported languages or unavailable highlighting
+   retain literal plain text. Tokens and themes are view-only, not canonical
+   source or saved metadata.
 
 ## In-scope security issues
 

@@ -11,33 +11,67 @@ it is not a hosted multi-user service. Keep this trust boundary explicit.
 Databases, accounts, cloud storage, and multiplayer are outside the current scope
 unless requested, not permanently prohibited directions.
 
-An independent native Mac editor is planned, sharing version-1 JSON rather than
-the web runtime. [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof,
-and unresolved technology/product decisions. No native app is implemented yet.
+An independent native Mac editor is planned, sharing JSON contracts rather than
+the web runtime and preserving existing version-1 files. The web app supports
+v1 and v2; new documents use v2 with an explicit code-node type.
+[TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
+native technology/product decisions. No native app is implemented yet.
 
 ## Repository organization
 
 Keep the working Phoenix app and its Mix commands at the repository root.
 [`macos/`](macos/) owns the future independent native project;
-[`shared/fixtures/v1/`](shared/fixtures/v1/) owns runtime-independent JSON
+[`shared/fixtures/`](shared/fixtures/) owns runtime-independent v1/v2 JSON
 contract fixtures. Web tests consume the shared fixtures today; native checks
 must use the same corpus rather than fork it. Copy fixtures to temporary files
 before editing/saving. [`examples/`](examples/) remains editable user content.
 Do not introduce a shared runtime or root build orchestrator for the native app.
-Native technology and product scope remain decisions in TASKS.md; repository
-preparation is not native implementation or native compatibility proof.
+Native technology and product scope remain decisions in TASKS.md.
+[`macos/SPEC.md`](macos/SPEC.md) contains the implementation design draft; its
+recommendations are not approvals or native compatibility proof. Keep status and
+scope aligned with TASKS.md when implementing or revising the spec.
+[`shared/CODE_SNIPPETS.md`](shared/CODE_SNIPPETS.md) owns the supported shared
+snippet schema, literal-source policy and explicit version-copy migration.
+Existing v1 sources remain v1; conversion downloads a separate v2 snapshot and
+requires explicit Open. Do not implement the superseded shape-metadata encoding,
+silently upgrade/downgrade, or infer native implementation from web support.
 
 ## Architecture map
 
-- [Document](lib/elixir_canvas/document.ex) owns version-1 JSON validation,
-  metadata retention, source identity, and server-file persistence.
+- [Document](lib/elixir_canvas/document.ex) owns v1/v2 JSON validation,
+  metadata retention, source identity, version-copy preparation and server-file persistence.
 - [Attachment](lib/elixir_canvas/attachment.ex) validates embedded UTF-8 snapshots
   in shape metadata and duplicate-inclusive byte limits. Ordinary Hakushi graph
   history owns import, removal and duplication; content stays outside captions.
+- [CodeSnippet](lib/elixir_canvas/code_snippet.ex) validates literal UTF-8 source
+  and duplicate-inclusive code quotas, independently of attachment budgets.
+  [DrawingCode](lib/elixir_canvas_web/drawing_code.ex) owns the v2 code kit.
+  [code_snippets.js](assets/js/code_snippets.js) owns generation-scoped source
+  drafts, literal clipboard, fit and clipped-export checks; [literal_source.js](assets/js/literal_source.js)
+  preserves line endings through textarea edits. [code_highlighter_worker.js](assets/js/code_highlighter_worker.js)
+  runs local Shiki tokenization and conservative Highlight.js detection.
+  Cache by stable DOM/source stamps, not native node-object identity: DOM
+  rereads replace node objects and renderer mutations must not feed themselves.
+  Code tool activation must visibly explain v1 restrictions before arming; expose
+  the existing document conversion/New workflow, never auto-upgrade. Native click
+  placement emits zero-sized geometry: give the local draft usable dimensions,
+  while preserving dragged geometry and adding no node/history until Finish.
+  Treat focus moves to editor actions/options as internal via `relatedTarget`;
+  focus pointer-activated controls and checkbox labels before textarea blur.
+  A transient body-focus interval must not commit before Cancel/Copy/options.
+  Preserve checkbox-label focus on pointerdown without cancelling click/Space:
+  the label's default focus reset to body must not prematurely commit the draft.
+  Fit is an ephemeral unchecked checkbox, not a second finish action or metadata.
+  Its pending choice must participate in preliminary file guards and commit
+  source/geometry atomically only when the draft is finished.
+  The displayed source body uses native node dragging; never blanket it with
+  `data-hakushi-nodrag`. Keep controls/editor excluded, protect actual scrollbar
+  tracks, and route overflow wheel scrolling without consuming native zoom or
+  Space-pan gestures. Movement remains Hakushi history, not a parallel drag stack.
 - [FlightRecorder](lib/elixir_canvas/flight_recorder.ex) writes rotating development
   logs (`tmp/logs/dev.log`), a crash index (`tmp/logs/crashes.jsonl`), and
   self-contained server/client crash reproduction bundles (`tmp/crashes/crash-*.json`)
-  containing git SHA, event parameters, stacktraces, and the in-memory version-1 graph.
+  containing git SHA, event parameters, stacktraces, and the in-memory versioned graph.
   [`mix canvas.doctor`](lib/mix/tasks/canvas.doctor.ex) (`--json`, `--strict`,
   `--clear-crashes`) inspects build/asset freshness, example corpus integrity,
   recent log errors, and crash bundles.
@@ -113,9 +147,16 @@ preparation is not native implementation or native compatibility proof.
 
 ## Document and data safety
 
-Preserve compatibility with existing version-1 canvas files. Discuss format
-changes before implementing them. The canonical schema and round-trip rules are
-in [README: Document format](README.md#document-format-version-1).
+Preserve compatibility with existing version-1 canvas files and source versions
+on ordinary saves/copies. Discuss further format changes before implementation.
+Canonical rules are in [README: v1](README.md#document-format-version-1),
+[README: v2](README.md#document-format-version-2) and the shared snippet contract.
+Code source preserves BOM, tabs, Unicode, CR/LF/mixed line endings and unknown
+metadata. No execution, formatting-on-save, tokens/themes in JSON, or attachment
+on code nodes. Enforce byte limits on source/type/add boundaries, not geometry.
+Source and optional language/box edits use native history atomically; locked
+source edits refuse server-side. Pending invalid/composing code drafts veto file
+and image operations, remain editable and never silently save the previous graph.
 
 Text attachments are embedded copies, never filesystem links or browser handles.
 Preserve UTF-8 content, BOM, line endings and unknown attachment metadata; enforce
@@ -123,7 +164,7 @@ per-file/aggregate limits on decode, save and node additions/data/type updates,
 including paste/duplicate/undo. Avoid rescanning content on ordinary geometry
 changes. Pending imports participate in file flushes and unload warnings; stale
 generations cannot add or preview content. Development crash bundles can contain
-the complete attachments as document data.
+the complete attachments and code source as document data.
 
 Preserve metadata on retained objects, authored geometry and corner choices,
 portable named colors, and generic typography roles. Resolve theme colors and
@@ -151,8 +192,8 @@ errors when acknowledging a copy; generation/token checks and busy guards still
 apply. Report download initiation only, not confirmed disk persistence; browser
 download-manager cancellation/failure is not observable.
 
-`Document.new/0` returns a blank `:untitled` document without a path or revision.
-New canvas flushes drafts/text, then refuses unsaved work or a busy file operation;
+`Document.new/0` returns a blank v2 `:untitled` document without a path or revision.
+New canvas flushes drafts/text/code, then refuses unsaved work or a busy file operation;
 it remounts a generation-scoped board and returns keyboard focus after readiness.
 Graph notifications, selected-file callbacks and save acknowledgements are
 generation-scoped. The first successful native Save promotes only the saved
@@ -164,7 +205,7 @@ handle. Preserve native browser New shortcuts; no discard flow is implied.
 
 `Document.normalize_filename/1` validates authored names, and `Document.rename/2`
 changes only `filename` for pathless, revisionless `:untitled` / `:save_copy`
-documents. Names are ephemeral session identity, never version-1 JSON metadata
+documents. Names are ephemeral session identity, never document JSON metadata
 or a filesystem rename; dirty/history/generation remain unchanged. Rename submits
 a generation string and refuses pending saves so acknowledgements cannot restore
 an older name. First Save snapshots the current suggested name, but a chosen
@@ -208,11 +249,11 @@ named colors, and semantic font roles, not pixel-identical rendering or a runtim
 
 ## Setup and verification
 
-[README: Run](README.md#run) is canonical for the current web app's prerequisites and setup;
-no npm installation is required. [README: Checks](README.md#checks) lists the
-CLI verification commands and browser-check limits. Mix aliases are defined in
-[mix.exs](mix.exs): `mix check` runs the full read-only verification suite, whereas
-`mix precommit` formats files and can change the lockfile.
+[README: Run](README.md#run) is canonical for web prerequisites, including Node.js
+22+ and npm. `mix setup` installs locked npm dependencies; `mix assets.deps`
+refreshes them after lockfile changes. [README: Checks](README.md#checks) lists
+CLI verification and browser limits. [mix.exs](mix.exs) defines aliases:
+`mix check` is read-only verification; `mix precommit` formats and can change locks.
 
 The native milestone's setup and verification instructions must be supplied with
 implementation; current Mix/browser checks are not native application proof.

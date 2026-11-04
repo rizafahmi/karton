@@ -30,3 +30,12 @@ Third-party font notices:
   Font License 1.1; see `priv/static/fonts/neo-acid/Unbounded-LICENSE.txt`,
   `priv/static/fonts/neo-acid/MonaSans-LICENSE.txt`, and
   `priv/static/fonts/neo-acid/MonaspaceNeon-LICENSE.txt`.
+
+Third-party code-highlighting notices:
+
+- The npm highlighting packages and bundled grammar/theme assets retain their
+  upstream licenses, including MIT, BSD-3-Clause and Apache-2.0 terms.
+  Full dependency and selected grammar/theme notices are distributed in
+  `priv/static/licenses/code-highlighting.txt` (served at
+  `/licenses/code-highlighting.txt`). The project's MIT license does not
+  replace those upstream terms.

@@ -1,6 +1,6 @@
 defmodule ElixirCanvas.Document do
   @moduledoc """
-  A version-1 JSON canvas opened from a server path or a browser-selected file.
+  A version-1 or version-2 JSON canvas opened from a path or browser-selected file.
 
   Server paths retain their last-read disk revision; selected files remain in memory
   with a filename and client persistence capability, never an inferred server path.
@@ -13,7 +13,7 @@ defmodule ElixirCanvas.Document do
   Per-file and graph byte limits apply on open and before any save is prepared.
   """
 
-  alias ElixirCanvas.Attachment
+  alias ElixirCanvas.{Attachment, CodeSnippet}
   alias Hakushi.Graph
 
   defstruct [:path, :filename, :revision, :graph, persistence: :server_file, source: %{}]
@@ -27,7 +27,7 @@ defmodule ElixirCanvas.Document do
       filename: "untitled.json",
       persistence: :untitled,
       graph: Graph.new(),
-      source: %{"appearance" => %{"font" => "sans"}}
+      source: %{"version" => 2, "appearance" => %{"font" => "sans"}}
     }
   end
 
@@ -130,13 +130,24 @@ defmodule ElixirCanvas.Document do
       {:error, "Invalid canvas: #{Exception.message(error)}"}
   end
 
+  @doc "Returns the retained format version; documents without a version are legacy v1."
+  def format_version(%__MODULE__{source: source}), do: Map.get(source, "version", 1)
+
+  @doc "Validates a candidate graph against its retained format without serializing source."
+  def validate_graph(%__MODULE__{} = document, %Graph{} = graph) do
+    graph
+    |> Graph.dump()
+    |> Map.put("version", format_version(document))
+    |> validate()
+  end
+
   def encode(%__MODULE__{source: source}, %Graph{} = graph) do
     dumped = Graph.dump(graph)
 
     source
     |> Map.drop(~w(nodes edges paper))
     |> Map.merge(dumped)
-    |> Map.put("version", 1)
+    |> Map.put("version", format_version(%__MODULE__{source: source}))
     |> Map.put("nodes", preserve_fields(source["nodes"], dumped["nodes"], @node_fields))
     |> Map.put("edges", preserve_fields(source["edges"], dumped["edges"], @edge_fields))
     |> preserve_paper(source["paper"])
@@ -148,12 +159,25 @@ defmodule ElixirCanvas.Document do
   def drawing_font(%__MODULE__{}), do: "sans"
 
   def prepare_save(%__MODULE__{} = document, %Graph{} = graph) do
-    with :ok <- Attachment.validate_graph(graph) do
+    with :ok <- Attachment.validate_graph(graph),
+         :ok <- CodeSnippet.validate_graph(graph) do
       bytes = encode(document, graph)
 
       with {:ok, _graph, source} <- decode(bytes) do
         {:ok, bytes, %{document | graph: graph, revision: digest(bytes), source: source}}
       end
+    end
+  end
+
+  @doc "Captures a separate v2 copy of a v1 canvas without adopting or mutating it."
+  def prepare_version_copy(%__MODULE__{} = document, %Graph{} = graph) do
+    if format_version(document) == 1 do
+      with {:ok, _bytes, snapshot} <- prepare_save(document, graph) do
+        converted = %{snapshot | source: Map.put(snapshot.source, "version", 2)}
+        {:ok, encode(converted, graph)}
+      end
+    else
+      {:error, "Only version-1 canvases need a separate version-2 copy."}
     end
   end
 
@@ -197,7 +221,7 @@ defmodule ElixirCanvas.Document do
       path: path,
       filename: Path.basename(path),
       graph: graph,
-      source: %{"appearance" => %{"font" => "sans"}}
+      source: %{"version" => 2, "appearance" => %{"font" => "sans"}}
     }
 
     bytes = encode(document, graph)
@@ -271,22 +295,23 @@ defmodule ElixirCanvas.Document do
 
   defp preserve_paper(source, _original), do: source
 
-  defp validate(%{"version" => version}) when version !== 1,
-    do: {:error, "Unsupported canvas version. This app reads version 1 only."}
+  defp validate(%{"version" => version}) when version !== 1 and version !== 2,
+    do: {:error, "Unsupported canvas version. This app reads versions 1 and 2."}
 
-  defp validate(%{"version" => 1, "nodes" => nodes, "edges" => edges} = source)
-       when is_list(nodes) and is_list(edges) do
-    with :ok <- validate_each(nodes, &validate_node/1),
+  defp validate(%{"version" => version, "nodes" => nodes, "edges" => edges} = source)
+       when version in [1, 2] and is_list(nodes) and is_list(edges) do
+    with :ok <- validate_each(nodes, &validate_node(&1, version)),
          :ok <- validate_each(edges, &validate_edge/1),
          :ok <- validate_paper(source["paper"]),
          :ok <- validate_appearance(Map.fetch(source, "appearance")),
-         :ok <- Attachment.validate_graph(nodes) do
+         :ok <- Attachment.validate_graph(nodes),
+         :ok <- CodeSnippet.validate_graph(nodes) do
       :ok
     end
   end
 
   defp validate(_source),
-    do: {:error, "A canvas must be an object with version: 1, nodes: [], and edges: []."}
+    do: {:error, "A canvas must be an object with a supported version, nodes: [], and edges: []."}
 
   defp validate_each(objects, validator) do
     Enum.reduce_while(objects, :ok, fn object, :ok ->
@@ -297,9 +322,13 @@ defmodule ElixirCanvas.Document do
     end)
   end
 
-  defp validate_node(%{"id" => id, "type" => type, "data" => data} = node)
-       when is_binary(id) and id != "" and type in ["shape", "shape-line"] and is_map(data) do
+  defp validate_node(%{"id" => id, "type" => type, "data" => data} = node, version)
+       when is_binary(id) and id != "" and type in ["shape", "shape-line", "code"] and
+              is_map(data) do
     cond do
+      type == "code" and version != 2 ->
+        {:error, "Code nodes require a version-2 canvas. Download and open a separate v2 copy."}
+
       not Enum.all?(~w(x y width height), &is_number(node[&1])) ->
         {:error, "Node #{id} needs numeric x, y, width, and height."}
 
@@ -309,6 +338,9 @@ defmodule ElixirCanvas.Document do
       not is_boolean(Map.get(node, "locked", false)) or node["parent"] != nil ->
         {:error, "Node #{id} has an invalid lock or parent. Groups are not supported yet."}
 
+      type == "code" ->
+        validate_style(id, data)
+
       type == "shape" ->
         validate_shape(id, data)
 
@@ -317,9 +349,8 @@ defmodule ElixirCanvas.Document do
     end
   end
 
-  defp validate_node(_node),
-    do:
-      {:error, "Each node needs a stable string id, type shape or shape-line, and a data object."}
+  defp validate_node(_node, _version),
+    do: {:error, "Each node needs a stable string id, a supported type, and a data object."}
 
   defp validate_shape(id, data) do
     text = Map.get(data, "text", "")

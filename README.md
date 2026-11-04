@@ -6,11 +6,17 @@ and Hakushi. The JSON file is the document, not an export from a database.
 ## Planned native macOS editor
 
 The final milestone, after the remaining non-native work, is an independent native
-Mac editor sharing the version-1 JSON document contract, with Apple-native UI and
+Mac editor preserving version-1 JSON compatibility, with Apple-native UI and
 transparent high-resolution PNG export for Keynote. It is not implemented yet and
 will not require the web app's runtime.
 See [TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) for scope,
 acceptance proof, and open technology/product decisions.
+The [native implementation specification](macos/SPEC.md) separates approved product
+direction from proposed interactions, autosave/recovery policy, compatibility,
+architecture, and acceptance scenarios. It is a design draft, not a native build.
+The [shared code-snippet contract](shared/CODE_SNIPPETS.md) defines the supported
+web version-2 format with an explicit code-node type. New documents use v2;
+existing v1 documents retain their version. Native support is not implemented.
 
 ## Repository layout
 
@@ -22,7 +28,7 @@ continue to run from here.
 | --- | --- |
 | `mix.exs`, `lib/`, `config/`, `assets/`, `priv/`, `test/` | Existing Phoenix/LiveView web app and its tests |
 | [`macos/`](macos/) | Native macOS project location; no application or build configuration yet |
-| [`shared/fixtures/v1/`](shared/fixtures/v1/) | Runtime-independent version-1 JSON contract fixtures consumed by web tests and intended for future native checks |
+| [`shared/fixtures/`](shared/fixtures/) | Runtime-independent v1/v2 JSON contract fixtures consumed by web tests and intended for future native checks |
 | [`examples/`](examples/) | Editable user-facing boards, not disposable test fixtures |
 | `README.md`, `TASKS.md`, `DESIGN.md`, `CONTRIBUTING.md`, `SECURITY.md` | Shared contract, plans, and project guidance; web visual rules remain web-only |
 
@@ -37,9 +43,10 @@ the native app. Native setup and verification will accompany implementation;
 
 ## Run
 
-Requires Elixir 1.18+ and a compatible Erlang/OTP, available through Nix. The
-application has no database, account service, or npm installation step. Mix
-fetches the dependencies and the esbuild binary used to bundle local assets.
+Requires Elixir 1.18+, a compatible Erlang/OTP, and Node.js 22+ with npm.
+The application has no database or account service. `mix setup` fetches Hex
+dependencies, installs the locked npm highlighting dependencies, and builds
+local assets with esbuild. After changing the npm lockfile, run `mix assets.deps`.
 
 ```sh
 mix setup
@@ -53,7 +60,7 @@ Saving it edits that actual example file. To start with a different file:
 CANVAS_FILE=/absolute/path/to/ideas.json mix phx.server
 ```
 
-Use **New canvas** in the document menu to start an in-memory `untitled.json`.
+Use **New canvas** in the document menu to start an in-memory version-2 `untitled.json`.
 It creates no file and never reuses the previous server path or browser handle.
 The blank canvas starts with Normal (`sans`) text, empty undo/redo, and **Not saved**.
 Before making edits, you can choose New again or Open without saving.
@@ -114,11 +121,11 @@ exists and refuses to replace an existing file. Paths can be absolute or relativ
 to the server's working directory. These are server paths, not browser-selected
 file locations.
 
-**Save a copy** in the document menu downloads a separate version-1 JSON snapshot
-from any open canvas, including server-path and browser-handle files. It is also
+**Save a copy** in the document menu downloads a separate JSON snapshot retaining
+the document's format version from any open canvas, including server-path and browser-handle files. It is also
 available in source-change warnings and file errors. It suggests a distinct name
 such as `ideas-copy.json`; the browser controls the final download name/location.
-The action commits valid pending text, geometry, and thought drafts before
+The action commits valid pending text, geometry, thought and code drafts before
 serializing; invalid drafts block it without losing their text.
 Geometry previews remain pending while entering the document menu or focusing a
 copy control, so copying can commit them. Escape cancels the active preview/draft
@@ -173,10 +180,11 @@ theme from portable names; the document retains its authored geometry and style 
   JSON copy otherwise. Image Download becomes icon-only on narrow screens.
 - Drawing tools and **Style** share the bottom dock, separated by a divider.
   **Line** (`L`) has a plain segment icon; **Arrow** (`A`) keeps its arrow icon.
+  **Code** uses a `</>` icon, distinct from Text's `T`.
   A quiet **AgentRouter** credit link sits at the bottom right.
   The floating inspector opens at the upper right below the save state, without
   reserving a sidebar or covering the dock. Style becomes icon-only on the
-  smallest screens; all eight tool buttons remain visible at 320px.
+  smallest screens; the drawing tools include a version-2 **Code** block tool.
 - Undo and redo stay at the top of the left rail. The live zoom percentage below
   them opens a popover with zoom out/in, Fit to screen, and Reset to 100%.
   Repeated adjustments keep it open; Escape or an outside click closes it.
@@ -206,7 +214,7 @@ theme from portable names; the document retains its authored geometry and style 
   or means that the original was saved.
 
 New files use the generic `sans` typography role. **Default text style** selects
-the document default: **Normal**, **Title**, **Code**, or **Handwritten**. In
+the document default: **Normal**, **Title**, **Mono**, or **Handwritten**. In
 **Style**, the **Text style** control under **Text** shows the selected shapes’
 effective role, including inheritance, and lets them choose an explicit role.
 Opening the inspector never authors defaults. Save retains generic roles, not font-family names.
@@ -268,15 +276,15 @@ Font License notices are included in `priv/static/fonts/neo-acid`.
 - Use **Bring to front** or **Send to back** in the left rail to reorder selected
   drawing objects. Selected objects keep their relative order, as do the other
   objects; locked objects are not reordered. Only stacking changes, using the
-  version-1 `nodes` array's back-to-front order, without changing geometry,
+  `nodes` array's back-to-front order, without changing geometry,
   appearance, metadata, or connections. Empty selections and selections already
   at the requested extreme leave dirty state and history unchanged.
 - Each effective stacking command is one undoable action in the same history as
   ordinary edits; redo restores its order. Hakushi supplies ordinary undo/redo,
   with the local drawing adapter adding stacking entries. Reload resets history.
 - Save explicitly with **Save** or **Save copy**, Command-S, or Control-S. Saving
-  commits an active shape text editor and waits for Hakushi's resulting changes,
-  including automatic text-box growth. Unsaved changes live in memory, not in a
+  commits active shape text and code editors and waits for their resulting changes,
+  including automatic shape text-box growth. Unsaved changes live in memory, not in a
   database. A browser write acknowledgement only clears edits included in its
   serialized snapshot; edits made while writing remain dirty.
 - **Save a copy** preserves a separate snapshot without acknowledging a save to
@@ -308,6 +316,63 @@ Server paths refuse symbolic links. Server saves do not preserve extended
 attributes or guarantee parent-directory power-loss durability; browser file
 permissions and filesystem write behavior are controlled by the browser.
 
+### Code blocks
+
+New canvases use v2 and support independent **Code** objects, not code-looking
+shape captions. Select the drawing dock's **Code** tool, then **click the canvas**
+for a default-sized block or **drag a rectangle** to choose its size. The source
+editor opens before any object is added: type/paste source, then **Finish**.
+**Cancel** adds nothing. The document menu's **Code** command opens a draft
+immediately without a placement gesture.
+
+Code requires format v2. On a v1 canvas (including the welcome example), clicking
+the Code icon shows a visible explanation and **Document menu** action instead
+of arming a tool that cannot create anything. Choose **Download version 2 copy**,
+then explicitly **Open** the downloaded file, or use **New canvas** for a blank
+v2 document. Conversion does not replace the original source or clear unsaved
+edits/conflicts. The browser controls the final download destination; initiation
+is not proof of disk persistence.
+
+With **Select** active, drag the displayed code body to move the block, just like
+other objects. Buttons and scrollbar tracks do not start a drag. Wheel/trackpad
+scrolls overflowing source; Command/Ctrl-wheel still zooms the canvas and holding
+Space still pans. Use Copy source or the source editor to work with literal text.
+
+Double-click a code block, press Enter/F2 on it, or use its **Edit** button.
+Source stays literal: BOM, tabs, Unicode and original line endings survive
+untouched regions, copy, history and JSON saves. Enter inserts a newline;
+Tab/Shift+Tab indents/unindents two spaces. Escape or **Finish** commits;
+**Cancel** discards the draft. Command/Ctrl+Z edits the draft before canvas history.
+Command/Ctrl+Enter moves focus to language/actions, providing a keyboard route
+out of Tab indentation even when invalid source prevents finishing.
+Composition is never submitted mid-IME. Source is never executed or rendered as
+HTML/Markdown.
+
+Choose **Auto detect**, **Plain text**, or Elixir, Erlang, JavaScript, TypeScript,
+JSON, HTML, CSS, Shell, Python, SQL, Swift or Rust. Shiki colors source locally in
+a worker; Highlight.js supplies conservative Auto detection. Ambiguous/unsupported
+languages and unavailable highlighting remain readable plain text. Only an
+explicit language choice is saved, never detection results or colored tokens.
+Code uses Mono independently of the document's shape-text default.
+
+**Copy code** is a separate utility and copies the literal draft without committing.
+The editor's **Fit to content** checkbox is optional and starts unchecked each
+time: checking it changes nothing until Finish (or another valid draft flush).
+Leave it unchecked to retain the authored box. **Cancel** discards both source
+and the fit choice; the primary **Finish** action applies source and any requested
+fit together in one undoable edit. The block's **Fit to content** button remains
+an immediate, explicit geometry action. Editing never silently resizes the box.
+Overflow scrolls in the editor/canvas, but image export refuses clipped source:
+Fit every clipped block before Download. Editor controls and overflow/status
+badges are hidden from image exports. Save, copies and image export flush valid
+drafts first; invalid drafts remain visible and block the operation.
+
+Each source is limited to 256 KiB of UTF-8, with 1 MiB across all code objects,
+including duplicates. These budgets are separate from text-attachment budgets.
+Empty code is valid; invalid Unicode and binary controls other than Tab/CR/LF
+are refused without truncation. See the [shared contract](shared/CODE_SNIPPETS.md)
+for exact schema, language identifiers and compatibility rules.
+
 ### Text attachments
 
 Choose **Attach text file…** in the document menu, or drop one file onto the
@@ -334,7 +399,7 @@ save rather than omitting the requested file.
 ### Zen mode
 
 Choose **Zen mode** in the document menu, or press **Shift+Z** with the canvas or
-an object focused. The drawing dock stays centered with all eight tools; file,
+an object focused. The drawing dock stays centered with its drawing tools; file,
 Style, paper/export, arrangement/zoom controls and credit are hidden. A small
 **Exit Zen** button remains at the upper right, with existing save/draft status
 at the upper left. File errors, conflicts and recovery actions are still visible.
@@ -357,10 +422,10 @@ fullscreen. Reloading the page starts in the normal view.
 ### Keyboard editing
 
 The document menu contains a compact **Keyboard shortcuts (?)** disclosure; **?**
-from the focused canvas opens it. Editing stays directly on the canvas—there is
-no separate properties or replacement editor panel. Tab/Shift+Tab, Enter/Space,
-and native select navigation reach the existing controls. The file menu retains
-New canvas, native open, Attach text file, server open/create forms, reload, default font and project links.
+from the focused canvas opens it. Shape and connection editing stays on the canvas;
+code uses a bounded source editor. Tab/Shift+Tab, Enter/Space and native select
+navigation reach controls. The file menu retains New canvas, native open, Code,
+Attach text file, server open/create, reload, default font and project links.
 Style remains authoritative for every applicable appearance choice, including
 standalone arrowheads; Paper and arrangement retain their native menus.
 
@@ -373,6 +438,7 @@ select, contenteditable editor or toolbar button. IME composition is left alone.
 | Place the active drawing tool at viewport center | Enter |
 | Edit ordinary shape text / connection label | Enter or F2; Escape cancels; blur commits |
 | Preview embedded attachment source | Double-click; Enter/F2 on focused card; Escape closes |
+| Edit code source | Double-click; Enter/F2 on focused code; Escape or Finish commits; Cancel discards |
 | Visit objects then connections without changing selection | Tab / Shift+Tab |
 | Toggle focused object or connection / select all objects | Tap Space / Command/Ctrl+A |
 | Select nearest object | Alt+arrows |
@@ -390,9 +456,9 @@ select, contenteditable editor or toolbar button. IME composition is left alone.
 | Canvas zoom | + / −; Command/Ctrl+ + / − |
 
 **Save** (Command/Ctrl+S or the Save button) works throughout the workspace and
-commits active shape text, connection labels, geometry previews and placed
-adjacent-thought drafts before awaiting server patches. An invalid thought draft
-blocks saving rather than writing the old graph and claiming success.
+commits active shape text, code source, connection labels, geometry previews and
+placed adjacent-thought drafts before awaiting server patches. Invalid drafts
+block saving rather than writing the old graph and claiming success.
 It retains the source-specific Save/Save copy contract above. **New canvas** is a
 menu action, not a browser New/Reload/Find shortcut takeover; there is no Save As command.
 Keyboard activation of a drawing-tool button focuses the canvas for placement.
@@ -669,6 +735,29 @@ content. Documents have no external assets, hidden storage, or database
 dependencies. Selection, viewport, and undo history are session state and are
 not part of the file.
 
+## Document format: version 2
+
+New documents use integer `version: 2`. Version 2 retains the common node, edge,
+appearance, paper and unknown-metadata rules above, and adds nodes with
+`type: "code"`. Their `data.content` is literal UTF-8 source; optional
+`data.language` is a nonempty language identifier, with omission meaning Auto.
+Code uses rectangular geometry/handles, Mono source, shared box appearance and
+S/M/L source sizes. It does not use shape captions or attachment metadata.
+
+The [shared code-snippet contract](shared/CODE_SNIPPETS.md) specifies fields,
+limits, permitted styles and literal round-trip behavior. The
+[v2 fixture](shared/fixtures/v2/document.json) exercises mixed line endings, BOM,
+Unicode, a code connection, and unknown metadata alongside ordinary shapes.
+The [v1 fixture](shared/fixtures/v1/document.json) remains unchanged.
+
+Opening/saving a v1 document never silently upgrades it, and v1 rejects code
+nodes. **Download v2 copy** captures a v1 snapshot and changes only its root
+version to 2, without adopting the download as a source or changing the original
+baseline/history. Open the downloaded copy explicitly. There is no downgrade:
+v2 stays v2 after its last code object is removed. Ordinary Save and Save a copy
+retain the source version. Readers reject unsupported versions and node types
+rather than dropping data.
+
 ## Checks
 
 Run the full read-only verification suite:
@@ -680,9 +769,9 @@ mix check
 In development, [`ElixirCanvas.FlightRecorder`](lib/elixir_canvas/flight_recorder.ex)
 writes rotating server logs to `tmp/logs/dev.log`, a crash summary log to
 `tmp/logs/crashes.jsonl`, and self-contained crash reproduction bundles (with
-git SHA, event parameters, stacktraces, and the in-memory version-1 graph) to
+git SHA, event parameters, stacktraces, and the in-memory versioned graph) to
 `tmp/crashes/crash-*.json` for both server exceptions and uncaught browser errors.
-Bundles can contain complete embedded attachments as part of that graph; treat
+Bundles can contain complete embedded attachments and code source; treat
 them as sensitive document copies before sharing.
 Inspect build/asset freshness, example corpus validity, recent log errors, and
 recorded crash bundles with:
@@ -717,6 +806,11 @@ sources, current metadata/font snapshots, preserved baseline/conflict/history,
 invalid content, newer edits, and stale/busy callbacks. Client regressions cover
 invalid/failed draft flushes, superseded generations, concurrency, and download
 failure without a false acknowledgement.
+Code regressions cover v1/v2 isolation, exact source round-trips, byte quotas,
+source/language edits, native add/undo/redo, locked-source refusal, literal
+clipboard/editor history, stale drafts and worker results, and clipped-export
+refusal. Highlighting dependencies are pinned in `assets/package-lock.json`;
+`mix assets.build` builds both the application and local highlighting worker.
 Stacking regressions cover stable multi-selection ordering, empty/extreme no-ops,
 locked nodes, interleaved ordinary edits and undo/redo, redo preservation after
 no-ops, and temporary-file save/reload with unchanged object content and connections.

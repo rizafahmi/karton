@@ -1,6 +1,6 @@
 defmodule ElixirCanvasWeb.CanvasLive do
   @moduledoc """
-  LiveView workspace for editing local version-1 JSON canvases.
+  LiveView workspace for editing local version-1 and version-2 JSON canvases.
 
   Coordinates Hakushi graph operations, portable drawing typography and color
   roles, dirty/conflict tracking, and persistence across server file paths,
@@ -9,8 +9,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
   """
   use ElixirCanvasWeb, :live_view
 
-  alias ElixirCanvas.{Attachment, Document}
-  alias ElixirCanvasWeb.DrawingShapes
+  alias ElixirCanvas.{Attachment, CodeSnippet, Document}
+  alias ElixirCanvasWeb.{DrawingCode, DrawingShapes}
 
   @impl true
   def mount(_params, _session, socket) do
@@ -201,6 +201,40 @@ defmodule ElixirCanvasWeb.CanvasLive do
     end
   end
 
+  def handle_event("version-copy", params, socket) do
+    cond do
+      params["generation"] != socket.assigns.generation || !socket.assigns.document ->
+        {:reply, %{ok: false}, socket}
+
+      socket.assigns.pending_save ->
+        {:reply, %{ok: false}, socket}
+
+      true ->
+        prepare_version_copy(socket)
+    end
+  end
+
+  def handle_event(
+        "selected-version-copy-downloaded",
+        %{"token" => token, "generation" => generation},
+        socket
+      ) do
+    case socket.assigns.pending_save do
+      %{intent: :version_copy, token: ^token, generation: ^generation}
+      when generation == socket.assigns.generation ->
+        {:reply, %{ok: true},
+         assign(socket,
+           pending_save: nil,
+           notice_id: token,
+           notice:
+             "Version 2 copy download started; the open version 1 canvas, source, history, and unsaved status are unchanged. Choose a distinct download destination, then explicitly Open the saved copy. Disk persistence is not confirmed."
+         )}
+
+      _ ->
+        {:reply, %{ok: false}, socket}
+    end
+  end
+
   def handle_event("selected-saved", %{"token" => token, "generation" => generation}, socket) do
     case socket.assigns.pending_save do
       %{
@@ -282,8 +316,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
         socket
       ) do
     case socket.assigns.pending_save do
-      %{intent: :copy, token: ^token, generation: ^generation}
-      when generation == socket.assigns.generation ->
+      %{intent: intent, token: ^token, generation: ^generation}
+      when intent in [:copy, :version_copy] and generation == socket.assigns.generation ->
         socket = socket |> assign(pending_save: nil) |> copy_error(params["message"])
         {:reply, %{ok: false}, socket}
 
@@ -312,10 +346,10 @@ defmodule ElixirCanvasWeb.CanvasLive do
 
   def handle_event(
         "selected-error",
-        %{"generation" => generation, "action" => "save-copy", "message" => message},
+        %{"generation" => generation, "action" => action, "message" => message},
         socket
       )
-      when is_binary(message) do
+      when is_binary(message) and action in ["save-copy", "version-copy"] do
     if generation == socket.assigns.generation,
       do: {:noreply, copy_error(socket, message)},
       else: {:noreply, socket}
@@ -462,7 +496,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
      )}
   end
 
-  defp accept_change(change, %{result: graph}, generation) do
+  defp accept_change(change, %{result: graph, graph: previous}, generation, document) do
     invalid =
       change.op in [:add, :connect, :reconnect] and
         Enum.any?(change.edges, fn changed ->
@@ -470,11 +504,27 @@ defmodule ElixirCanvasWeb.CanvasLive do
           edge && edge.source == edge.target && edge.source_handle == edge.target_handle
         end)
 
-    attachment_result =
-      if (change.op in [:add, :connect] and change.nodes != []) or
-           (change.op == :update and
-              Enum.any?(change.nodes, &(Map.has_key?(&1, :data) or Map.has_key?(&1, :type)))) do
-        Attachment.validate_graph(graph)
+    rescan? =
+      (change.op in [:add, :connect] and change.nodes != []) or
+        (change.op == :update and
+           Enum.any?(change.nodes, &(Map.has_key?(&1, :data) or Map.has_key?(&1, :type))))
+
+    validation =
+      if rescan? do
+        cond do
+          Document.format_version(document) == 1 &&
+              Enum.any?(graph.nodes, fn {_id, node} -> node.type == "code" end) ->
+            {:error,
+             "Code blocks require version 2. Download a separate version 2 copy and explicitly Open it."}
+
+          Enum.any?(previous.nodes, fn {id, node} ->
+            node.type == "code" && Map.has_key?(graph.nodes, id) && graph.nodes[id].type != "code"
+          end) ->
+            {:error, "Code blocks cannot be converted to shapes; source would be lost."}
+
+          true ->
+            Document.validate_graph(document, graph)
+        end
       else
         :ok
       end
@@ -483,8 +533,8 @@ defmodule ElixirCanvasWeb.CanvasLive do
       invalid ->
         {:error, "Choose a different connection handle on this item."}
 
-      attachment_result != :ok ->
-        attachment_result
+      validation != :ok ->
+        validation
 
       true ->
         send(self(), {:canvas_changed, generation, graph})
@@ -603,6 +653,28 @@ defmodule ElixirCanvasWeb.CanvasLive do
            bytes: bytes,
            filename: copy_filename(document.filename)
          }, assign(socket, pending_save: pending, notice: nil)}
+
+      {:error, reason} ->
+        {:reply, %{ok: false}, copy_error(socket, reason)}
+    end
+  end
+
+  defp prepare_version_copy(socket) do
+    document = with_drawing_font(socket.assigns.document, socket.assigns.drawing_font)
+
+    case Document.prepare_version_copy(document, socket.assigns.graph) do
+      {:ok, bytes} ->
+        token = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
+        generation = socket.assigns.generation
+
+        filename =
+          String.replace_suffix(copy_filename(document.filename), "-copy.json", "-v2.json")
+
+        pending = %{intent: :version_copy, token: token, generation: generation}
+
+        {:reply,
+         %{ok: true, token: token, generation: generation, bytes: bytes, filename: filename},
+         assign(socket, pending_save: pending, notice: nil)}
 
       {:error, reason} ->
         {:reply, %{ok: false}, copy_error(socket, reason)}
@@ -750,6 +822,10 @@ defmodule ElixirCanvasWeb.CanvasLive do
       data-zen-mode="false"
       data-attachment-file-limit={Attachment.file_limit()}
       data-attachment-total-limit={Attachment.total_limit()}
+      data-document-version={if @document, do: Document.format_version(@document), else: ""}
+      data-code-source-limit={CodeSnippet.source_limit()}
+      data-code-total-limit={CodeSnippet.total_limit()}
+      data-code-worker={~p"/assets/js/code_highlighter_worker.js"}
     >
       <input
         id="canvas-file-input"
@@ -779,9 +855,9 @@ defmodule ElixirCanvasWeb.CanvasLive do
           module={ElixirCanvasWeb.DrawingCanvas}
           id={"board-#{@generation}"}
           graph={@graph}
-          kits={[DrawingShapes]}
+          kits={[DrawingShapes, DrawingCode]}
           rules={[loops: true]}
-          on_change={fn change, context -> accept_change(change, context, @generation) end}
+          on_change={fn change, context -> accept_change(change, context, @generation, @document) end}
           generation={@generation}
           background={:none}
           papers={true}
@@ -893,6 +969,37 @@ defmodule ElixirCanvasWeb.CanvasLive do
         phx-click-away="close-file-menu"
       >
         <h2 class="menu-heading">Your canvas, your file.</h2>
+        <p :if={@document} id="document-format" class="menu-footnote">
+          Format version {Document.format_version(@document)}
+        </p>
+        <button
+          :if={@document}
+          id="create-code"
+          type="button"
+          class="menu-button"
+          data-code-create
+          phx-click="close-file-menu"
+          disabled={Document.format_version(@document) != 2}
+          title="Add a literal code block (requires version 2)"
+        >
+          Code
+        </button>
+        <div :if={@document && Document.format_version(@document) == 1} class="menu-section">
+          <button
+            id="download-version-copy"
+            type="button"
+            class="menu-button"
+            data-version-copy
+            phx-click={JS.dispatch("canvas:version-copy", to: "#workspace")}
+            disabled={@pending_save != nil}
+            aria-describedby="version-copy-help"
+          >
+            Download version 2 copy
+          </button>
+          <p id="version-copy-help" class="menu-footnote">
+            Code blocks require version 2. Download a separate copy, choose a distinct destination, then explicitly Open it. This does not upgrade the open canvas or confirm disk persistence.
+          </p>
+        </div>
         <p :if={@document && @document.path} class="file-location" title={@document.path}>
           {@document.path}
         </p>
@@ -917,7 +1024,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
             <dt>T L A</dt>
             <dd>Text, line, arrow</dd>
             <dt>Enter / F2</dt>
-            <dd>Enter places tool; either edits text/edge label or previews an attachment</dd>
+            <dd>Enter places tool; either edits text/code/edge label or previews an attachment</dd>
             <dt>Tab / Shift+Tab</dt>
             <dd>Focus selected drawing first, then objects/edges; keep selection</dd>
             <dt>Space</dt>
@@ -961,6 +1068,12 @@ defmodule ElixirCanvasWeb.CanvasLive do
           </dl>
           <p>
             Save commits placed N previews (including blank); no direction cancels. Existing 2,000-character limit: full draft retained, Save/Open blocked. No automatic links. Escape exits editing before Style/file; fields and browser shortcuts stay native.
+          </p>
+          <p>
+            Code source: Enter inserts newline; Tab/Shift+Tab indents/unindents.
+            Mod+Enter moves to language/actions; Escape or Finish commits. Cancel discards.
+            Save/copies/image Download wait for valid source; invalid drafts stay editable.
+            Code requires v2; v1 conversion downloads a separate copy to explicitly Open.
           </p>
         </details>
         <div class="menu-section">
@@ -1116,7 +1229,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
             <select id="drawing-font" name="font" aria-describedby="drawing-font-help">
               <option value="sans" selected={@drawing_font == "sans"}>Normal</option>
               <option value="heading" selected={@drawing_font == "heading"}>Title</option>
-              <option value="mono" selected={@drawing_font == "mono"}>Code</option>
+              <option value="mono" selected={@drawing_font == "mono"}>Mono</option>
               <option value="handwritten" selected={@drawing_font == "handwritten"}>
                 Handwritten
               </option>

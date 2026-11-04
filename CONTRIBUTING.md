@@ -6,9 +6,10 @@ from a database.
 
 ## Prerequisites and setup
 
-Requires Elixir 1.18+ and a compatible Erlang/OTP (available via Nix or
-`erlef/setup-beam`). No database or `npm install` step is needed; Mix fetches
-Hex dependencies and the local `esbuild` binary.
+Requires Elixir 1.18+, compatible Erlang/OTP (available via Nix or
+`erlef/setup-beam`), and Node.js 22+ with npm. No database is needed.
+`mix setup` installs Hex dependencies, locked npm highlighting dependencies and
+the local esbuild binary. Run `mix assets.deps` after npm lockfile changes.
 
 ```sh
 mix setup
@@ -23,12 +24,12 @@ and persistence details.
 The [repository layout](README.md#repository-layout) keeps the web app at the
 root and reserves [`macos/`](macos/) for the independent native editor. Run the
 commands below from the repository root; they verify the web app only.
-Version-1 contract fixtures live in [`shared/fixtures/v1/`](shared/fixtures/v1/).
+Versioned contract fixtures live in [`shared/fixtures/`](shared/fixtures/).
 Both editors should consume these files directly in their checks, copying them
 to temporary locations before writes rather than maintaining divergent copies.
 Native setup/check commands will be supplied when the native app is implemented.
 
-- [`ElixirCanvas.Document`](lib/elixir_canvas/document.ex) — Version-1 JSON
+- [`ElixirCanvas.Document`](lib/elixir_canvas/document.ex) — Version-1/version-2 JSON
   schema validation, unknown-metadata retention, SHA-256 revision checks, and
   atomic server-file persistence.
 - [`ElixirCanvas.FlightRecorder`](lib/elixir_canvas/flight_recorder.ex) and
@@ -43,6 +44,11 @@ Native setup/check commands will be supplied when the native app is implemented.
   [`ElixirCanvasWeb.DrawingTypography`](lib/elixir_canvas_web/drawing_typography.ex) —
   Custom Hakushi shape kit with unfilled Neo-Acid defaults, standalone lines, and
   portable typography roles.
+- [`ElixirCanvas.CodeSnippet`](lib/elixir_canvas/code_snippet.ex) and
+  [`ElixirCanvasWeb.DrawingCode`](lib/elixir_canvas_web/drawing_code.ex) —
+  Literal UTF-8 code validation, independent quotas and the native Hakushi code kit.
+  [`assets/js/code_snippets.js`](assets/js/code_snippets.js) coordinates source
+  drafts, literal copy, fit, local worker highlighting and file/export flushes.
 - [`assets/js/app.js`](assets/js/app.js),
   [`assets/js/connector_styles.js`](assets/js/connector_styles.js),
   [`assets/js/direct_keyboard.js`](assets/js/direct_keyboard.js),
@@ -59,9 +65,11 @@ Native setup/check commands will be supplied when the native app is implemented.
 
 ## Core invariants
 
-1. **Preserve version-1 file compatibility.** Discuss schema changes in an issue
-   before implementing them. Retain unknown metadata on top-level objects,
-   retained nodes, edges, and paper settings.
+1. **Preserve version-1 file compatibility.** New documents use v2, while ordinary
+   saves retain the source version. Conversion downloads a separate v2 copy,
+   never silently upgrades the original. Discuss further schema changes before
+   implementing them. Retain unknown metadata on top-level objects, retained
+   nodes, edges and paper settings; preserve code source literally.
 2. **Keep document styling portable.** Files store generic typography roles
    (`sans`, `heading`, `mono`, `handwritten`) and semantic/hue color names
    (`ink`, `surface`, `accent`, `gray`, `blue`, `green`, `yellow`, `red`,
