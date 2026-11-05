@@ -168,11 +168,11 @@ func runChecks() throws {
     try require(session.document.originalData == interactionBytes, "Session movement changed original document bytes")
     print("PASS AppKit pointer move, undo/redo, locked refusal and original-byte boundary")
 
-    func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = []) -> NSEvent {
+    func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], characters: String = "") -> NSEvent {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
                         timestamp: ProcessInfo.processInfo.systemUptime,
-                        windowNumber: window.windowNumber, context: nil, characters: "",
-                        charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+                        windowNumber: window.windowNumber, context: nil, characters: characters,
+                        charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
     }
     func activeEditor() throws -> NSTextView {
         guard let sheet = window.attachedSheet,
@@ -225,6 +225,125 @@ func runChecks() throws {
     view.redoMove(nil)
     try require(session.text(of: "moving")?.count == 2000, "No-op finish changed text history")
     print("PASS native text draft isolation, commit, cancel, history, Unicode limit and source-byte boundary")
+
+    let blank = try CanvasDocument.blank()
+    try require((blank.root["version"] as? Int) == 2 &&
+                (blank.root["nodes"] as? [Any])?.isEmpty == true &&
+                (blank.root["edges"] as? [Any])?.isEmpty == true, "New canvas is not blank v2")
+    let blankSession = CanvasSession(document: blank)
+    let blankInsertion = try blankSession.insertShape(.rectangle, at: CanvasPosition(x: -80, y: -48))
+    _ = try CanvasDocument(data: encoded(blankSession.root))
+    try blankSession.removeInsertion(blankInsertion)
+    try require(NSDictionary(dictionary: blankSession.root).isEqual(to: blank.root),
+                "Undo insertion did not restore blank canvas")
+    do {
+        _ = try blankSession.insertShape(.rectangle, at: CanvasPosition(x: .nan, y: 0))
+        throw CheckFailure(description: "Inserted nonfinite geometry")
+    } catch is CanvasDocumentError {}
+    try require(NSDictionary(dictionary: blankSession.root).isEqual(to: blank.root),
+                "Rejected insertion changed the canvas")
+
+    let v1Document = try CanvasDocument(data: Data(contentsOf:
+        repository.appendingPathComponent("shared/fixtures/v1/compatibility.json")))
+    let v1Session = CanvasSession(document: v1Document)
+    let v1Insertion = try v1Session.insertShape(.triangle, at: CanvasPosition(x: -160, y: 80))
+    try require(v1Session.root["version"] as? Int == 1, "Insertion silently upgraded v1")
+    _ = try CanvasDocument(data: encoded(v1Session.root))
+    try v1Session.removeInsertion(v1Insertion)
+    try require(NSDictionary(dictionary: v1Session.root).isEqual(to: v1Document.root),
+                "Insertion Undo lost v1 metadata")
+
+    let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 380, height: 280))
+    view.removeFromSuperview()
+    scroll.documentView = view
+    window.contentView = scroll
+    window.setContentSize(scroll.frame.size)
+    scroll.contentView.scroll(to: CGPoint(x: 100, y: 90))
+    scroll.reflectScrolledClipView(scroll.contentView)
+    window.makeFirstResponder(view)
+    window.undoManager?.removeAllActions()
+    let beforeInsert = session.root
+    for kind in [CanvasShapeKind.rectangle, .ellipse, .diamond, .triangle] {
+        view.insertShape(kind)
+        let raw = (session.root["nodes"] as! [[String: Any]]).last!
+        let id = raw["id"] as! String
+        let data = raw["data"] as! [String: Any]
+        try require(data["kind"] as? String == kind.rawValue, "Insert command created the wrong shape")
+        let center = view.viewPoint(forWorldPoint: CGPoint(
+            x: (raw["x"] as! Double) + 80, y: (raw["y"] as! Double) + 48))
+        try require(abs(center.x - view.visibleRect.midX) < 0.01 &&
+                    abs(center.y - view.visibleRect.midY) < 0.01, "Insertion missed viewport center")
+        _ = try CanvasDocument(data: encoded(session.root))
+        let insertedRoot = session.root
+        view.undoMove(nil)
+        try require(NSDictionary(dictionary: session.root).isEqual(to: beforeInsert),
+                    "Undo insertion damaged pre-existing content")
+        view.redoMove(nil)
+        try require(NSDictionary(dictionary: session.root).isEqual(to: insertedRoot) &&
+                    session.position(of: id) != nil, "Redo changed inserted identity or stacking")
+        view.undoMove(nil)
+    }
+    let hadRedo = window.undoManager?.canRedo
+    view.insertShape(.text)
+    editor = try activeEditor()
+    editor.string = "Cancelled new text"
+    editor.keyDown(with: key(53))
+    try require(NSDictionary(dictionary: session.root).isEqual(to: beforeInsert) &&
+                window.undoManager?.canRedo == hadRedo, "Cancelling new text changed content/history")
+    view.insertShape(.text)
+    editor = try activeEditor()
+    editor.keyDown(with: key(36, modifiers: [.command]))
+    try require(NSDictionary(dictionary: session.root).isEqual(to: beforeInsert) &&
+                window.undoManager?.canRedo == hadRedo, "Empty new text created a node/history")
+    view.insertShape(.text)
+    editor = try activeEditor()
+    editor.keyDown(with: key(15, characters: "r"))
+    try require(editor.string == "r" &&
+                NSDictionary(dictionary: session.root).isEqual(to: beforeInsert),
+                "Canvas creation shortcut intercepted native text input")
+    editor.string = String(repeating: "a", count: 2001)
+    editor.keyDown(with: key(36, modifiers: [.command]))
+    try require(window.attachedSheet != nil &&
+                NSDictionary(dictionary: session.root).isEqual(to: beforeInsert),
+                "Invalid new text escaped its draft")
+    editor.string = "A new thought\n👩🏽‍💻"
+    editor.keyDown(with: key(36, modifiers: [.command]))
+    let newTextRoot = session.root
+    let newText = (newTextRoot["nodes"] as! [[String: Any]]).last!
+    let newTextID = newText["id"] as! String
+    try require(session.text(of: newTextID) == "A new thought\n👩🏽‍💻", "New text was not committed literally")
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: session.root).isEqual(to: beforeInsert),
+                "New text did not undo in one transaction")
+    view.redoMove(nil)
+    try require(NSDictionary(dictionary: session.root).isEqual(to: newTextRoot),
+                "New text redo lost identity or content")
+    view.undoMove(nil)
+    view.keyDown(with: key(15, characters: "r"))
+    let keyboardShape = (session.root["nodes"] as! [[String: Any]]).last!
+    let keyboardID = keyboardShape["id"] as! String
+    try require((keyboardShape["data"] as? [String: Any])?["kind"] as? String == "rect",
+                "Canvas R shortcut did not insert a rectangle")
+    // Let AppKit close its own event group before the next user action.
+    func finishEvent() {
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
+    }
+    finishEvent()
+    let insertedPosition = session.position(of: keyboardID)!
+    view.keyDown(with: key(124))
+    finishEvent()
+    try require(session.position(of: keyboardID) == CanvasPosition(x: insertedPosition.x + 1, y: insertedPosition.y),
+                "New shape was not selected for keyboard movement")
+    view.undoMove(nil)
+    try require(session.position(of: keyboardID) == insertedPosition, "Undo movement removed the insertion")
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: session.root).isEqual(to: beforeInsert), "Mixed history lost original content")
+    view.redoMove(nil)
+    view.redoMove(nil)
+    try require(session.position(of: keyboardID) == CanvasPosition(x: insertedPosition.x + 1, y: insertedPosition.y),
+                "Mixed insertion/movement redo lost geometry or identity")
+    try require(session.document.originalData == interactionBytes, "Creation changed original source bytes")
+    print("PASS blank canvas, all shape insertions, viewport placement, text drafts and mixed history")
 }
 
 do {

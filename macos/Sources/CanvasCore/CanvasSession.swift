@@ -16,6 +16,18 @@ public struct CanvasMove: Equatable, Sendable {
     public let after: CanvasPosition
 }
 
+public enum CanvasShapeKind: String, CaseIterable, Sendable {
+    case rectangle = "rect"
+    case ellipse, diamond, triangle, text
+}
+
+/// Retained insertion identity and stacking position for exact Undo/Redo.
+public struct CanvasShapeInsertion {
+    public let id: String
+    fileprivate let node: [String: Any]
+    fileprivate let index: Int
+}
+
 /// Mutable in-memory document state. Persistence remains deliberately unavailable.
 public final class CanvasSession {
     public let document: CanvasDocument
@@ -86,7 +98,58 @@ public final class CanvasSession {
         return true
     }
 
+    public func insertShape(
+        _ kind: CanvasShapeKind, at position: CanvasPosition, text: String? = nil
+    ) throws -> CanvasShapeInsertion {
+        guard position.x.isFinite, position.y.isFinite,
+              abs(position.x) <= 1_000_000, abs(position.y) <= 1_000_000 else {
+            throw CanvasDocumentError("A shape needs finite coordinates within 1000000.")
+        }
+        if let text, text.count > 2_000 {
+            throw CanvasDocumentError("Text must contain at most 2000 characters.")
+        }
+        let id = UUID().uuidString
+        var data: [String: Any] = [
+            "kind": kind.rawValue, "fill": "none",
+            "stroke": kind == .text ? "none" : "ink", "radius": 0
+        ]
+        data["text"] = text
+        let raw: [String: Any] = [
+            "id": id, "type": "shape", "x": position.x, "y": position.y,
+            "width": 160, "height": kind == .text ? 48 : 96,
+            "data": data
+        ]
+        let insertion = CanvasShapeInsertion(
+            id: id, node: raw, index: (root["nodes"] as? [[String: Any]])?.count ?? 0
+        )
+        try restoreInsertion(insertion)
+        return insertion
+    }
 
+    public func removeInsertion(_ insertion: CanvasShapeInsertion) throws {
+        guard var nodes = root["nodes"] as? [[String: Any]],
+              let index = nodes.firstIndex(where: { $0["id"] as? String == insertion.id }),
+              !isLocked(insertion.id) else {
+            throw CanvasDocumentError("The inserted shape is missing or locked.")
+        }
+        let edges = root["edges"] as? [[String: Any]] ?? []
+        guard !edges.contains(where: {
+            $0["source"] as? String == insertion.id || $0["target"] as? String == insertion.id
+        }) else {
+            throw CanvasDocumentError("Undo connections before undoing shape insertion.")
+        }
+        nodes.remove(at: index)
+        root["nodes"] = nodes
+    }
+
+    public func restoreInsertion(_ insertion: CanvasShapeInsertion) throws {
+        guard var nodes = root["nodes"] as? [[String: Any]],
+              insertion.index <= nodes.count, node(insertion.id) == nil else {
+            throw CanvasDocumentError("Cannot restore the inserted shape at its original position.")
+        }
+        nodes.insert(insertion.node, at: insertion.index)
+        root["nodes"] = nodes
+    }
     private func node(_ id: String) -> [String: Any]? {
         (root["nodes"] as? [[String: Any]])?.first { $0["id"] as? String == id }
     }

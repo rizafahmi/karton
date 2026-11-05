@@ -12,8 +12,8 @@ Databases, accounts, cloud storage, and multiplayer are outside the current scop
 unless requested, not permanently prohibited directions.
 
 An independent native Mac editor is in progress, sharing JSON contracts rather
-than the web runtime. `macos/` currently contains a session-only v1/v2 viewer:
-selection, movement, shape-caption editing and Undo/Redo are in memory; it never saves.
+than the web runtime. `macos/` currently provides session-only New, shape/text
+insertion, selection, movement, caption editing and Undo/Redo; it never saves.
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.
@@ -21,7 +21,7 @@ an explicit code-node type.
 ## Repository organization
 
 Keep the working Phoenix app and its Mix commands at the repository root.
-[`macos/`](macos/) owns the independent native viewer and future editor;
+[`macos/`](macos/) owns the independent native app;
 [`shared/fixtures/`](shared/fixtures/) owns runtime-independent v1/v2 JSON
 contract fixtures. Web tests consume the shared fixtures today; native checks
 must use the same corpus rather than fork it. Copy fixtures to temporary files
@@ -29,9 +29,10 @@ before editing/saving. [`examples/`](examples/) remains editable user content.
 Do not introduce a shared runtime or root build orchestrator for the native app.
 The approved native foundation is Swift/AppKit for the canvas, inspectors and
 document lifecycle, with Core Graphics/native text rendering in a Swift Package
-with command-line `.app` bundling, targeting macOS 27. The current viewer retains
-original JSON bytes, uses `CanvasSession` for validated movement/caption changes, never
-writes documents, and refuses unsupported semantics. Routes are approximate and
+with command-line `.app` bundling, targeting macOS 27. The current app retains
+original JSON bytes and uses `CanvasSession` for validated in-memory transactions.
+New is blank v2; inserting into existing v1 leaves its version unchanged. The app
+never writes documents and refuses unsupported semantics. Routes are approximate and
 code is plain text. Existing attachment support is in scope for the editor; new
 attachment import is not. TASKS.md owns remaining gates.
 [`macos/SPEC.md`](macos/SPEC.md) distinguishes approved choices from proposals;
@@ -46,8 +47,9 @@ silently upgrade/downgrade, or infer native implementation from web support.
 
 - Native [CanvasDocument](macos/Sources/CanvasCore/CanvasDocument.swift) validates
   supported v1/v2 input and retains original bytes. [CanvasSession](macos/Sources/CanvasCore/CanvasSession.swift)
-  owns mutable in-memory graph state; [CanvasView](macos/Sources/CanvasUI/CanvasView.swift)
-  owns AppKit hit-testing, selection, rendering and transaction Undo/Redo.
+  owns mutable in-memory graph state and retained insertion identity/stacking.
+  [CanvasView](macos/Sources/CanvasUI/CanvasView.swift) owns AppKit hit-testing,
+  viewport-centered insertion, selection, rendering and transaction Undo/Redo.
   [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift) keeps native sheet
   drafts separate until valid commit; cancellation leaves history untouched.
   The session is not persistence: closing discards changes and source bytes stay

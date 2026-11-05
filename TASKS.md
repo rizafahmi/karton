@@ -709,11 +709,12 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       Offscreen AppKit bitmap inspection covered both fixtures; direct window
       capture failed, so the actual windows were not visually captured.
       Native contract checks cover shared fixtures and selected refusal/quota cases.
-      The viewer uses approximate routes, plain code and attachment cards, with
-      no editable saves, style editing, creation, recovery or export. It now
-      supports session-only object selection, pointer/arrow movement, locked-node
-      protection, shape-caption editing and Undo/Redo; closing discards changes. Full editable
-      cross-editor proof remains pending.
+      The native app uses approximate routes, plain code and attachment cards,
+      with no editable saves, style editing, line/connection/code creation,
+      recovery or export. It supports session-only New, shape/text insertion,
+      selection, pointer/arrow movement, locked-node protection, caption editing
+      and Undo/Redo; closing discards changes. Full editable cross-editor proof
+      remains pending.
       Shared v1/v2 compatibility fixtures now cover five shape kinds, free line,
       rotation/locks, self-loop and styled connectors, Unicode attachment, unknown
       metadata/large integers, and literal code with mixed line endings/language
@@ -732,6 +733,15 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       2,000-grapheme acceptance and over-limit refusal with draft intact.
       Caption changes retain authored geometry; code/edge editing and automatic
       text growth remain pending. Physical IME and accessibility proof remain open.
+      File New now creates separate blank v2 sessions; Insert offers rectangles,
+      ellipses, diamonds, triangles and text at the viewport center (canvas-only
+      R/O/D/I/T). New text remains a draft until one insertion commits.
+      Native checks cover scrolled viewport placement, valid authored graphs,
+      refused nonfinite placement, cancellation/empty/invalid text without nodes,
+      original metadata/source retention, stable IDs/stacking on redo and mixed
+      insertion/movement history. A temporary executable using the actual app
+      delegate and release libraries exercised File New, Insert, Undo/Redo, text
+      commit, canvas focus and two independent untitled windows.
 - [x] **PNG output defaults (2026-11-05):** 2,048-pixel longest side, proportional
       other dimension, configurable output, 32 world-unit padding; caps of 8,192
       pixels per side and 16,777,216 pixels total. Retain transparency, font

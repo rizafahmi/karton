@@ -142,6 +142,21 @@ public final class CanvasView: NSView {
     }
 
     public override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
+            let kind: CanvasShapeKind?
+            switch event.charactersIgnoringModifiers {
+            case "r", "R": kind = .rectangle
+            case "o", "O": kind = .ellipse
+            case "d", "D": kind = .diamond
+            case "i", "I": kind = .triangle
+            case "t", "T": kind = .text
+            default: kind = nil
+            }
+            if let kind {
+                insertShape(kind)
+                return
+            }
+        }
         if event.keyCode == 36 {
             beginTextEditing()
             return
@@ -176,6 +191,64 @@ public final class CanvasView: NSView {
 
     @objc public func redoMove(_ sender: Any?) {
         window?.undoManager?.redo()
+    }
+
+    /// Inserts at the currently visible center, never at the source file's origin.
+    public func insertShape(_ kind: CanvasShapeKind) {
+        guard let window, window.attachedSheet == nil, textEditor == nil, drag == nil else { return }
+        let center = CGPoint(x: visibleRect.midX + origin.x, y: visibleRect.midY + origin.y)
+        let position = CanvasPosition(x: center.x - 80, y: center.y - (kind == .text ? 24 : 48))
+        if kind == .text {
+            textEditor = ShapeTextEditor(text: "", commit: { [weak self] text in
+                guard !text.isEmpty else { return }
+                try self?.createShape(kind, at: position, text: text)
+            }, completion: { [weak self, weak window] in
+                guard let self else { return }
+                self.textEditor = nil
+                window?.makeFirstResponder(self)
+            })
+            textEditor?.present(on: window)
+        } else {
+            do { try createShape(kind, at: position) }
+            catch { NSSound.beep() }
+            window.makeFirstResponder(self)
+        }
+    }
+
+    private func createShape(_ kind: CanvasShapeKind, at position: CanvasPosition, text: String? = nil) throws {
+        let insertion = try session.insertShape(kind, at: position, text: text)
+        displayInsertion(insertion.id)
+        registerUndoInsertion(insertion, restoring: false)
+    }
+
+    private func displayInsertion(_ id: String) {
+        guard let rawNodes = session.root["nodes"] as? [[String: Any]],
+              let index = rawNodes.firstIndex(where: { $0["id"] as? String == id }) else { return }
+        let raw = rawNodes[index]
+        nodes.insert(Node(id: id, type: "shape",
+                          box: CGRect(x: number(raw["x"]), y: number(raw["y"]),
+                                      width: number(raw["width"]), height: number(raw["height"])),
+                          data: raw["data"] as? [String: Any] ?? [:]), at: index)
+        selectedID = id
+        needsDisplay = true
+    }
+
+    private func registerUndoInsertion(_ insertion: CanvasShapeInsertion, restoring: Bool) {
+        window?.undoManager?.registerUndo(withTarget: self) { target in
+            do {
+                if restoring {
+                    try target.session.restoreInsertion(insertion)
+                    target.displayInsertion(insertion.id)
+                } else {
+                    try target.session.removeInsertion(insertion)
+                    target.nodes.removeAll { $0.id == insertion.id }
+                    if target.selectedID == insertion.id { target.selectedID = nil }
+                    target.needsDisplay = true
+                }
+                target.registerUndoInsertion(insertion, restoring: !restoring)
+            } catch { NSSound.beep() }
+        }
+        window?.undoManager?.setActionName("Insert Shape")
     }
 
     private func beginTextEditing() {

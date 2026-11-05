@@ -1,9 +1,10 @@
 # Native macOS editor
 
-This directory contains an independent native canvas viewer with session-only
-selection, movement and shape-caption editing. The planned editor is not complete:
-there is no saving, style editing, creation, recovery, attachment preview, syntax
-highlighting or PNG export.
+This directory contains an independent native canvas app with session-only
+New, shape/text insertion, selection, movement, caption editing and Undo/Redo.
+The planned editor is not complete: there is no saving, style editing,
+line/connection/code creation, recovery, attachment preview, syntax highlighting
+or PNG export.
 
 ## Build and run
 
@@ -15,11 +16,22 @@ sh macos/build.sh
 open "macos/.build/Elixir Canvas.app"
 ```
 
-Use **File → Open…** or the welcome-window button to choose a canvas. Each file
-opens in a session-only window. Click an object to select it; drag it, or use
-Arrow keys (Shift-Arrow moves 10 world units). Locked objects can be selected but
-not moved or edited. Command-Z and Shift-Command-Z undo/redo completed moves and
-caption changes. Movement updates connected routes in memory.
+Use **File → New** (**⌘N**) or **New Canvas** in the welcome window to start a
+blank version-2 canvas. **File → Open…** opens supported v1/v2 JSON files.
+Each New/Open creates a separate session window without replacing existing work.
+
+Use **Insert → Rectangle / Ellipse / Diamond / Triangle / Text…** to add content
+at the current viewport center, including after scrolling. With canvas focus,
+**R / O / D / I / T** perform the same commands; these keys stay ordinary text
+inside the editor. Shapes start unfilled with an ink outline and inherit document
+typography. New text stays in its sheet until committed; Cancel or empty Done
+creates nothing. Each insertion is one undoable action; Redo retains its ID.
+Inserting repeatedly uses the same center; drag each object to arrange it.
+
+Click an object to select it; drag it, or use Arrow keys (Shift-Arrow moves 10
+world units). Locked objects can be selected but not moved or edited.
+Command-Z and Shift-Command-Z undo/redo insertions, completed moves and caption
+changes. Movement updates connected routes in memory.
 
 Double-click an unlocked shape, or select it and press Return, to edit its caption
 in a native sheet. Return inserts a newline; **⌘Return** or **Done** commits;
@@ -33,7 +45,7 @@ changes without a confirmation prompt. It validates versions, graph references,
 content limits and supported rendering semantics before opening; unsupported
 documents are refused with a message. Some valid web canvases may be refused,
 including self-loops without two distinct named side handles and geometry outside
-the viewer's bounds. Fonts, colors and connector routes are native approximations;
+the native app's bounds. Fonts, colors and connector routes are native approximations;
 code is plain text and attachments are cards, not previews. No zoom or export.
 
 Run the standalone native contract checks from the repository root:
@@ -54,7 +66,7 @@ warnings on the development machine even when the build succeeds.
 - The editors share JSON contracts and fixtures, not a runtime. Preserve the
   [version-1 contract](../README.md#document-format-version-1) and the
   [version-2 contract](../README.md#document-format-version-2), using both
-  [`shared/fixtures/`](../shared/fixtures/) versions. The viewer renders code
+  [`shared/fixtures/`](../shared/fixtures/) versions. The native app renders code
   as plain text; the full native [code contract](../shared/CODE_SNIPPETS.md)
   remains pending.
 - Shared fixtures are checked-in compatibility inputs. Copy them to temporary
@@ -82,7 +94,7 @@ thought entry, adjacent thoughts, and keyboard connections without replacing
 native text editing or standard Mac commands.
 
 In the planned editor, connected documents autosave to their JSON source; explicit
-Save remains available. The viewer implements neither. Recover committed work and
+Save remains available. The current app implements neither. Recover committed work and
 acknowledged active text drafts; request autosave and recovery writes after 5
 seconds quiet or within 30 seconds of
 continuous changes. These are request targets, not durability guarantees.
@@ -109,6 +121,6 @@ PNG defaults to a 2,048-pixel longest side with configurable dimensions, 32-unit
 padding and caps of 8,192 pixels per side / 16,777,216 pixels total. HighlighterSwift
 is the approved highlighting candidate; it is not yet added or proven in the app.
 Recovery details, native file UX, font mappings and shortcuts remain decisions.
-The viewer does not establish editable web/native compatibility. Web verification
+The current app does not establish editable web/native compatibility. Web verification
 still runs with `mix check` from the repository root; it does not build or verify
 the native app.

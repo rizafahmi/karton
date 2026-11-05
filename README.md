@@ -5,11 +5,12 @@ and Hakushi. The JSON file is the document, not an export from a database.
 
 ## Native macOS
 
-A native, **session-only canvas viewer** is available for macOS 27 through the
-[command-line build](macos/README.md). It opens supported v1/v2 files without
-Phoenix and supports selection, movement, locked-node protection, shape-caption
-editing and Undo/Redo in memory. It never saves; style editing, creation, attachment
-previews, syntax highlighting, recovery and PNG export are not implemented.
+A native, **session-only canvas app** is available for macOS 27 through the
+[command-line build](macos/README.md). Without Phoenix, it can start blank v2
+canvases, open supported v1/v2 files, insert shapes/text, select, move, edit
+captions and Undo/Redo in memory. Locked objects are protected. It never saves;
+style editing, line/connection/code creation, attachment previews, syntax
+highlighting, recovery and PNG export are not implemented.
 The independent native editor remains an unfinished milestone; see
 [TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) and
 [macos/SPEC.md](macos/SPEC.md) for scope and acceptance proof.
@@ -20,14 +21,14 @@ viewed as plain text only.
 
 ## Repository layout
 
-The web app and native viewer live in one repository with independent builds and
+The web app and native app live in one repository with independent builds and
 runtimes. The existing Phoenix app stays at the root; web commands
 continue to run from here.
 
 | Path | Responsibility |
 | --- | --- |
 | `mix.exs`, `lib/`, `config/`, `assets/`, `priv/`, `test/` | Existing Phoenix/LiveView web app and its tests |
-| [`macos/`](macos/) | Swift Package and command-line build for the read-only native viewer |
+| [`macos/`](macos/) | Swift Package and command-line build for the session-only native canvas app |
 | [`shared/fixtures/`](shared/fixtures/) | Runtime-independent v1/v2 JSON contract fixtures consumed by web and native checks |
 | [`examples/`](examples/) | Editable user-facing boards, not disposable test fixtures |
 | `README.md`, `TASKS.md`, `DESIGN.md`, `CONTRIBUTING.md`, `SECURITY.md` | Shared contract, plans, and project guidance; web visual rules remain web-only |

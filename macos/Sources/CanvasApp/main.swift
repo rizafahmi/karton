@@ -4,9 +4,10 @@ import CanvasUI
 import UniformTypeIdentifiers
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private var windows: [NSWindowController] = []
     private var welcome: NSWindowController?
+    private var untitledCount = 0
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMenu()
@@ -38,11 +39,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         window.title = "Elixir Canvas — Session-only viewer"
         window.center()
-        let label = NSTextField(labelWithString: "Open a JSON canvas to select and move objects.\nChanges remain in memory; saving is unavailable.")
+        let label = NSTextField(labelWithString: "Create a canvas or open an existing JSON file.\nSession changes are not saved.")
         label.alignment = .center
         label.frame = NSRect(x: 30, y: 125, width: 420, height: 52)
         let button = NSButton(title: "Open Canvas…", target: self, action: #selector(chooseDocument(_:)))
-        button.frame = NSRect(x: 165, y: 65, width: 150, height: 34)
+        button.frame = NSRect(x: 250, y: 65, width: 150, height: 34)
+        let new = NSButton(title: "New Canvas", target: self, action: #selector(newDocument(_:)))
+        new.frame = NSRect(x: 80, y: 65, width: 150, height: 34)
+        window.contentView?.addSubview(new)
         window.contentView?.addSubview(label)
         window.contentView?.addSubview(button)
         let controller = NSWindowController(window: window)
@@ -54,23 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         do {
             let data = try Data(contentsOf: url)
             let document = try CanvasDocument(data: data)
-            let canvas = CanvasView(document: document)
-            let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
-            scroll.hasVerticalScroller = true
-            scroll.hasHorizontalScroller = true
-            scroll.autohidesScrollers = true
-            scroll.documentView = canvas
-            let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            window.delegate = self
-            window.title = "\(url.lastPathComponent) — Session changes not saved"
-            window.contentView = scroll
-            window.center()
-            let controller = NSWindowController(window: window)
-            windows.append(controller)
-            welcome?.close()
-            welcome = nil
-            controller.showWindow(nil)
-            window.makeKeyAndOrderFront(nil)
+            showDocument(document, name: url.lastPathComponent)
         } catch {
             let alert = NSAlert(error: error)
             alert.messageText = "Cannot open canvas"
@@ -78,6 +66,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             alert.runModal()
             if windows.isEmpty && welcome == nil { showWelcome() }
         }
+    }
+
+    @objc private func newDocument(_ sender: Any?) {
+        do {
+            let document = try CanvasDocument.blank()
+            untitledCount += 1
+            showDocument(document, name: untitledCount == 1 ? "Untitled" : "Untitled \(untitledCount)")
+        } catch {
+            NSApp.presentError(error)
+        }
+    }
+
+    private func showDocument(_ document: CanvasDocument, name: String) {
+        let canvas = CanvasView(document: document)
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.documentView = canvas
+        let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.delegate = self
+        window.title = "\(name) — Session changes not saved"
+        window.contentView = scroll
+        window.center()
+        let controller = NSWindowController(window: window)
+        windows.append(controller)
+        welcome?.close()
+        welcome = nil
+        controller.showWindow(nil)
+        window.makeKeyAndOrderFront(nil)
+        window.makeFirstResponder(canvas)
+    }
+
+    @objc private func insertShape(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String,
+              let kind = CanvasShapeKind(rawValue: value) else { return }
+        activeCanvas()?.insertShape(kind)
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(insertShape(_:)) {
+            return activeCanvas() != nil && NSApp.keyWindow?.attachedSheet == nil
+        }
+        return true
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -116,6 +148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let fileItem = NSMenuItem()
         main.addItem(fileItem)
         let fileMenu = NSMenu(title: "File")
+        let new = NSMenuItem(title: "New", action: #selector(newDocument(_:)), keyEquivalent: "n")
+        new.target = self
+        fileMenu.addItem(new)
         let open = NSMenuItem(title: "Open…", action: #selector(chooseDocument(_:)), keyEquivalent: "o")
         open.target = self
         fileMenu.addItem(open)
@@ -137,6 +172,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         editItem.submenu = editMenu
+        let insertItem = NSMenuItem()
+        main.addItem(insertItem)
+        let insertMenu = NSMenu(title: "Insert")
+        for (title, kind) in [
+            ("Rectangle", CanvasShapeKind.rectangle), ("Ellipse", .ellipse),
+            ("Diamond", .diamond), ("Triangle", .triangle), ("Text…", .text)
+        ] {
+            let item = NSMenuItem(title: title, action: #selector(insertShape(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = kind.rawValue
+            insertMenu.addItem(item)
+        }
+        insertItem.submenu = insertMenu
         NSApp.mainMenu = main
     }
 }

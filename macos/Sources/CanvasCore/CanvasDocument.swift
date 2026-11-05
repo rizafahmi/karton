@@ -6,6 +6,11 @@ public final class CanvasDocument {
     public let root: [String: Any]
     public let originalData: Data
 
+    /// A new source-less version-2 canvas. No file is created.
+    public static func blank() throws -> CanvasDocument {
+        try CanvasDocument(data: Data(#"{"version":2,"nodes":[],"edges":[]}"#.utf8))
+    }
+
     public init(data: Data) throws {
         guard !data.contains(0), String(data: data, encoding: .utf8) != nil else {
             throw CanvasDocumentError("Canvas JSON must be UTF-8.")

@@ -1,8 +1,9 @@
 # Native macOS implementation specification
 
-Status: design specification; a session-only native viewer supports selection,
-movement, native shape-caption editing and Undo/Redo. Text edits retain geometry;
-the full editor, persistence and acceptance proof remain incomplete.
+Status: design specification; the session-only native app supports blank v2 New,
+shape/text insertion, selection, movement, caption editing and Undo/Redo.
+Text edits retain geometry; the full editor, persistence and acceptance proof
+remain incomplete.
 
 ## 1. Approval boundary and outcome
 
@@ -258,7 +259,7 @@ for delivery; archived platform descriptions do not prove modern storage paths.
 The [canonical version-1 contract](../README.md#document-format-version-1) remains
 authoritative for existing v1 files. The web editor implements the
 [shared v2 contract](../shared/CODE_SNIPPETS.md): the common schema plus explicit
-`type: "code"` nodes. The native viewer shows code as plain text only.
+`type: "code"` nodes. The native app shows code as plain text only.
 
 The native codec must retain v1 support and source version on ordinary saves.
 New canvases use v2. Code nodes cannot be added/pasted into v1; v2 never silently
@@ -450,7 +451,7 @@ responder, document lifecycle, OS dialogs, recovery, and rendering behavior.
 ## 9. Remaining decisions and implementation entry gate
 
 Foundation, deployment target, initial content and PNG defaults were approved on
-2026-11-05. A read-only viewer exists; editable compatibility proof is not complete.
+2026-11-05. Session-only native authoring exists; editable file compatibility proof is incomplete.
 Establish fixture coverage and round-trip proof before editable saves. Before
 corresponding feature implementation, settle detailed recovery storage/cleanup,
 other native file operation UX, native font-role mappings and shortcut map. Prove
@@ -473,6 +474,6 @@ Line Tools because `SwiftUIMacros.StateMacro` was unavailable. A temporary AppKi
 inspector handled an injected native mouse event and a model-to-control update.
 External automation lacked Accessibility permission; physical-pointer and
 accessibility interaction remain unproven.
-The viewer's actual build and check commands are in [README.md](README.md).
-Document editing, signing, distribution and the complete native workflow remain
-unproven.
+The native app's actual build and check commands are in [README.md](README.md).
+Persistent document editing, signing, distribution and the complete native workflow
+remain unproven.
