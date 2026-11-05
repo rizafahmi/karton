@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "future": {"sequence": 9007199254740993, "nested": [null, true, "雪"]},
+  "appearance": {"font": "mono", "future": "keep"},
+  "paper": {"background": "dots", "grid": 20, "future": {"note": "paper"}},
+  "nodes": [
+    {"id": "rect", "type": "shape", "x": -12.5, "y": 18.25, "width": 240, "height": 140, "locked": true, "future": {"owner": "α"}, "data": {"kind": "rect", "text": "Attached", "rotation": 45, "fill": "yellow", "attachment": {"filename": "資料.md", "media_type": "text/markdown", "encoding": "utf-8", "content": "\ufeff雪\r\nCafé\t🌿\r\n", "future": {"revision": 9007199254740993}}, "future": [1, "keep"]}},
+    {"id": "ellipse", "type": "shape", "x": 300, "y": -40, "width": 120, "height": 80, "data": {"kind": "ellipse", "text": "Oval", "rotation": -30, "stroke": "blue"}},
+    {"id": "diamond", "type": "shape", "x": 460, "y": 10, "width": 100, "height": 100, "data": {"kind": "diamond", "text": "Loop", "rotation": 90}},
+    {"id": "triangle", "type": "shape", "x": 600, "y": 30, "width": 110, "height": 90, "data": {"kind": "triangle", "text": "三角", "rotation": 12.5}},
+    {"id": "text", "type": "shape", "x": 25, "y": 220, "width": 180, "height": 60, "data": {"kind": "text", "text": "Move me", "font": "heading"}},
+    {"id": "line", "type": "shape-line", "x": -20, "y": 300, "width": 200, "height": 70, "data": {"from": [12, 58], "to": [188, 12], "rotation": 15, "stroke": "red", "width": 4, "dash": true, "arrow": "both", "future": "line"}}
+  ],
+  "edges": [
+    {"id": "styled", "source": "rect", "source_handle": "right", "target": "ellipse", "target_handle": "left", "path": "smooth", "marker": "dot", "label": "接続", "animated": true, "data": {"connector_style": {"stroke": "red", "width": 4, "dash": true, "future": "kept"}, "future": {"weight": 9007199254740993}}, "future": "edge"},
+    {"id": "loop", "source": "diamond", "source_handle": "top", "target": "diamond", "target_handle": "bottom", "path": "bezier", "marker": "arrow", "label": "self", "animated": false, "data": {}}
+  ]
+}

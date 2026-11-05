@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "appearance": {"font": "mono", "future": {"contrast": true}},
+  "paper": {"background": "lines", "grid": 20, "future": [1, null]},
+  "future": {"origin": "compatibility", "nested": [false, "保持"]},
+  "nodes": [
+    {
+      "id": "code-explicit", "type": "code",
+      "x": -12.5, "y": 24, "width": 420, "height": 180,
+      "future-node": {"reviewed": true},
+      "data": {
+        "content": "\ufeffdef greet(name):\r\n\treturn \"こんにちは 😀 \" + name\r# café\n",
+        "language": "python", "fill": "surface", "stroke": "blue",
+        "width": 4, "radius": 8, "size": "l", "rotation": -15,
+        "future-data": {"tags": ["α", null]}
+      }
+    },
+    {
+      "id": "code-auto", "type": "code",
+      "x": 510, "y": -35.25, "width": 260, "height": 140,
+      "data": {"content": "first\nsecond\r\nthird\r\t末尾", "fill": "none", "stroke": "red", "size": "s", "dash": true}
+    },
+    {
+      "id": "code-future", "type": "code",
+      "x": 120, "y": 280, "width": 300, "height": 100,
+      "data": {"content": "λ = 42\n", "language": "future-language", "stroke": "violet", "width": 1}
+    },
+    {
+      "id": "shape", "type": "shape",
+      "x": 800, "y": 80, "width": 200, "height": 120,
+      "data": {"kind": "ellipse", "text": "Connected", "fill": "yellow", "stroke": "ink"},
+      "future-node": "shape metadata"
+    }
+  ],
+  "edges": [
+    {
+      "id": "link", "source": "code-explicit", "source_handle": "right",
+      "target": "shape", "target_handle": "left", "path": "bezier",
+      "marker": "arrow", "data": {"future": {"weight": 3}},
+      "future-edge": ["kept", true]
+    }
+  ]
+}
