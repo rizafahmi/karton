@@ -12,10 +12,11 @@ Databases, accounts, cloud storage, and multiplayer are outside the current scop
 unless requested, not permanently prohibited directions.
 
 An independent native Mac editor is in progress, sharing JSON contracts rather
-than the web runtime. `macos/` currently contains a read-only v1/v2 viewer; it
-does not edit or save. [TASKS.md](TASKS.md) owns milestones, scope, acceptance
-proof and unresolved native decisions. The web app supports v1 and v2; new web
-documents use v2 with an explicit code-node type.
+than the web runtime. `macos/` currently contains a session-only v1/v2 viewer:
+selection, movement, shape-caption editing and Undo/Redo are in memory; it never saves.
+[TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
+native decisions. The web app supports v1 and v2; new web documents use v2 with
+an explicit code-node type.
 
 ## Repository organization
 
@@ -29,9 +30,10 @@ Do not introduce a shared runtime or root build orchestrator for the native app.
 The approved native foundation is Swift/AppKit for the canvas, inspectors and
 document lifecycle, with Core Graphics/native text rendering in a Swift Package
 with command-line `.app` bundling, targeting macOS 27. The current viewer retains
-original JSON bytes, never writes documents, and refuses unsupported semantics;
-routes are approximate and code is plain text. Existing attachment support is in
-scope for the editor; new attachment import is not. TASKS.md owns remaining gates.
+original JSON bytes, uses `CanvasSession` for validated movement/caption changes, never
+writes documents, and refuses unsupported semantics. Routes are approximate and
+code is plain text. Existing attachment support is in scope for the editor; new
+attachment import is not. TASKS.md owns remaining gates.
 [`macos/SPEC.md`](macos/SPEC.md) distinguishes approved choices from proposals;
 neither the design nor approval establishes native compatibility.
 [`shared/CODE_SNIPPETS.md`](shared/CODE_SNIPPETS.md) owns the supported shared
@@ -42,6 +44,14 @@ silently upgrade/downgrade, or infer native implementation from web support.
 
 ## Architecture map
 
+- Native [CanvasDocument](macos/Sources/CanvasCore/CanvasDocument.swift) validates
+  supported v1/v2 input and retains original bytes. [CanvasSession](macos/Sources/CanvasCore/CanvasSession.swift)
+  owns mutable in-memory graph state; [CanvasView](macos/Sources/CanvasUI/CanvasView.swift)
+  owns AppKit hit-testing, selection, rendering and transaction Undo/Redo.
+  [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift) keeps native sheet
+  drafts separate until valid commit; cancellation leaves history untouched.
+  The session is not persistence: closing discards changes and source bytes stay
+  untouched. Keep mutations out of the view and file writes out of the session.
 - [Document](lib/elixir_canvas/document.ex) owns v1/v2 JSON validation,
   metadata retention, source identity, version-copy preparation and server-file persistence.
 - [Attachment](lib/elixir_canvas/attachment.ex) validates embedded UTF-8 snapshots

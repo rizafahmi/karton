@@ -1,7 +1,8 @@
 # Native macOS implementation specification
 
-Status: design specification; a read-only native viewer exists. The full editor,
-editable compatibility and acceptance proof remain incomplete.
+Status: design specification; a session-only native viewer supports selection,
+movement, native shape-caption editing and Undo/Redo. Text edits retain geometry;
+the full editor, persistence and acceptance proof remain incomplete.
 
 ## 1. Approval boundary and outcome
 

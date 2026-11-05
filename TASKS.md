@@ -709,14 +709,29 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       Offscreen AppKit bitmap inspection covered both fixtures; direct window
       capture failed, so the actual windows were not visually captured.
       Native contract checks cover shared fixtures and selected refusal/quota cases.
-      The viewer is read-only, uses approximate routes, plain code and attachment
-      cards, and has no editable saves, recovery or export. Full editable
+      The viewer uses approximate routes, plain code and attachment cards, with
+      no editable saves, style editing, creation, recovery or export. It now
+      supports session-only object selection, pointer/arrow movement, locked-node
+      protection, shape-caption editing and Undo/Redo; closing discards changes. Full editable
       cross-editor proof remains pending.
       Shared v1/v2 compatibility fixtures now cover five shape kinds, free line,
       rotation/locks, self-loop and styled connectors, Unicode attachment, unknown
       metadata/large integers, and literal code with mixed line endings/language
       variants. Web tests and temporary-file saves exercise unrelated moves and
       round trips; edge variants, invalid/limit cases and native proof remain open.
+      Native interaction checks create real AppKit mouse/key events: pointer drag
+      commits one move, Command actions call the active canvas history, Undo/Redo
+      restore exact geometry, Shift-Arrow moves 10 units, a locked node remains
+      unchanged, connected edges remeasure in memory, and original JSON bytes stay
+      identical. A failed nil-target responder-chain Undo check was replaced with
+      explicit app-delegate routing to the active window's canvas.
+      Native shape-caption editing uses a separate AppKit sheet: double-click or
+      Return opens it; Command-Return/Done commits, Escape/Cancel discards.
+      Native checks exercise literal multiline Unicode, locked refusal, draft
+      isolation, metadata/absent-text restoration, Undo/Redo, no-op redo retention,
+      2,000-grapheme acceptance and over-limit refusal with draft intact.
+      Caption changes retain authored geometry; code/edge editing and automatic
+      text growth remain pending. Physical IME and accessibility proof remain open.
 - [x] **PNG output defaults (2026-11-05):** 2,048-pixel longest side, proportional
       other dimension, configurable output, 32 world-unit padding; caps of 8,192
       pixels per side and 16,777,216 pixels total. Retain transparency, font

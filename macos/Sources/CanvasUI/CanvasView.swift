@@ -4,12 +4,12 @@ import CoreFoundation
 
 // Coordinates in the document, including text overflow and connector routing, are
 // kept separate from view coordinates so negative positions remain scrollable.
-final class CanvasView: NSView {
+public final class CanvasView: NSView {
     private struct Node {
         let id: String
         let type: String
-        let box: CGRect
-        let data: [String: Any]
+        var box: CGRect
+        var data: [String: Any]
         var kind: String { data["kind"] as? String ?? "rect" }
         var rotation: CGFloat { number(data["rotation"], 0) }
         var center: CGPoint { CGPoint(x: box.midX, y: box.midY) }
@@ -26,15 +26,23 @@ final class CanvasView: NSView {
         let animated: Bool
     }
 
-    private let nodes: [Node]
-    private let edges: [EdgeDrawing]
+    private var nodes: [Node]
+    private var edges: [EdgeDrawing]
     private let paper: [String: Any]
     private let fontRole: String
     private let origin: CGPoint
-    override var isFlipped: Bool { true }
+    private let session: CanvasSession
+    private var selectedID: String?
+    private var drag: (id: String, mouse: CGPoint, position: CanvasPosition)?
+    private var textEditor: ShapeTextEditor?
+    public override var isFlipped: Bool { true }
 
-    init(document: CanvasDocument) {
-        let root = document.root
+    public convenience init(document: CanvasDocument) {
+        self.init(session: CanvasSession(document: document))
+    }
+
+    public init(session: CanvasSession) {
+        let root = session.root
         let nodes = (root["nodes"] as? [[String: Any]] ?? []).map { raw in
             Node(id: raw["id"] as? String ?? "", type: raw["type"] as? String ?? "shape",
                  box: CGRect(x: number(raw["x"]), y: number(raw["y"]),
@@ -71,14 +79,17 @@ final class CanvasView: NSView {
         self.edges = edges
         self.paper = root["paper"] as? [String: Any] ?? [:]
         self.fontRole = role
+        self.session = session
         self.origin = bounds.origin
         let size = CGSize(width: max(800, bounds.width), height: max(600, bounds.height))
         super.init(frame: CGRect(origin: .zero, size: size))
     }
 
-    required init?(coder: NSCoder) { fatalError("CanvasView requires a document") }
+    public required init?(coder: NSCoder) { fatalError("CanvasView requires a document") }
 
-    override func draw(_ dirtyRect: NSRect) {
+    public override var acceptsFirstResponder: Bool { true }
+
+    public override func draw(_ dirtyRect: NSRect) {
         NSColor.textBackgroundColor.setFill()
         dirtyRect.fill()
         guard let context = NSGraphicsContext.current?.cgContext else { return }
@@ -87,6 +98,187 @@ final class CanvasView: NSView {
         drawPaper(dirtyRect.offsetBy(dx: origin.x, dy: origin.y))
         for edge in edges { drawEdge(edge) }
         for node in nodes { drawNode(node) }
+        if let selectedID, let node = nodes.first(where: { $0.id == selectedID }) {
+            drawSelection(node)
+        }
+        context.restoreGState()
+    }
+
+    public override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        let point = worldPoint(for: event)
+        selectedID = nodes.reversed().first(where: { contains(point, node: $0) })?.id
+        drag = nil
+        if event.clickCount == 2 {
+            beginTextEditing()
+            needsDisplay = true
+            return
+        }
+        if let id = selectedID, !session.isLocked(id), let position = session.position(of: id) {
+            drag = (id: id, mouse: point, position: position)
+        }
+        needsDisplay = true
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        guard let drag else { return }
+        let point = worldPoint(for: event)
+        let position = CanvasPosition(
+            x: drag.position.x + Double(point.x - drag.mouse.x),
+            y: drag.position.y + Double(point.y - drag.mouse.y)
+        )
+        try? moveWithoutHistory(drag.id, to: position)
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        guard let drag, let current = session.position(of: drag.id) else {
+            self.drag = nil
+            return
+        }
+        self.drag = nil
+        if current != drag.position {
+            registerUndoMove(drag.id, to: drag.position)
+        }
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 {
+            beginTextEditing()
+            return
+        }
+        let step = event.modifierFlags.contains(.shift) ? 10.0 : 1.0
+        let delta: (Double, Double)
+        switch event.keyCode {
+        case 123: delta = (-step, 0)
+        case 124: delta = (step, 0)
+        case 125: delta = (0, step)
+        case 126: delta = (0, -step)
+        default:
+            super.keyDown(with: event)
+            return
+        }
+        guard let id = selectedID, !session.isLocked(id), let current = session.position(of: id) else {
+            NSSound.beep()
+            return
+        }
+        let next = CanvasPosition(x: current.x + delta.0, y: current.y + delta.1)
+        do {
+            try moveWithoutHistory(id, to: next)
+            registerUndoMove(id, to: current)
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    @objc public func undoMove(_ sender: Any?) {
+        window?.undoManager?.undo()
+    }
+
+    @objc public func redoMove(_ sender: Any?) {
+        window?.undoManager?.redo()
+    }
+
+    private func beginTextEditing() {
+        guard textEditor == nil, let window, let id = selectedID,
+              session.canEditText(id) else { NSSound.beep(); return }
+        drag = nil
+        textEditor = ShapeTextEditor(text: session.text(of: id) ?? "", commit: { [weak self] text in
+            guard let self else { return }
+            // Finishing an unchanged empty caption must not materialize a default.
+            guard text != (self.session.text(of: id) ?? "") else { return }
+            try self.changeText(id, to: text)
+        }, completion: { [weak self, weak window] in
+            guard let self else { return }
+            self.textEditor = nil
+            window?.makeFirstResponder(self)
+        })
+        textEditor?.present(on: window)
+    }
+
+    private func changeText(_ id: String, to text: String?) throws {
+        let before = session.text(of: id)
+        guard try session.setText(id, to: text) else { return }
+        if let index = nodes.firstIndex(where: { $0.id == id }) {
+            nodes[index].data["text"] = text
+        }
+        window?.undoManager?.registerUndo(withTarget: self) { target in
+            do { try target.changeText(id, to: before) }
+            catch { NSSound.beep() }
+        }
+        window?.undoManager?.setActionName("Edit Text")
+        needsDisplay = true
+    }
+
+    private func registerUndoMove(_ id: String, to position: CanvasPosition) {
+        window?.undoManager?.registerUndo(withTarget: self) { target in
+            target.performHistoryMove(id, to: position)
+        }
+        window?.undoManager?.setActionName("Move")
+    }
+
+    private func performHistoryMove(_ id: String, to position: CanvasPosition) {
+        guard let inverse = session.position(of: id) else { return }
+        do {
+            try moveWithoutHistory(id, to: position)
+            registerUndoMove(id, to: inverse)
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    private func moveWithoutHistory(_ id: String, to position: CanvasPosition) throws {
+        guard try session.move(id, to: position) != nil else { return }
+        guard let index = nodes.firstIndex(where: { $0.id == id }) else { return }
+        nodes[index].box.origin = CGPoint(x: position.x, y: position.y)
+        rebuildEdges()
+        needsDisplay = true
+    }
+
+    private func rebuildEdges() {
+        let index = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        edges = (session.root["edges"] as? [[String: Any]] ?? []).compactMap { raw in
+            guard let source = index[raw["source"] as? String ?? ""],
+                  let target = index[raw["target"] as? String ?? ""] else { return nil }
+            return Self.makeEdge(raw, source, target)
+        }
+    }
+
+    private func worldPoint(for event: NSEvent) -> CGPoint {
+        let point = convert(event.locationInWindow, from: nil)
+        return CGPoint(x: point.x + origin.x, y: point.y + origin.y)
+    }
+
+    public func viewPoint(forWorldPoint point: CGPoint) -> CGPoint {
+        CGPoint(x: point.x - origin.x, y: point.y - origin.y)
+    }
+
+    private func contains(_ location: CGPoint, node: Node) -> Bool {
+        let angle = -node.rotation * .pi / 180
+        let dx = location.x - node.center.x
+        let dy = location.y - node.center.y
+        let local = CGPoint(
+            x: node.center.x + dx * cos(angle) - dy * sin(angle),
+            y: node.center.y + dx * sin(angle) + dy * cos(angle)
+        )
+        if node.type == "shape-line" {
+            return distance(local, toSegmentFrom: point(node.data["from"], in: node.box),
+                            to: point(node.data["to"], in: node.box)) <= 8
+        }
+        let kind = node.type == "code" ? "rect" : node.kind
+        return outline(kind, node.box, number(node.data["radius"], kind == "text" ? 0 : 8)).contains(local)
+    }
+
+    private func drawSelection(_ node: Node) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.translateBy(x: node.center.x, y: node.center.y)
+        context.rotate(by: node.rotation * .pi / 180)
+        context.translateBy(x: -node.center.x, y: -node.center.y)
+        let path = NSBezierPath(rect: node.box.insetBy(dx: -5, dy: -5))
+        NSColor.controlAccentColor.setStroke()
+        path.lineWidth = 2
+        path.setLineDash([5, 3], count: 2, phase: 0)
+        path.stroke()
         context.restoreGState()
     }
 
@@ -287,6 +479,15 @@ private func number(_ value: Any?, _ fallback: CGFloat = 0) -> CGFloat { (value 
 private func point(_ value: Any?, in box: CGRect) -> CGPoint {
     let values = value as? [Any] ?? []
     return CGPoint(x: box.minX + (values.count > 0 ? number(values[0]) : 0), y: box.minY + (values.count > 1 ? number(values[1]) : 0))
+}
+private func distance(_ point: CGPoint, toSegmentFrom start: CGPoint, to end: CGPoint) -> CGFloat {
+    let dx = end.x - start.x
+    let dy = end.y - start.y
+    let lengthSquared = dx * dx + dy * dy
+    guard lengthSquared > 0 else { return hypot(point.x - start.x, point.y - start.y) }
+    let ratio = max(0, min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+    let nearest = CGPoint(x: start.x + ratio * dx, y: start.y + ratio * dy)
+    return hypot(point.x - nearest.x, point.y - nearest.y)
 }
 private func font(_ role: String, _ size: String) -> NSFont {
     let points: CGFloat = size == "s" ? 12 : size == "l" ? 24 : 16

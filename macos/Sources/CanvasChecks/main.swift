@@ -1,4 +1,6 @@
+import AppKit
 import CanvasCore
+import CanvasUI
 import Foundation
 
 struct CheckFailure: Error, CustomStringConvertible {
@@ -37,6 +39,7 @@ func rejects(_ object: Any, mentioning expected: String) throws {
     }
 }
 
+@MainActor
 func runChecks() throws {
     let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -92,6 +95,136 @@ func runChecks() throws {
     try rejects(canvas((0..<4).map { attached("a\($0)", maximum) } + [attached("extra", "x")]), mentioning: "1048576")
     try rejects(canvas([attached("a", "\u{7f}")]), mentioning: "control")
     print("PASS code and attachment byte limits and control restrictions")
+
+    var interactionRoot = canvas([shape("moving"), shape("locked")])
+    var interactionNodes = interactionRoot["nodes"] as! [[String: Any]]
+    interactionNodes[0]["x"] = 100
+    interactionNodes[0]["y"] = 100
+    interactionNodes[0]["data"] = ["kind": "rect", "custom": ["retained": true]]
+    interactionNodes[1]["x"] = 300
+    interactionNodes[1]["y"] = 100
+    interactionNodes[1]["locked"] = true
+    interactionRoot["nodes"] = interactionNodes
+    let interactionBytes = try encoded(interactionRoot)
+    let session = CanvasSession(document: try CanvasDocument(data: interactionBytes))
+    let view = CanvasView(session: session)
+    let window = NSWindow(
+        contentRect: NSRect(origin: .zero, size: view.frame.size),
+        styleMask: [.titled],
+        backing: .buffered,
+        defer: false
+    )
+    window.contentView = view
+    window.makeKeyAndOrderFront(nil)
+    window.makeFirstResponder(view)
+    let start = view.viewPoint(forWorldPoint: CGPoint(x: 150, y: 125))
+    let finish = CGPoint(x: start.x + 40, y: start.y + 30)
+    func mouse(_ type: NSEvent.EventType, _ point: CGPoint, clicks: Int = 1) -> NSEvent {
+        NSEvent.mouseEvent(
+            with: type,
+            location: view.convert(point, to: nil),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: clicks,
+            pressure: 1
+        )!
+    }
+    view.mouseDown(with: mouse(.leftMouseDown, start))
+    view.mouseDragged(with: mouse(.leftMouseDragged, finish))
+    view.mouseUp(with: mouse(.leftMouseUp, finish))
+    try require(session.position(of: "moving") == CanvasPosition(x: 140, y: 130), "Pointer drag did not update session geometry")
+    let canUndo = window.undoManager?.canUndo == true
+    try require(canUndo, "Pointer drag did not create one undoable move")
+    view.undoMove(nil)
+    try require(session.position(of: "moving") == CanvasPosition(x: 100, y: 100), "Undo did not restore geometry")
+    view.redoMove(nil)
+    try require(session.position(of: "moving") == CanvasPosition(x: 140, y: 130), "Redo did not restore moved geometry")
+    let shiftRight = NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: [.shift],
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber,
+        context: nil,
+        characters: "",
+        charactersIgnoringModifiers: "",
+        isARepeat: false,
+        keyCode: 124
+    )!
+    view.keyDown(with: shiftRight)
+    try require(session.position(of: "moving") == CanvasPosition(x: 150, y: 130), "Shift-arrow did not move by 10 world units")
+    view.undoMove(nil)
+    try require(session.position(of: "moving") == CanvasPosition(x: 140, y: 130), "Undo did not restore keyboard move")
+
+    let lockedStart = view.viewPoint(forWorldPoint: CGPoint(x: 350, y: 125))
+    let lockedFinish = CGPoint(x: lockedStart.x + 40, y: lockedStart.y + 30)
+    view.mouseDown(with: mouse(.leftMouseDown, lockedStart))
+    view.mouseDragged(with: mouse(.leftMouseDragged, lockedFinish))
+    view.mouseUp(with: mouse(.leftMouseUp, lockedFinish))
+    try require(session.position(of: "locked") == CanvasPosition(x: 300, y: 100), "Locked node moved")
+    try require(session.document.originalData == interactionBytes, "Session movement changed original document bytes")
+    print("PASS AppKit pointer move, undo/redo, locked refusal and original-byte boundary")
+
+    func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers,
+                        timestamp: ProcessInfo.processInfo.systemUptime,
+                        windowNumber: window.windowNumber, context: nil, characters: "",
+                        charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
+    }
+    func activeEditor() throws -> NSTextView {
+        guard let sheet = window.attachedSheet,
+              let editor = sheet.firstResponder as? NSTextView else {
+            throw CheckFailure(description: "Native text sheet did not focus its editor")
+        }
+        return editor
+    }
+    view.keyDown(with: key(36))
+    try require(window.attachedSheet == nil, "Locked shape opened a text editor")
+    let movedCenter = view.viewPoint(forWorldPoint: CGPoint(x: 190, y: 155))
+    view.mouseDown(with: mouse(.leftMouseDown, movedCenter))
+    view.mouseUp(with: mouse(.leftMouseUp, movedCenter))
+    window.undoManager?.removeAllActions()
+    let beforeTextRoot = session.root
+    view.mouseDown(with: mouse(.leftMouseDown, movedCenter, clicks: 2))
+    var editor = try activeEditor()
+    let caption = "Hello 👨‍👩‍👧‍👦\nCafe\u{301} <literal>"
+    editor.string = caption
+    try require(session.text(of: "moving") == nil, "Draft leaked into committed content")
+    editor.keyDown(with: key(36, modifiers: [.command]))
+    try require(session.text(of: "moving") == caption, "Command-Return did not commit literal multiline text")
+    try require(window.attachedSheet == nil, "Commit left sheet open")
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: session.root).isEqual(to: beforeTextRoot), "Text Undo did not restore complete original metadata and absent text")
+    view.redoMove(nil)
+    try require(session.text(of: "moving") == caption, "Text Redo did not restore caption")
+    view.keyDown(with: key(36))
+    editor = try activeEditor()
+    editor.string = "Discard me"
+    editor.keyDown(with: key(53))
+    try require(session.text(of: "moving") == caption, "Escape committed the draft")
+    view.keyDown(with: key(36))
+    editor = try activeEditor()
+    editor.string = String(repeating: "a", count: 2001)
+    editor.keyDown(with: key(36, modifiers: [.command]))
+    try require(window.attachedSheet != nil && session.text(of: "moving") == caption,
+                "Over-limit draft was committed or dismissed")
+    try require(editor.string.count == 2001, "Invalid draft was truncated")
+    editor.string = String(repeating: "e\u{301}", count: 2000)
+    editor.keyDown(with: key(36, modifiers: [.command]))
+    try require(session.text(of: "moving")?.count == 2000, "Valid grapheme boundary was refused")
+    try require(session.document.originalData == interactionBytes, "Text editing changed source bytes")
+    view.undoMove(nil)
+    try require(session.text(of: "moving") == caption, "Boundary edit did not undo as one transaction")
+    view.keyDown(with: key(36))
+    editor = try activeEditor()
+    editor.keyDown(with: key(36, modifiers: [.command]))
+    try require(window.undoManager?.canRedo == true, "Unchanged text finish cleared redo")
+    view.redoMove(nil)
+    try require(session.text(of: "moving")?.count == 2000, "No-op finish changed text history")
+    print("PASS native text draft isolation, commit, cancel, history, Unicode limit and source-byte boundary")
 }
 
 do {

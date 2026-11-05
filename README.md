@@ -5,10 +5,11 @@ and Hakushi. The JSON file is the document, not an export from a database.
 
 ## Native macOS
 
-A native, **read-only canvas viewer** is available for macOS 27 through the
+A native, **session-only canvas viewer** is available for macOS 27 through the
 [command-line build](macos/README.md). It opens supported v1/v2 files without
-Phoenix. Editing, saving, attachment previews, syntax highlighting, recovery
-and PNG export are not implemented; connector routes are approximate.
+Phoenix and supports selection, movement, locked-node protection, shape-caption
+editing and Undo/Redo in memory. It never saves; style editing, creation, attachment
+previews, syntax highlighting, recovery and PNG export are not implemented.
 The independent native editor remains an unfinished milestone; see
 [TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) and
 [macos/SPEC.md](macos/SPEC.md) for scope and acceptance proof.

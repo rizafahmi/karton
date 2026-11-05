@@ -1,8 +1,9 @@
 # Native macOS editor
 
-This directory contains an independent, read-only native canvas viewer. The
-planned editor is not complete: there is no editing, saving, history, recovery,
-attachment preview, syntax highlighting or PNG export.
+This directory contains an independent native canvas viewer with session-only
+selection, movement and shape-caption editing. The planned editor is not complete:
+there is no saving, style editing, creation, recovery, attachment preview, syntax
+highlighting or PNG export.
 
 ## Build and run
 
@@ -15,13 +16,25 @@ open "macos/.build/Elixir Canvas.app"
 ```
 
 Use **File → Open…** or the welcome-window button to choose a canvas. Each file
-opens in a read-only window. The viewer never saves or changes source files.
-It validates versions, graph references, content limits and supported rendering
-semantics before opening; unsupported documents are refused with a message.
-Some valid web canvases may be refused, including self-loops without two distinct
-named side handles and geometry outside the viewer's bounds. Fonts, colors and
-connector routes are native approximations; code is plain text and attachments
-are displayed as cards, not previews. There is no zoom or export.
+opens in a session-only window. Click an object to select it; drag it, or use
+Arrow keys (Shift-Arrow moves 10 world units). Locked objects can be selected but
+not moved or edited. Command-Z and Shift-Command-Z undo/redo completed moves and
+caption changes. Movement updates connected routes in memory.
+
+Double-click an unlocked shape, or select it and press Return, to edit its caption
+in a native sheet. Return inserts a newline; **⌘Return** or **Done** commits;
+**Escape** or **Cancel** discards the draft. Text is limited to 2,000 graphemes;
+an invalid draft stays open without truncation. Code, line and connection text
+editing are not implemented. Attachment cards edit only their caption, not content.
+Text edits retain authored geometry; automatic box growth is not implemented.
+
+The app never saves or changes source files. Closing the window discards session
+changes without a confirmation prompt. It validates versions, graph references,
+content limits and supported rendering semantics before opening; unsupported
+documents are refused with a message. Some valid web canvases may be refused,
+including self-loops without two distinct named side handles and geometry outside
+the viewer's bounds. Fonts, colors and connector routes are native approximations;
+code is plain text and attachments are cards, not previews. No zoom or export.
 
 Run the standalone native contract checks from the repository root:
 

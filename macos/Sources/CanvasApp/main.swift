@@ -1,5 +1,6 @@
 import AppKit
 import CanvasCore
+import CanvasUI
 import UniformTypeIdentifiers
 
 @MainActor
@@ -35,9 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func showWelcome() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Elixir Canvas — Read-only viewer"
+        window.title = "Elixir Canvas — Session-only viewer"
         window.center()
-        let label = NSTextField(labelWithString: "Open a JSON canvas to view it.\nRead-only; routes are approximate and code is plain text.")
+        let label = NSTextField(labelWithString: "Open a JSON canvas to select and move objects.\nChanges remain in memory; saving is unavailable.")
         label.alignment = .center
         label.frame = NSRect(x: 30, y: 125, width: 420, height: 52)
         let button = NSButton(title: "Open Canvas…", target: self, action: #selector(chooseDocument(_:)))
@@ -61,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             scroll.documentView = canvas
             let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.delegate = self
-            window.title = "\(url.lastPathComponent) — Read-only, approximate routes"
+            window.title = "\(url.lastPathComponent) — Session changes not saved"
             window.contentView = scroll
             window.center()
             let controller = NSWindowController(window: window)
@@ -84,6 +85,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         windows.removeAll { $0.window === window }
     }
 
+    @objc private func undoMove(_ sender: Any?) {
+        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+            editor.undoManager?.undo()
+        } else {
+            activeCanvas()?.undoMove(sender)
+        }
+    }
+
+    @objc private func redoMove(_ sender: Any?) {
+        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+            editor.undoManager?.redo()
+        } else {
+            activeCanvas()?.redoMove(sender)
+        }
+    }
+
+    private func activeCanvas() -> CanvasView? {
+        guard let scrollView = NSApp.keyWindow?.contentView as? NSScrollView else { return nil }
+        return scrollView.documentView as? CanvasView
+    }
+
     private func installMenu() {
         let main = NSMenu()
         let appItem = NSMenuItem()
@@ -99,6 +121,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         fileMenu.addItem(open)
         fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileItem.submenu = fileMenu
+        let editItem = NSMenuItem()
+        main.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit")
+        let undo = NSMenuItem(title: "Undo", action: #selector(undoMove(_:)), keyEquivalent: "z")
+        undo.target = self
+        let redo = NSMenuItem(title: "Redo", action: #selector(redoMove(_:)), keyEquivalent: "z")
+        redo.target = self
+        redo.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(undo)
+        editMenu.addItem(redo)
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
         NSApp.mainMenu = main
     }
 }
