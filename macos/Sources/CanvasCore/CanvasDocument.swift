@@ -25,7 +25,19 @@ public final class CanvasDocument {
             throw CanvasDocumentError("A canvas must be a JSON object.")
         }
         try Validator.validate(root)
-        self.root = root
+        // Keep raw numeric-token refusal semantics, then preserve literal strings.
+        // Revalidate restored strings so BOM bytes/graphemes count toward quotas.
+        let preserved: [String: Any]
+        do {
+            guard let object = try JSONDecoder().decode(CanvasJSON.self, from: data).value as? [String: Any] else {
+                throw CanvasDocumentError("A canvas must be a JSON object.")
+            }
+            preserved = object
+        } catch {
+            throw CanvasDocumentError("Invalid JSON: \(error.localizedDescription)")
+        }
+        try Validator.validate(preserved)
+        self.root = preserved
         self.originalData = data
     }
 }

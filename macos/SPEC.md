@@ -1,8 +1,8 @@
 # Native macOS implementation specification
 
 Status: design specification; the session-only native app supports blank v2 New,
-shape/text insertion, selection, movement, caption editing and Undo/Redo.
-Text edits retain geometry; the full editor, persistence and acceptance proof
+shape/text insertion, connections, selection, movement, resize/rotation, captions
+and Undo/Redo. Text edits retain geometry; the full editor, persistence and acceptance proof
 remain incomplete.
 
 ## 1. Approval boundary and outcome
@@ -475,5 +475,6 @@ inspector handled an injected native mouse event and a model-to-control update.
 External automation lacked Accessibility permission; physical-pointer and
 accessibility interaction remain unproven.
 The native app's actual build and check commands are in [README.md](README.md).
-Persistent document editing, signing, distribution and the complete native workflow
-remain unproven.
+Local ad-hoc bundle signing, strict verification and Launch Services opening have
+been exercised. Persistent editing, Developer ID signing, notarization,
+distribution and the complete native workflow remain unproven.

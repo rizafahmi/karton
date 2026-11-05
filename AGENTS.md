@@ -13,7 +13,8 @@ unless requested, not permanently prohibited directions.
 
 An independent native Mac editor is in progress, sharing JSON contracts rather
 than the web runtime. `macos/` currently provides session-only New, shape/text
-insertion, selection, movement, caption editing and Undo/Redo; it never saves.
+insertion, connections, selection, movement, resize/rotation, captions and Undo/Redo;
+it never saves.
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.
@@ -35,6 +36,8 @@ New is blank v2; inserting into existing v1 leaves its version unchanged. The ap
 never writes documents and refuses unsupported semantics. Routes are approximate and
 code is plain text. Existing attachment support is in scope for the editor; new
 attachment import is not. TASKS.md owns remaining gates.
+The local bundler must ad-hoc sign and verify the assembled `.app`; the standalone
+linker signature is not a valid substitute for the final bundle's seal.
 [`macos/SPEC.md`](macos/SPEC.md) distinguishes approved choices from proposals;
 neither the design nor approval establishes native compatibility.
 [`shared/CODE_SNIPPETS.md`](shared/CODE_SNIPPETS.md) owns the supported shared
@@ -46,12 +49,25 @@ silently upgrade/downgrade, or infer native implementation from web support.
 ## Architecture map
 
 - Native [CanvasDocument](macos/Sources/CanvasCore/CanvasDocument.swift) validates
-  supported v1/v2 input and retains original bytes. [CanvasSession](macos/Sources/CanvasCore/CanvasSession.swift)
-  owns mutable in-memory graph state and retained insertion identity/stacking.
+  supported v1/v2 input and retains original bytes.
+  [CanvasJSON](macos/Sources/CanvasCore/CanvasJSON.swift) preserves literal strings:
+  the current SDK's JSONSerialization strips leading BOMs inside strings.
+  Keep raw numeric-token validation before string-preserving JSONDecoder decoding,
+  then validate restored content/quotas; parsing happens on open, not geometry edits.
+  [CanvasSession](macos/Sources/CanvasCore/CanvasSession.swift) owns mutable in-memory
+  graph state and retained object/connection insertion
+  identity/stacking; connection transactions validate endpoints and self-loop sides.
   [CanvasView](macos/Sources/CanvasUI/CanvasView.swift) owns AppKit hit-testing,
-  viewport-centered insertion, selection, rendering and transaction Undo/Redo.
-  [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift) keeps native sheet
-  drafts separate until valid commit; cancellation leaves history untouched.
+  viewport-centered insertion, selection, rendering and explicit per-canvas history
+  groups, not AppKit event-based grouping. Geometry/edges grow scroll bounds
+  without shifting the visible world position; Undo does not shrink them.
+  [CanvasGeometry](macos/Sources/CanvasCore/CanvasGeometry.swift) owns validated
+  authored boxes and rotated-anchor math; [GeometryGesture](macos/Sources/CanvasUI/GeometryGesture.swift)
+  keeps resize/rotation previews outside session JSON until commit. Preserve
+  omitted rotation on cancel/Undo; lines need endpoint semantics, not box scaling.
+  [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift) and
+  [ConnectionEditor](macos/Sources/CanvasUI/ConnectionEditor.swift) keep native
+  sheet drafts separate until valid commit; cancellation leaves history untouched.
   The session is not persistence: closing discards changes and source bytes stay
   untouched. Keep mutations out of the view and file writes out of the session.
 - [Document](lib/elixir_canvas/document.ex) owns v1/v2 JSON validation,

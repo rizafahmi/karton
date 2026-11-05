@@ -105,9 +105,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         activeCanvas()?.insertShape(kind)
     }
 
+    @objc private func insertConnection(_ sender: Any?) {
+        activeCanvas()?.beginConnection()
+    }
+
+    @objc private func editGeometry(_ sender: Any?) {
+        activeCanvas()?.beginGeometryEditing()
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(editGeometry(_:)) {
+            return activeCanvas()?.canEditGeometry == true &&
+                activeCanvas()?.hasGeometryPreview == false && NSApp.keyWindow?.attachedSheet == nil
+        }
+        if menuItem.action == #selector(insertConnection(_:)) {
+            return activeCanvas()?.canInsertConnection == true &&
+                activeCanvas()?.hasGeometryPreview == false && NSApp.keyWindow?.attachedSheet == nil
+        }
         if menuItem.action == #selector(insertShape(_:)) {
-            return activeCanvas() != nil && NSApp.keyWindow?.attachedSheet == nil
+            return activeCanvas() != nil && activeCanvas()?.hasGeometryPreview == false &&
+                NSApp.keyWindow?.attachedSheet == nil
         }
         return true
     }
@@ -171,6 +188,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
+        let geometry = NSMenuItem(title: "Edit Geometry", action: #selector(editGeometry(_:)), keyEquivalent: "")
+        geometry.target = self
+        editMenu.addItem(geometry)
         editItem.submenu = editMenu
         let insertItem = NSMenuItem()
         main.addItem(insertItem)
@@ -184,6 +205,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             item.representedObject = kind.rawValue
             insertMenu.addItem(item)
         }
+        insertMenu.addItem(.separator())
+        let connection = NSMenuItem(title: "Connection…", action: #selector(insertConnection(_:)), keyEquivalent: "")
+        connection.target = self
+        insertMenu.addItem(connection)
         insertItem.submenu = insertMenu
         NSApp.mainMenu = main
     }

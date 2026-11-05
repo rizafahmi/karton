@@ -136,7 +136,7 @@ func runChecks() throws {
     view.mouseDragged(with: mouse(.leftMouseDragged, finish))
     view.mouseUp(with: mouse(.leftMouseUp, finish))
     try require(session.position(of: "moving") == CanvasPosition(x: 140, y: 130), "Pointer drag did not update session geometry")
-    let canUndo = window.undoManager?.canUndo == true
+    let canUndo = view.undoManager?.canUndo == true
     try require(canUndo, "Pointer drag did not create one undoable move")
     view.undoMove(nil)
     try require(session.position(of: "moving") == CanvasPosition(x: 100, y: 100), "Undo did not restore geometry")
@@ -186,7 +186,7 @@ func runChecks() throws {
     let movedCenter = view.viewPoint(forWorldPoint: CGPoint(x: 190, y: 155))
     view.mouseDown(with: mouse(.leftMouseDown, movedCenter))
     view.mouseUp(with: mouse(.leftMouseUp, movedCenter))
-    window.undoManager?.removeAllActions()
+    view.undoManager?.removeAllActions()
     let beforeTextRoot = session.root
     view.mouseDown(with: mouse(.leftMouseDown, movedCenter, clicks: 2))
     var editor = try activeEditor()
@@ -221,7 +221,7 @@ func runChecks() throws {
     view.keyDown(with: key(36))
     editor = try activeEditor()
     editor.keyDown(with: key(36, modifiers: [.command]))
-    try require(window.undoManager?.canRedo == true, "Unchanged text finish cleared redo")
+    try require(view.undoManager?.canRedo == true, "Unchanged text finish cleared redo")
     view.redoMove(nil)
     try require(session.text(of: "moving")?.count == 2000, "No-op finish changed text history")
     print("PASS native text draft isolation, commit, cancel, history, Unicode limit and source-byte boundary")
@@ -261,7 +261,7 @@ func runChecks() throws {
     scroll.contentView.scroll(to: CGPoint(x: 100, y: 90))
     scroll.reflectScrolledClipView(scroll.contentView)
     window.makeFirstResponder(view)
-    window.undoManager?.removeAllActions()
+    view.undoManager?.removeAllActions()
     let beforeInsert = session.root
     for kind in [CanvasShapeKind.rectangle, .ellipse, .diamond, .triangle] {
         view.insertShape(kind)
@@ -283,24 +283,29 @@ func runChecks() throws {
                     session.position(of: id) != nil, "Redo changed inserted identity or stacking")
         view.undoMove(nil)
     }
-    let hadRedo = window.undoManager?.canRedo
+    let hadRedo = view.undoManager?.canRedo
     view.insertShape(.text)
     editor = try activeEditor()
     editor.string = "Cancelled new text"
     editor.keyDown(with: key(53))
     try require(NSDictionary(dictionary: session.root).isEqual(to: beforeInsert) &&
-                window.undoManager?.canRedo == hadRedo, "Cancelling new text changed content/history")
+                view.undoManager?.canRedo == hadRedo, "Cancelling new text changed content/history")
     view.insertShape(.text)
     editor = try activeEditor()
     editor.keyDown(with: key(36, modifiers: [.command]))
     try require(NSDictionary(dictionary: session.root).isEqual(to: beforeInsert) &&
-                window.undoManager?.canRedo == hadRedo, "Empty new text created a node/history")
+                view.undoManager?.canRedo == hadRedo, "Empty new text created a node/history")
     view.insertShape(.text)
     editor = try activeEditor()
     editor.keyDown(with: key(15, characters: "r"))
     try require(editor.string == "r" &&
                 NSDictionary(dictionary: session.root).isEqual(to: beforeInsert),
                 "Canvas creation shortcut intercepted native text input")
+    editor.undoManager?.undo()
+    try require(editor.string.isEmpty &&
+                NSDictionary(dictionary: session.root).isEqual(to: beforeInsert) &&
+                view.undoManager?.canRedo == hadRedo,
+                "Native text Undo affected canvas content/history")
     editor.string = String(repeating: "a", count: 2001)
     editor.keyDown(with: key(36, modifiers: [.command]))
     try require(window.attachedSheet != nil &&
@@ -324,14 +329,8 @@ func runChecks() throws {
     let keyboardID = keyboardShape["id"] as! String
     try require((keyboardShape["data"] as? [String: Any])?["kind"] as? String == "rect",
                 "Canvas R shortcut did not insert a rectangle")
-    // Let AppKit close its own event group before the next user action.
-    func finishEvent() {
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.01))
-    }
-    finishEvent()
     let insertedPosition = session.position(of: keyboardID)!
     view.keyDown(with: key(124))
-    finishEvent()
     try require(session.position(of: keyboardID) == CanvasPosition(x: insertedPosition.x + 1, y: insertedPosition.y),
                 "New shape was not selected for keyboard movement")
     view.undoMove(nil)
@@ -344,6 +343,9 @@ func runChecks() throws {
                 "Mixed insertion/movement redo lost geometry or identity")
     try require(session.document.originalData == interactionBytes, "Creation changed original source bytes")
     print("PASS blank canvas, all shape insertions, viewport placement, text drafts and mixed history")
+    try checkConnections(repository: repository)
+    try checkGeometry(repository: repository)
+    try checkLiteralJSON()
 }
 
 do {

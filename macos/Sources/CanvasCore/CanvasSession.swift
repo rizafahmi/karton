@@ -28,6 +28,16 @@ public struct CanvasShapeInsertion {
     fileprivate let index: Int
 }
 
+public enum CanvasConnectionSide: String, CaseIterable, Sendable {
+    case top, right, bottom, left
+}
+
+public struct CanvasConnectionInsertion {
+    public let id: String
+    fileprivate let edge: [String: Any]
+    fileprivate let index: Int
+}
+
 /// Mutable in-memory document state. Persistence remains deliberately unavailable.
 public final class CanvasSession {
     public let document: CanvasDocument
@@ -71,6 +81,38 @@ public final class CanvasSession {
         root["nodes"] = nodes
         return CanvasMove(id: id, before: before, after: position)
     }
+    public func geometry(of id: String) -> CanvasGeometry? {
+        guard let raw = node(id), let data = raw["data"] as? [String: Any],
+              let x = number(raw["x"]), let y = number(raw["y"]),
+              let width = number(raw["width"]), let height = number(raw["height"]) else { return nil }
+        return CanvasGeometry(x: x, y: y, width: width, height: height, rotation: number(data["rotation"]))
+    }
+
+    public func canTransform(_ id: String) -> Bool {
+        guard let type = node(id)?["type"] as? String else { return false }
+        return (type == "shape" || type == "code") && !isLocked(id)
+    }
+
+    @discardableResult
+    public func setGeometry(_ id: String, to geometry: CanvasGeometry) throws -> Bool {
+        try geometry.validate()
+        guard canTransform(id),
+              var nodes = root["nodes"] as? [[String: Any]],
+              let index = nodes.firstIndex(where: { $0["id"] as? String == id }),
+              var data = nodes[index]["data"] as? [String: Any] else {
+            throw CanvasDocumentError("Select an unlocked shape or code block to resize/rotate.")
+        }
+        guard self.geometry(of: id) != geometry else { return false }
+        nodes[index]["x"] = geometry.x
+        nodes[index]["y"] = geometry.y
+        nodes[index]["width"] = geometry.width
+        nodes[index]["height"] = geometry.height
+        data["rotation"] = geometry.rotation
+        nodes[index]["data"] = data
+        root["nodes"] = nodes
+        return true
+    }
+
     public func text(of id: String) -> String? {
         (node(id)?["data"] as? [String: Any])?["text"] as? String
     }
@@ -150,6 +192,64 @@ public final class CanvasSession {
         nodes.insert(insertion.node, at: insertion.index)
         root["nodes"] = nodes
     }
+    public func insertConnection(
+        source: String, sourceSide: CanvasConnectionSide? = nil,
+        target: String, targetSide: CanvasConnectionSide? = nil
+    ) throws -> CanvasConnectionInsertion {
+        try validateConnection(source: source, sourceSide: sourceSide, target: target, targetSide: targetSide)
+        let id = UUID().uuidString
+        var edge: [String: Any] = [
+            "id": id, "source": source, "target": target, "path": "bezier", "marker": "arrow"
+        ]
+        edge["source_handle"] = sourceSide?.rawValue
+        edge["target_handle"] = targetSide?.rawValue
+        var edges = root["edges"] as? [[String: Any]] ?? []
+        let insertion = CanvasConnectionInsertion(
+            id: id, edge: edge, index: edges.count
+        )
+        edges.append(edge)
+        root["edges"] = edges
+        return insertion
+    }
+
+    public func removeInsertion(_ insertion: CanvasConnectionInsertion) throws {
+        guard var edges = root["edges"] as? [[String: Any]],
+              let index = edges.firstIndex(where: { $0["id"] as? String == insertion.id }) else {
+            throw CanvasDocumentError("The inserted connection is missing.")
+        }
+        edges.remove(at: index)
+        root["edges"] = edges
+    }
+
+    public func restoreInsertion(_ insertion: CanvasConnectionInsertion) throws {
+        let edge = insertion.edge
+        try validateConnection(
+            source: edge["source"] as? String ?? "",
+            sourceSide: (edge["source_handle"] as? String).flatMap(CanvasConnectionSide.init(rawValue:)),
+            target: edge["target"] as? String ?? "",
+            targetSide: (edge["target_handle"] as? String).flatMap(CanvasConnectionSide.init(rawValue:))
+        )
+        guard var edges = root["edges"] as? [[String: Any]],
+              insertion.index <= edges.count,
+              !edges.contains(where: { $0["id"] as? String == insertion.id }) else {
+            throw CanvasDocumentError("Cannot restore the connection at its original position.")
+        }
+        edges.insert(edge, at: insertion.index)
+        root["edges"] = edges
+    }
+
+    private func validateConnection(
+        source: String, sourceSide: CanvasConnectionSide?,
+        target: String, targetSide: CanvasConnectionSide?
+    ) throws {
+        guard node(source) != nil, node(target) != nil else {
+            throw CanvasDocumentError("Choose existing source and target objects.")
+        }
+        if source == target && (sourceSide == nil || targetSide == nil || sourceSide == targetSide) {
+            throw CanvasDocumentError("A self-loop needs two different named sides, not Automatic.")
+        }
+    }
+
     private func node(_ id: String) -> [String: Any]? {
         (root["nodes"] as? [[String: Any]])?.first { $0["id"] as? String == id }
     }

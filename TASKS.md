@@ -710,10 +710,10 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       capture failed, so the actual windows were not visually captured.
       Native contract checks cover shared fixtures and selected refusal/quota cases.
       The native app uses approximate routes, plain code and attachment cards,
-      with no editable saves, style editing, line/connection/code creation,
-      recovery or export. It supports session-only New, shape/text insertion,
-      selection, pointer/arrow movement, locked-node protection, caption editing
-      and Undo/Redo; closing discards changes. Full editable cross-editor proof
+      with no editable saves, style editing, line/code creation, recovery or
+      export. It supports session-only New, shape/text insertion, connections,
+      selection, pointer/arrow movement, resize/rotation, locked-node protection,
+      caption editing and Undo/Redo; closing discards changes. Full editable cross-editor proof
       remains pending.
       Shared v1/v2 compatibility fixtures now cover five shape kinds, free line,
       rotation/locks, self-loop and styled connectors, Unicode attachment, unknown
@@ -742,6 +742,41 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       insertion/movement history. A temporary executable using the actual app
       delegate and release libraries exercised File New, Insert, Undo/Redo, text
       commit, canvas focus and two independent untitled windows.
+      Native C / Insert Connection opens a source/target and side-picker sheet.
+      Automatic sides remain omitted; self-loops need distinct named sides.
+      Native checks cover missing endpoints, invalid/valid self-loops, retained
+      drafts, one-object defaults, cancellation, stable IDs/order, v1 metadata and
+      source-byte retention. Bitmap checks verify connection appearance/removal,
+      rerouting after endpoint movement and exterior-route visibility without
+      camera movement. A temporary actual-app-delegate smoke exercised New →
+      Insert → pointer arrange → Connection → mixed menu Undo/Redo and Escape.
+      That smoke first exposed event-grouped insertions merging; per-canvas
+      explicit transaction groups fixed it, with back-to-back command regressions
+      and removal of run-loop timing from the history checks.
+      Screen-capture permission is unavailable; an offscreen sheet bitmap omitted
+      composited native control labels, so it is not complete window visual proof.
+      Native unlocked shapes/code now expose eight resize handles and rotation;
+      G / Edit Geometry enables Tab/Shift-Tab, local-axis arrow previews,
+      Return commit and Escape cancel. Shift steps are 10 units / 15 degrees.
+      Opposite anchors remain fixed during rotated resizing; crossing clamps
+      instead of flipping. Lines are excluded until endpoint editing is implemented.
+      Native checks cover pointer/keyboard preview isolation, rotated pointer
+      resizing, full-circle rotation, no-op/cancel redo retention, exact metadata
+      and omitted-rotation restoration, locked/line refusal, literal code retention,
+      and bitmap connector redraw/cancel behavior. Actual app-delegate menu and
+      NSApp-dispatched key/pointer smoke passed; a custom-canvas bitmap showed
+      all rotated handles, the active handle and rotation stalk without clipping.
+      Geometry checks also exposed the SDK's JSONSerialization dropping leading
+      U+FEFF inside strings. Native decoding now retains raw token validation,
+      decodes strings with JSONDecoder and revalidates restored quotas. Regression
+      checks prove BOM/line-ending/Unicode bytes, unknown string keys, large integer
+      metadata and BOM-inclusive byte/grapheme limits. No format migration or saves.
+      Final package smoke caught an invalid bundle resource signature: direct
+      execution died with signal 9, signature verification failed, and Launch
+      Services refused to spawn it. The bundler now ad-hoc signs the assembled
+      app and strictly verifies it. Both direct execution and `open -n` then
+      produced an observed on-screen window. This is local signing/launch proof,
+      not Developer ID signing, notarization or distribution certification.
 - [x] **PNG output defaults (2026-11-05):** 2,048-pixel longest side, proportional
       other dimension, configurable output, 32 world-unit padding; caps of 8,192
       pixels per side and 16,777,216 pixels total. Retain transparency, font

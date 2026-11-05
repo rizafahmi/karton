@@ -1,10 +1,10 @@
 # Native macOS editor
 
 This directory contains an independent native canvas app with session-only
-New, shape/text insertion, selection, movement, caption editing and Undo/Redo.
-The planned editor is not complete: there is no saving, style editing,
-line/connection/code creation, recovery, attachment preview, syntax highlighting
-or PNG export.
+New, shape/text insertion, connections, selection, movement, resize/rotation,
+caption editing and Undo/Redo. The planned editor is not complete: there is no
+saving, style editing, line/code creation, recovery, attachment preview, syntax
+highlighting or PNG export.
 
 ## Build and run
 
@@ -15,6 +15,11 @@ Full Xcode is not required. From the repository root:
 sh macos/build.sh
 open "macos/.build/Elixir Canvas.app"
 ```
+
+The build assembles the `.app`, ad-hoc signs the complete bundle with the system
+`codesign` command, then strictly verifies its seal. No signing certificate or
+Apple developer account is needed for this local build. Ad-hoc signing is not
+Developer ID signing, notarization, or a distribution guarantee.
 
 Use **File → New** (**⌘N**) or **New Canvas** in the welcome window to start a
 blank version-2 canvas. **File → Open…** opens supported v1/v2 JSON files.
@@ -30,8 +35,46 @@ Inserting repeatedly uses the same center; drag each object to arrange it.
 
 Click an object to select it; drag it, or use Arrow keys (Shift-Arrow moves 10
 world units). Locked objects can be selected but not moved or edited.
-Command-Z and Shift-Command-Z undo/redo insertions, completed moves and caption
-changes. Movement updates connected routes in memory.
+Command-Z and Shift-Command-Z undo/redo insertions, connections, completed moves,
+resize/rotation and caption changes. Each command is a separate transaction, even
+when several commands arrive in one event. Native text editors retain their own
+text history.
+
+Selected unlocked shapes and code blocks show eight resize handles and a round
+rotation handle. Drag a handle and release to commit; **Escape** cancels.
+Resize follows the object's rotated local axes with the opposite corner/side
+fixed. Crossing the fixed anchor clamps instead of flipping the object. Ordinary
+interactive sizes stop at one world unit; existing smaller authored sides remain
+unchanged unless deliberately resized.
+
+For keyboard geometry, select an object and press **G**, or use
+**Edit → Edit Geometry**:
+
+- Start on the bottom-right handle; **Tab / Shift-Tab** cycles resize/rotation handles.
+- **Arrows** move the resize handle along local axes by 1 unit; **Shift-Arrows** by 10.
+- On the rotation handle, Left/Up subtract 1 degree and Right/Down add 1;
+  Shift changes the step to 15 degrees.
+- **Return** commits the whole preview once; **Escape** cancels. Undo/Redo first
+  cancels a pending preview before touching committed history.
+- Clicking away from handles cancels the preview before normal selection/movement.
+  Insert commands are disabled while geometry is pending.
+
+Geometry previews and rerouted connections stay outside committed JSON until
+commit. Cancellation/no-op preserves Redo, metadata and omitted rotation fields.
+Standalone lines do not use box resize/rotation yet; their endpoint editing is pending.
+
+Select a source object and press **C**, or choose **Insert → Connection…**.
+Choose source/target objects and Automatic or named attachment sides, then
+**Create Connection** (Return). **Cancel** (Escape) makes no change and preserves
+Redo. With no selection the source defaults to the first object; an empty canvas
+disables the menu command. A single-object canvas defaults to a right-to-top
+self-loop. Self-loops require two different named sides; invalid choices stay in
+the sheet with an error. Connecting to a locked object does not modify that object.
+Connections are curved arrows; moving, resizing or rotating either endpoint remeasures
+the route without rewriting its stored sides. Exterior routes expand the scrollable canvas
+without shifting the current view. Undo removes the new connection; Redo restores
+its ID, bindings and order. Connection selection, labels, reconnection, style
+editing and deletion are not implemented yet.
 
 Double-click an unlocked shape, or select it and press Return, to edit its caption
 in a native sheet. Return inserts a newline; **⌘Return** or **Done** commits;
@@ -86,8 +129,8 @@ arrows, connections and v2 code. Existing attachments can be preserved, previewe
 exported, duplicated and removed; importing new attachments is outside the initial
 scope. This is not full web parity.
 
-Local build/launch comes first. Public distribution, signing/notarization,
-updates, and an app store are not first-release requirements.
+Local build/launch comes first. Public distribution, Developer ID signing,
+notarization, updates, and an app store are not first-release requirements.
 
 Editing is keyboard-first with full mouse/trackpad support. Prioritize rapid
 thought entry, adjacent thoughts, and keyboard connections without replacing
