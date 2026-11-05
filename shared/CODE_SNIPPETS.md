@@ -1,7 +1,7 @@
 # Shared code-snippet contract
 
-The web editor supports this version-2 contract. The independent native Mac
-editor must implement the same document semantics; no native app exists yet.
+The web editor supports this version-2 contract. The independent native viewer
+shows code as plain text; the native editor must implement the full semantics.
 [TASKS.md](../TASKS.md#later) owns delivery status and sequencing. The canonical
 format overview is [README: Version 2](../README.md#document-format-version-2).
 

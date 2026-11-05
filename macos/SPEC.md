@@ -1,13 +1,14 @@
 # Native macOS implementation specification
 
-Status: design draft, 2026-11-04. No native application is implemented.
+Status: design specification; a read-only native viewer exists. The full editor,
+editable compatibility and acceptance proof remain incomplete.
 
 ## 1. Approval boundary and outcome
 
 [TASKS.md](../TASKS.md#final-milestone-independent-native-macos-editor) owns
-milestones, approvals, and sequencing. This specification supplies the proposed
-implementation contract, not permission to install tools, add dependencies,
-create an Xcode project, change version-1 JSON, or skip remaining web work.
+milestones, approvals, and sequencing. Approved foundation choices are recorded
+below; remaining proposals do not authorize tool installation, dependencies,
+version-1 JSON changes, or skipping compatibility and runtime proof.
 
 Approved product direction:
 
@@ -34,16 +35,16 @@ open the same file in the web editor → export a transparent PNG for Keynote.
 
 ## 2. Proposed implementation decisions
 
-| Decision | Recommendation | Approval status |
+| Decision | Selected or recommended behavior | Approval status |
 | --- | --- | --- |
-| Language and UI | Swift; AppKit document/window lifecycle and custom canvas; SwiftUI for inspector/settings where useful | Proposed, not selected |
-| Drawing/export | Core Graphics drawing and native text layout shared between canvas and PNG, not screenshots | Proposed |
-| Deployment | macOS 27 for the first personal build, matching the inspected development machine; older OS/Intel support requires an explicit target and proof | Proposed |
-| Project | One Xcode macOS app under `macos/`, native test targets, no root build orchestrator or new third-party dependency | Proposed; full Xcode is a prerequisite |
-| Editable content | Existing v1 shapes/lines/connections plus v2 code nodes, subject to section 5 and the implemented shared snippet contract | Native coverage proposed; shared v2 schema/policy settled |
-| Autosave | Coalesced completed transactions; target 1-second quiet interval and a save request within 5 seconds of continuous committed edits while the app is active | Proposed; not a disk-durability deadline |
-| Recovery | Private local recovery for untitled/unsaved committed snapshots and active text drafts; no silent expiration | Proposed policy in section 4 |
-| PNG | Default 2,048-pixel longest side, proportional other dimension, 32 world-unit padding; configurable size, at most 8,192 pixels per side and 16,777,216 pixels total | Proposed |
+| Language and UI | Swift; AppKit document/window lifecycle, custom canvas and inspectors | Approved 2026-11-05; AppKit inspectors replace the SwiftUI choice |
+| Drawing/export | Core Graphics drawing and native text layout shared between canvas and PNG, not screenshots | Approved 2026-11-05 |
+| Deployment | macOS 27 for the first personal build; older OS/Intel support requires an explicit target and proof | Approved 2026-11-05 |
+| Project | Swift Package plus command-line `.app` bundling under `macos/`; no root build orchestrator or new third-party dependency | Approved 2026-11-05, replacing Xcode-project choice |
+| Editable content | Existing v1 shapes/lines/connections plus v2 code; preserve/preview/export/duplicate/remove existing attachments, no new attachment import | Approved 2026-11-05; section 5 coverage requires native proof |
+| Autosave | Coalesced completed transactions; request after 5 seconds quiet or within 30 seconds of continuous committed edits while active | Approved 2026-11-05; not a disk-durability deadline |
+| Recovery | Native untitled recovery plus private app-owned storage for uncovered committed work and active text drafts; retain until saved elsewhere or explicitly discarded | Scope, request timing, restore/conflict/close choices approved 2026-11-05; storage details need proof |
+| PNG | Default 2,048-pixel longest side, proportional other dimension, 32 world-unit padding; configurable size, at most 8,192 pixels per side and 16,777,216 pixels total | Approved 2026-11-05; native/Keynote proof pending |
 
 A basic canvas is not the complete milestone: approved code snippets, agreed
 compatibility coverage, persistence failure proof, and actual Keynote proof must
@@ -191,6 +192,8 @@ cross-editor transactional editing, automatic merging, or power-loss durability.
 
 ### External changes and explicit recovery actions
 
+The conflict choices below were approved on 2026-11-05.
+
 External notification triggers revalidation, not silent source adoption. Once a
 conflict is detected, stop automatic source writes and retain the current model,
 drafts, and history. Do not reload underneath an editor or silently make a
@@ -206,7 +209,7 @@ lifecycle before resuming writes; never redirect to a filename guess.
 
 ### Recovery storage, privacy, and lifecycle
 
-Proposed recovery policy: use native document draft autosaving for untitled
+Approved recovery scope: use native document draft autosaving for untitled
 committed data. Store only additional state not covered by that mechanism in a
 private app-owned recovery envelope under the OS application-support directory,
 scoped by the eventual bundle identifier. Do not duplicate the committed snapshot
@@ -219,7 +222,7 @@ sidecar required to open either document version.
   autosave and never commits a preview. Do not persist incomplete marked-text
   composition; disclose that crash recovery covers acknowledged recovery writes,
   not every keystroke. Geometry gestures may be lost before commit.
-- Coalesce recovery writes using the same proposed 1-second quiet/5-second active
+- Coalesce recovery writes using the approved 5-second quiet/30-second active
   request targets. Use private owner-only storage and atomic replacement. Recovery
   can contain full text attachments and confidential source code; no telemetry,
   network sync, logging of document bodies, or claimed encryption at rest.
@@ -243,8 +246,10 @@ sidecar required to open either document version.
   selection, and exact viewport restoration are not promised. Undo remains intact
   for the current open document across all ordinary saves/autosaves.
 
+The restore and close/quit choices above were approved on 2026-11-05.
+
 Recovery location, integration with OS-managed drafts, and cleanup behavior must
-be observed on the selected macOS/Xcode combination before this policy is approved
+be observed on the selected macOS/toolchain combination before this policy is approved
 for delivery; archived platform descriptions do not prove modern storage paths.
 
 ## 5. Proposed compatibility and editing surface
@@ -252,7 +257,7 @@ for delivery; archived platform descriptions do not prove modern storage paths.
 The [canonical version-1 contract](../README.md#document-format-version-1) remains
 authoritative for existing v1 files. The web editor implements the
 [shared v2 contract](../shared/CODE_SNIPPETS.md): the common schema plus explicit
-`type: "code"` nodes. Native support is not implemented.
+`type: "code"` nodes. The native viewer shows code as plain text only.
 
 The native codec must retain v1 support and source version on ordinary saves.
 New canvases use v2. Code nodes cannot be added/pasted into v1; v2 never silently
@@ -272,7 +277,7 @@ must implement that policy without a hidden migration or source replacement.
 | Locked nodes | Render/select/inspect; prohibit ordinary geometry/text/style/delete operations on locked objects; provide explicit undoable lock/unlock |
 | Appearance/paper | Render document roles and named colors through native mappings; expose default typography and documented paper controls without rewriting omitted defaults |
 | Embedded attachments | Render caption card, preserve content/unknown fields exactly, read-only literal source preview and export of embedded UTF-8; no editing of embedded source, execution, markup rendering, or filesystem linking |
-| Attachment authoring | Import/remove/duplicate operations must enforce existing quotas; including native file-import UI is an explicit remaining coverage decision, not implied by basic canvas creation |
+| Attachment authoring | Duplicate/remove existing attachments with existing quotas enforced; new native file/drop import is outside the approved initial scope |
 | Unknown metadata | Preserve recursively on retained objects; edit only selected properties; do not confuse unknown metadata with an unsupported node type |
 | Unsupported version/type/required rendering semantics | Reject with a clear explanation before editing; do not partially load and later autosave a lossy document |
 | Known read-only file | Open visibly read-only if fully renderable; Save As may produce a separately editable document only after capability validation |
@@ -327,9 +332,16 @@ The inventory is Auto, Plain text, Elixir, Erlang, JavaScript, TypeScript, JSON,
 HTML, CSS, Shell, Python, SQL, Swift and Rust, using the canonical IDs in the
 shared contract. The web implementation uses approved npm-managed Shiki 4.6
 fine-grained grammars/JavaScript engine and Highlight.js 11.12 detection, with
-conservative Auto fallback to plain text. This does not select a native engine
-or approve embedding the web runtime. Native highlighting/detection remains an
-implementation decision; Auto results may differ without rewriting language.
+conservative Auto fallback to plain text. The approved native candidate is
+HighlighterSwift, using Highlight.js through system JavaScriptCore without a
+webview. Auto results may differ without rewriting language. A temporary macOS 27
+app bundle loaded its resources and returned exact UTF-8 text and multiple colors
+for one sample per required language; whitespace, BOM, mixed line endings, empty
+and markup-like samples retained exact bytes. Auto returned the sample text, but
+detection accuracy, full safety, pinned version and editor/export behavior still
+require proof. No dependency has yet been added. HighlightSwift, a different
+package, failed to build with missing SwiftUI macro plugins and its source trims
+outer whitespace.
 Do not fork the schema/inventory or use hidden shape metadata. Native delivery
 still requires shared v2 round-trip, v1 compatibility, editor/history/Fit/export
 behavior and actual native workflow proof; working web code is not native support.
@@ -345,7 +357,7 @@ Names below describe responsibilities, not pre-created classes or packages.
 | Edit transactions | Validated model mutations, inverse operations, named atomic undo groups | File I/O, autosave acknowledgements, transient pointer frames |
 | Canvas view (`NSView`) | Input/responder/accessibility integration, hit-testing, focus/selection, previews, viewport, text editor hosting | Writing JSON or changing source identity |
 | Geometry/text renderer | Shape outlines/handles, edge routing, text layout, native palette/font role resolution, render bounds | Persisting resolved appearance, screen-only export geometry |
-| Inspector/toolbar | Effective/mixed values and commands applied to eligible selection; native SwiftUI hosting where useful | Materializing defaults during observation or bypassing transactions |
+| Inspector/toolbar | Effective/mixed values and commands applied to eligible selection; AppKit controls | Materializing defaults during observation or bypassing transactions |
 | Recovery integration | Retained draft state, source association, restore/discard and private cleanup | Source replacement, automatic merging, document format extensions |
 | PNG exporter | Explicit-pixel offscreen rendering of a flushed immutable snapshot | View screenshots, save baselines, paper/grid/selection/editor chrome |
 
@@ -413,16 +425,16 @@ never edit [examples/welcome.json](../examples/welcome.json) as disposable proof
 
 ### Fixture work, not an existing native test corpus
 
-Both `shared/fixtures/v1/document.json` and `shared/fixtures/v2/document.json`
-exist; they are shared contract inputs, not proof of a native codec or test suite.
-The v1 fixture contains two rectangles and one connection. A prior read-only
-audit of 12 example boards plus that v1 fixture found all five shape kinds,
-standalone lines, all four documented edge paths, all markers, rotations, locks,
-two attachments, a self-loop, and animated edges, but no persisted connector-style
-examples. Examples remain user documents, not writable regression inputs; copy
-only intentionally chosen cases into the shared corpus.
+`shared/fixtures/v1/document.json` and `shared/fixtures/v2/document.json` are
+baseline inputs. The additional `v1/compatibility.json` covers five shape kinds,
+rotations, a free line, locks, styled/self-loop connectors, attachment text and
+unknown metadata including large integers. `v2/code-compatibility.json` covers
+literal code, mixed line endings/BOM, language variants and a connected shape.
+Web tests move an unrelated node and inspect saved/reopened content and metadata.
+These inputs do not prove a native codec or test suite. Examples remain user
+documents, not writable regression inputs.
 
-Before editable native autosave, agree coverage and extend the existing fixtures for:
+Before editable native autosave, extend coverage and prove both editors for:
 all node kinds/styles/corners/typography and omitted defaults; rotated triangles,
 free line endpoints; each edge path/marker, labels, self-loops/side bindings,
 animation/dash precedence and connector-style collisions; lock/order/unknown
@@ -436,24 +448,30 @@ responder, document lifecycle, OS dialogs, recovery, and rendering behavior.
 
 ## 9. Remaining decisions and implementation entry gate
 
-This draft completes specification writing, not implementation or adoption of every recommendation.
-
-Before project creation: select deployment target and architecture/tooling; accept
-or revise the proposed component/window structure and fixture/editable-content
-coverage. Before feature implementation: accept autosave/recovery privacy/timing,
-native file operation UX, attachment import scope, PNG defaults/caps, native
-font-role mappings, native highlighting/detection engine, and shortcut map.
+Foundation, deployment target, initial content and PNG defaults were approved on
+2026-11-05. A read-only viewer exists; editable compatibility proof is not complete.
+Establish fixture coverage and round-trip proof before editable saves. Before
+corresponding feature implementation, settle detailed recovery storage/cleanup,
+other native file operation UX, native font-role mappings and shortcut map. Prove
+the approved highlighter candidate before use. New attachment import is outside
+the initial scope.
 The shared v2 schema, new-v2/existing-v1 policy, explicit version-copy semantics,
 language inventory, and web dependencies are settled, not remaining native design
 questions. New native dependency/build-tool choices require separate approval.
 The web code-snippet prerequisite is implemented; remaining non-native work and
 scope/sequencing decisions in TASKS.md still gate native implementation.
 
-Local setup inspection for this draft found Swift 6.4 and macOS 27.0.1.
-`xcodebuild -version` failed because the active developer directory was
-`/Library/Developer/CommandLineTools`; the environment has not demonstrated a full
-Xcode toolchain. Do not treat Swift compiler availability as an app build/launch
-proof. Install/select a compatible full Xcode only when authorized; implementation
-must record actual Xcode version, deployment target, bundle identity, project/
-scheme names, build/launch/test commands, and observed native results. No invented
-native command or project path in this draft is presented as runnable today.
+The inspected machine has Swift 6.4, macOS 27.0.1 and Apple Command Line Tools.
+A temporary Swift Package built for macOS 27, assembled into an `.app`, and
+launched through `open -n -W` reported an AppKit window visible. The linker
+warned that two Command Line Tools search paths were missing despite successful
+build and launch. This is a toolchain probe, not native editor, document handling,
+signing, distribution, or test proof. The temporary package was removed.
+A minimal SwiftUI `@State` inspector failed to compile with the installed Command
+Line Tools because `SwiftUIMacros.StateMacro` was unavailable. A temporary AppKit
+inspector handled an injected native mouse event and a model-to-control update.
+External automation lacked Accessibility permission; physical-pointer and
+accessibility interaction remain unproven.
+The viewer's actual build and check commands are in [README.md](README.md).
+Document editing, signing, distribution and the complete native workflow remain
+unproven.

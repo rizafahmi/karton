@@ -11,25 +11,29 @@ it is not a hosted multi-user service. Keep this trust boundary explicit.
 Databases, accounts, cloud storage, and multiplayer are outside the current scope
 unless requested, not permanently prohibited directions.
 
-An independent native Mac editor is planned, sharing JSON contracts rather than
-the web runtime and preserving existing version-1 files. The web app supports
-v1 and v2; new documents use v2 with an explicit code-node type.
-[TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
-native technology/product decisions. No native app is implemented yet.
+An independent native Mac editor is in progress, sharing JSON contracts rather
+than the web runtime. `macos/` currently contains a read-only v1/v2 viewer; it
+does not edit or save. [TASKS.md](TASKS.md) owns milestones, scope, acceptance
+proof and unresolved native decisions. The web app supports v1 and v2; new web
+documents use v2 with an explicit code-node type.
 
 ## Repository organization
 
 Keep the working Phoenix app and its Mix commands at the repository root.
-[`macos/`](macos/) owns the future independent native project;
+[`macos/`](macos/) owns the independent native viewer and future editor;
 [`shared/fixtures/`](shared/fixtures/) owns runtime-independent v1/v2 JSON
 contract fixtures. Web tests consume the shared fixtures today; native checks
 must use the same corpus rather than fork it. Copy fixtures to temporary files
 before editing/saving. [`examples/`](examples/) remains editable user content.
 Do not introduce a shared runtime or root build orchestrator for the native app.
-Native technology and product scope remain decisions in TASKS.md.
-[`macos/SPEC.md`](macos/SPEC.md) contains the implementation design draft; its
-recommendations are not approvals or native compatibility proof. Keep status and
-scope aligned with TASKS.md when implementing or revising the spec.
+The approved native foundation is Swift/AppKit for the canvas, inspectors and
+document lifecycle, with Core Graphics/native text rendering in a Swift Package
+with command-line `.app` bundling, targeting macOS 27. The current viewer retains
+original JSON bytes, never writes documents, and refuses unsupported semantics;
+routes are approximate and code is plain text. Existing attachment support is in
+scope for the editor; new attachment import is not. TASKS.md owns remaining gates.
+[`macos/SPEC.md`](macos/SPEC.md) distinguishes approved choices from proposals;
+neither the design nor approval establishes native compatibility.
 [`shared/CODE_SNIPPETS.md`](shared/CODE_SNIPPETS.md) owns the supported shared
 snippet schema, literal-source policy and explicit version-copy migration.
 Existing v1 sources remain v1; conversion downloads a separate v2 snapshot and

@@ -3,42 +3,41 @@
 A local-file-first spatial thinking canvas built with Elixir, Phoenix LiveView,
 and Hakushi. The JSON file is the document, not an export from a database.
 
-## Planned native macOS editor
+## Native macOS
 
-The final milestone, after the remaining non-native work, is an independent native
-Mac editor preserving version-1 JSON compatibility, with Apple-native UI and
-transparent high-resolution PNG export for Keynote. It is not implemented yet and
-will not require the web app's runtime.
-See [TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) for scope,
-acceptance proof, and open technology/product decisions.
-The [native implementation specification](macos/SPEC.md) separates approved product
-direction from proposed interactions, autosave/recovery policy, compatibility,
-architecture, and acceptance scenarios. It is a design draft, not a native build.
+A native, **read-only canvas viewer** is available for macOS 27 through the
+[command-line build](macos/README.md). It opens supported v1/v2 files without
+Phoenix. Editing, saving, attachment previews, syntax highlighting, recovery
+and PNG export are not implemented; connector routes are approximate.
+The independent native editor remains an unfinished milestone; see
+[TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) and
+[macos/SPEC.md](macos/SPEC.md) for scope and acceptance proof.
 The [shared code-snippet contract](shared/CODE_SNIPPETS.md) defines the supported
 web version-2 format with an explicit code-node type. New documents use v2;
-existing v1 documents retain their version. Native support is not implemented.
+existing v1 documents retain their version. Native code nodes are currently
+viewed as plain text only.
 
 ## Repository layout
 
-The web and planned native editors live in one repository with independent
-builds and runtimes. The existing Phoenix app stays at the root; web commands
+The web app and native viewer live in one repository with independent builds and
+runtimes. The existing Phoenix app stays at the root; web commands
 continue to run from here.
 
 | Path | Responsibility |
 | --- | --- |
 | `mix.exs`, `lib/`, `config/`, `assets/`, `priv/`, `test/` | Existing Phoenix/LiveView web app and its tests |
-| [`macos/`](macos/) | Native macOS project location; no application or build configuration yet |
-| [`shared/fixtures/`](shared/fixtures/) | Runtime-independent v1/v2 JSON contract fixtures consumed by web tests and intended for future native checks |
+| [`macos/`](macos/) | Swift Package and command-line build for the read-only native viewer |
+| [`shared/fixtures/`](shared/fixtures/) | Runtime-independent v1/v2 JSON contract fixtures consumed by web and native checks |
 | [`examples/`](examples/) | Editable user-facing boards, not disposable test fixtures |
 | `README.md`, `TASKS.md`, `DESIGN.md`, `CONTRIBUTING.md`, `SECURITY.md` | Shared contract, plans, and project guidance; web visual rules remain web-only |
 
-`shared/fixtures/v1/document.json` is the existing two-shape/one-connection
-fixture, moved without changing its bytes. Tests copy it into temporary files
-before editing or saving. It is a compatibility baseline, not the complete
-native compatibility corpus; content coverage remains a
-[native milestone decision](TASKS.md#final-milestone-independent-native-macos-editor).
+`shared/fixtures/v1/document.json` is the original two-shape/one-connection
+baseline. The additional v1/v2 compatibility fixtures exercise richer drawing,
+attachment and literal-code cases in web round-trip tests. Tests use temporary
+copies for writes. The corpus is not complete, and does not establish
+[native fixture and round-trip proof](TASKS.md#final-milestone-independent-native-macos-editor).
 Shared data does not imply shared Elixir/JavaScript code or a web runtime inside
-the native app. Native setup and verification will accompany implementation;
+the native app. Native build and check instructions are in [macos/README.md](macos/README.md);
 `mix check` verifies only the web app.
 
 ## Run

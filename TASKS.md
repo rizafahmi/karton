@@ -1,19 +1,17 @@
 # MVP plan
 
-Planning only: unchecked work is not implemented behavior. Approved sequence:
-current web editing (front/back → connected-arrow styling), then remaining
-non-native work, with the independent native macOS editor as the final milestone.
+Unchecked work is not implemented behavior. Current web editing and the
+read-only native viewer are implemented; the independent native editor remains
+the final milestone after any adopted remaining non-native work.
 The separately approved adjacent-thought task is implemented. Connected-arrow
 styling's additive v1 metadata scope is now approved (details below); the native
 editor remains last. Save a copy preservation is separately approved and
 implemented below; other proposed readiness additions remain **unapproved scope**.
 Decide their adoption and placement before the final native milestone.
-The implementation boundary for remaining native work is unchanged: no native
-app scaffolding, toolchain installation, dependencies, build steps, or CI changes
-until implementation is requested. Repository preparation was explicitly requested
-on 2026-11-03: web at root, `macos/` for the independent native project, and
-versioned JSON fixtures under `shared/fixtures/`. Both v1 and v2 fixtures now exist.
-This does not approve native app technology or the other proposed readiness work.
+Native implementation is requested; the approved command-line build route is
+recorded below. Web remains at root, the independent native project belongs in
+`macos/`, and both shared v1/v2 fixture baselines exist. Other proposed readiness
+work remains unapproved.
 
 ## Product outcome and existing baseline
 
@@ -554,18 +552,16 @@ friction.
 
 ## Final milestone: independent native macOS editor
 
-Start native work only after remaining non-native work and scope decisions,
-including any adopted readiness work, are complete. The web code-snippet
-prerequisite is implemented. Native code snippets remain included here under the
-shared Code snippets requirements and acceptance in Later; they are not a
-precondition to this milestone.
+The web code-snippet prerequisite is implemented. A read-only native viewer now
+exists; the full native editor and the native code-snippet acceptance remain
+unfinished. Adopted readiness work and the remaining native decisions still apply.
 
 The [native implementation specification](macos/SPEC.md) was drafted on
 2026-11-04 as requested. It details interactions, autosave/recovery, compatibility,
-native components, export, and acceptance proof. Only the product directions
-marked approved here are settled; the spec's deployment target, architecture,
-coverage, timing/recovery policy, and PNG defaults remain recommendations.
-Specification completion is not project creation or native implementation.
+native components, export, and acceptance proof. The architecture, macOS target,
+initial content scope and PNG defaults were approved on 2026-11-05 as recorded
+below. Autosave/recovery details and remaining feature decisions are not yet
+approved. A read-only viewer exists; the editor milestone is not complete.
 
 - [ ] **Outcome:** open an existing version-1 JSON canvas in an independent
       native Mac editor, select/move objects, edit text, undo/redo, save, and
@@ -583,13 +579,14 @@ Specification completion is not project creation or native implementation.
   left at the root, a separate `macos/` project location, and versioned fixtures
   in `shared/fixtures/v1/` and `shared/fixtures/v2/`; independent builds and runtimes.
   The existing v1 fixture was moved byte-for-byte and web consumers migrated.
-  See [repository layout](README.md#repository-layout). No native app or build
-  configuration exists yet. Swift with AppKit, SwiftUI, and Core Graphics remains
-  a candidate, not an approved architecture.
-- **Before implementation:** decide minimum macOS, SwiftUI/AppKit
-  responsibilities, the initial supported document-content/editing scope, and
-  PNG default dimensions and maximum output size. Do not imply full web feature
-  parity.
+  See [repository layout](README.md#repository-layout). A Swift Package and
+  command-line build now provide a read-only viewer. Swift/AppKit with Core Graphics
+  target macOS 27. On 2026-11-05, Swift Package plus command-line `.app` bundling
+  replaced the earlier Xcode-project choice; AppKit inspectors replaced SwiftUI.
+- **Before editable saves:** establish compatibility fixtures and round-trip proof.
+  Resolve remaining recovery, native file UX, font mappings, highlighter and
+  shortcuts before the corresponding features. Approved content and PNG defaults
+  do not imply full web feature parity.
 - **Compatibility gate:** agree fixtures covering supported shapes/text,
   standalone lines, connections/self-loops, rotations, locks, and metadata.
   Unsupported content must be identified before editing: reject it clearly or
@@ -641,9 +638,9 @@ Specification completion is not project creation or native implementation.
 - [x] **Native authoring (2026-11-04):** create and edit canvases, not only edit
       web-created files. The first complete workflow starts with a blank canvas:
       New → add shapes/text → connect/rearrange → autosave JSON → export for Keynote.
-      The native app must be useful without launching the web app. Detailed
-      content/tool coverage remains to be agreed; this does not approve full
-      web parity or every proposed feature.
+      The native app must be useful without launching the web app. Initial content
+      coverage is approved below; this does not approve full web parity or every
+      proposed feature.
 - [x] **Native interaction (2026-11-04):** keyboard-first, pointer-complete.
       Prioritize rapid thought entry, adjacent thoughts, and keyboard connections;
       retain direct manipulation, discoverable controls, native text editing,
@@ -653,22 +650,77 @@ Specification completion is not project creation or native implementation.
       automatically; untitled documents need recovery before a source is chosen.
       Explicit Save remains available. This is native-only; the web app's
       persistence contract is unchanged.
-- [ ] **Native autosave/recovery policy:** adopt or revise the concrete
-      recommendations in [SPEC section 4](macos/SPEC.md#4-proposed-autosave-and-recovery-contract):
-      transaction/debounce timing, untitled recovery location,
-      retention/deletion/privacy, restoration, external-change UX, and close/quit
-      behavior with pending/failed writes. No automatic merging or locking promise.
+- [x] **Native recovery scope and timing (2026-11-05):** recover committed work
+      and acknowledged active text drafts using native untitled recovery plus
+      private app-owned storage only for uncovered state. Retain until saved
+      elsewhere or explicitly discarded, with no silent expiry. Request autosave
+      and recovery writes after 5 seconds quiet or within 30 seconds of continuous
+      changes; these are request targets, not durability guarantees. Incomplete
+      IME composition and changes after the last recovery write can be lost.
+- [x] **Native conflict, restoration and close choices (2026-11-05):** pause
+      autosave on an external change, retain local edits/history, and offer Save
+      As, confirmed Reload, or Keep Editing with autosave paused; no force overwrite.
+      Ask before restoring recovery; if the source changed, restore as a separate
+      untitled document. Close/quit finishes valid editors and awaits writes;
+      unresolved work offers return to editing, retain recoverable work, or
+      explicit discard. Cancel leaves the window open.
+- [ ] **Remaining native recovery/file policy:** settle detailed storage/cleanup
+      and other file-operation UX in
+      [SPEC section 4](macos/SPEC.md#4-proposed-autosave-and-recovery-contract).
+      No automatic merging or locking promise; actual OS recovery needs proof.
 - [x] **Native repository organization:** web at root, `macos/` for native code,
       versioned shared JSON in `shared/fixtures/`; independent builds and runtimes.
-- [ ] **Native technology and compatibility:** adopt or revise
-      [SPEC section 2](macos/SPEC.md#2-proposed-implementation-decisions) and
-      [section 5](macos/SPEC.md#5-proposed-compatibility-and-editing-surface):
-      minimum macOS, stack/UI/rendering, supported content/editing, fixtures,
-      attachment import scope, and native build/check instructions.
-      Swift/AppKit/SwiftUI/Core Graphics remains a proposal, not approval.
-- [ ] **PNG output:** adopt or revise the concrete dimensions/scale/padding and
-      allocation limits in [SPEC section 7](macos/SPEC.md#7-proposed-png-contract);
-      retain transparency, font readiness, clipping, zoom/DPR, and Keynote proof.
+- [x] **Native foundation and initial content (2026-11-05):** Swift; AppKit
+      document/window lifecycle, custom canvas and inspectors; Core
+      Graphics/native text layout shared with PNG; Swift Package and command-line
+      `.app` bundling under `macos/`, minimum macOS 27. Author shapes/text,
+      standalone lines/arrows, connections and v2 code under
+      [SPEC section 5](macos/SPEC.md#5-proposed-compatibility-and-editing-surface).
+      Existing attachments support preservation, preview, export, duplication and
+      removal; new attachment import is outside the initial scope. The package,
+      bundling step and highlighter candidate below are approved; other new
+      third-party dependencies require approval.
+- [x] **Native highlighter candidate (2026-11-05):** approved HighlighterSwift,
+      an MIT-licensed Swift wrapper around BSD-licensed Highlight.js using system
+      JavaScriptCore, not a webview. A temporary Swift Package was built for macOS
+      27, bundled with its resources and launched via Launch Services. One sample
+      for each of 12 required language identifiers returned exact UTF-8 text and
+      multiple colors (HTML→xml, Shell→bash); leading/trailing whitespace, BOM,
+      mixed line endings, empty and markup-like samples also retained exact bytes.
+      Auto returned exact sample text, but detection accuracy, full safety, pinned
+      version and native editor/export integration remain unproven. No dependency
+      is installed yet.
+- [ ] **Native compatibility/toolchain proof:** provide actual native build/check
+      instructions, extend the agreed content fixtures and prove non-lossy
+      rendering/round-trips before editable saves. A temporary Swift Package built
+      against macOS 27, manually bundled and launched via `open -n -W`, reported
+      an AppKit window visible on this machine. The linker warned of two missing
+      Command Line Tools search paths; build and launch succeeded. This does not
+      prove the editor, document handling, signing, distribution or native tests.
+      A minimal SwiftUI `@State` inspector fails to compile with Command Line
+      Tools because `SwiftUIMacros.StateMacro` is unavailable. A temporary AppKit
+      inspector launched and handled an injected native mouse event: the checkbox,
+      model and label agreed; a subsequent model update changed both controls.
+      External automation was denied Accessibility permission, so this is not
+      physical-pointer or accessibility-interaction proof.
+      The native viewer opens temporary v1/v2 fixtures in separate windows without
+      changing source bytes. Native validation retained exact original bytes; the
+      web app saved and reopened copies, which native validation accepted again.
+      Offscreen AppKit bitmap inspection covered both fixtures; direct window
+      capture failed, so the actual windows were not visually captured.
+      Native contract checks cover shared fixtures and selected refusal/quota cases.
+      The viewer is read-only, uses approximate routes, plain code and attachment
+      cards, and has no editable saves, recovery or export. Full editable
+      cross-editor proof remains pending.
+      Shared v1/v2 compatibility fixtures now cover five shape kinds, free line,
+      rotation/locks, self-loop and styled connectors, Unicode attachment, unknown
+      metadata/large integers, and literal code with mixed line endings/language
+      variants. Web tests and temporary-file saves exercise unrelated moves and
+      round trips; edge variants, invalid/limit cases and native proof remain open.
+- [x] **PNG output defaults (2026-11-05):** 2,048-pixel longest side, proportional
+      other dimension, configurable output, 32 world-unit padding; caps of 8,192
+      pixels per side and 16,777,216 pixels total. Retain transparency, font
+      readiness, clipping, zoom/DPR and actual Keynote acceptance requirements.
 
 ## Done
 

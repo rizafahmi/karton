@@ -38,3 +38,7 @@ npm-debug.log
 # Elixir language servers.
 /.expert/
 /.elixir_ls/
+
+# Native Swift build products and bundled app.
+/macos/.build/
+/macos/.swiftpm/
