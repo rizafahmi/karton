@@ -44,8 +44,24 @@ export function codeIsClipped(root) {
 export function mountCodeSnippets(canvas) {
   const root = canvas.root, workspace = root.closest('#workspace')
   const generation = workspace.dataset.generation
+  const directModeActive = () => workspace.workspaceHook?.activeCanvas()?.directKeyboard?.active
   let draft = null, alive = true, worker = null, scheduled = false, highlightRevision = 0
   const pendingHighlights = new Map()
+  const awaitingHighlights = new Set(), highlightWaiters = new Set()
+  const settleHighlights = () => {
+    if (alive && workspace.dataset.generation === generation && awaitingHighlights.size) return
+    for (const waiter of highlightWaiters) {
+      if (alive && workspace.dataset.generation === generation) waiter.resolve()
+      else waiter.reject(new Error('Canvas changed before highlighting finished.'))
+    }
+    highlightWaiters.clear()
+  }
+  const whenHighlighted = () => {
+    if (!alive || workspace.dataset.generation !== generation) return Promise.reject(new Error('Canvas changed before highlighting finished.'))
+    updateHighlights()
+    if (!awaitingHighlights.size) return Promise.resolve()
+    return new Promise((resolve, reject) => highlightWaiters.add({resolve, reject}))
+  }
   let feedback = null
   const notify = (message, action = null) => {
     if (!alive || workspace.dataset.generation !== generation) return
@@ -161,7 +177,7 @@ export function mountCodeSnippets(canvas) {
     if (draft) { draft.input.focus(); return }
     if (canvas.config.readonly || node?.locked) { notify('Unlock this code block and use an editable canvas before editing source.'); return }
     if (workspace.dataset.nativeBusy === 'true' || workspace.dataset.fileBusy === 'true') { notify('Wait for the current file operation before editing code.'); return }
-    if (workspace.directPreview || workspace.dataset.attachmentBusy === 'true') { notify('Finish the active draft or import before editing code.'); return }
+    if (directModeActive() || workspace.directPreview || workspace.dataset.attachmentBusy === 'true') { notify('Finish the active canvas mode, draft or import before editing code.'); return }
     if (!requireCodeFormat()) return
     const source = node ? codeSource(node) : ''
     if (source === null) { notify('Code source could not be read.'); return }
@@ -344,7 +360,7 @@ export function mountCodeSnippets(canvas) {
   const keyboard = event => {
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.metaKey || event.ctrlKey || event.altKey || event.target.closest('input, textarea, select, button')) return
     if (draft && event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); finishClick(); return }
-    if (!['Enter', 'F2'].includes(event.key) || canvas.tool) return
+    if (!['Enter', 'F2'].includes(event.key) || canvas.tool || canvas.gesture || directModeActive()) return
     const node = canvas.focusedNode()
     if (node?.type === 'code') { event.preventDefault(); event.stopImmediatePropagation(); start(node) }
   }
@@ -354,7 +370,9 @@ export function mountCodeSnippets(canvas) {
     if (draft && !draft.committing && !current(draft)) { close(draft); canvas.announce('Code draft cancelled because its source changed.') }
     for (const [id, pending] of pendingHighlights) {
       const node = canvas.nodes.get(id)
-      if (!node || node.type !== 'code' || canvas.gone.has(id) || node.el !== pending.nodeEl) pendingHighlights.delete(id)
+      if (!node || node.type !== 'code' || canvas.gone.has(id) || node.el !== pending.nodeEl) {
+        pendingHighlights.delete(id); awaitingHighlights.delete(id)
+      }
     }
     for (const node of canvas.nodes.values()) {
       if (node.type !== 'code' || canvas.gone.has(node.id)) continue
@@ -374,10 +392,12 @@ export function mountCodeSnippets(canvas) {
       if (typeof source !== 'string') continue
       const revision = ++highlightRevision
       pendingHighlights.set(node.id, {revision, nodeEl: node.el, stamp: sourceStamp, theme, source, element: pre})
+      if (worker) awaitingHighlights.add(node.id)
       const message = worker ? 'Highlighting…' : 'Highlighting unavailable; literal plain text'
       if (status && status.textContent !== message) status.textContent = message
       worker?.postMessage({generation, node: node.id, revision, source, language: el.dataset.codeLanguage, theme})
     }
+    settleHighlights()
   }
   try {
     if (workspace.dataset.codeWorker && typeof Worker === 'function') {
@@ -385,15 +405,21 @@ export function mountCodeSnippets(canvas) {
       worker.addEventListener('message', ({data}) => {
         const pending = pendingHighlights.get(data.node), node = canvas.nodes.get(data.node)
         if (!alive || data.generation !== generation || workspace.dataset.generation !== generation || !pending || pending.nodeEl !== node?.el || canvas.gone.has(data.node) || pending.revision !== data.revision || !sameStamp(pending.stamp, stamp(node)) || pending.theme !== highlightTheme(node) || pending.element !== codeElement(node)?.querySelector('.drawing-code-source')) return
+        awaitingHighlights.delete(data.node)
         const el = codeElement(node), target = el.querySelector('.drawing-code-source code') || el.querySelector('.drawing-code-source'), status = el.querySelector('.drawing-code-highlight-status')
         const message = data.error || data.status
         if (status && status.textContent !== message) status.textContent = message
-        if (data.error || !Array.isArray(data.tokens) || data.tokens.map(token => token.text).join('') !== pending.source) return
+        if (data.error || !Array.isArray(data.tokens) || data.tokens.map(token => token.text).join('') !== pending.source) {
+          if (status) status.textContent = data.error || 'Highlighting unavailable; literal plain text'
+          if (target) target.textContent = pending.source
+          settleHighlights(); return
+        }
         const fragment = document.createDocumentFragment()
         for (const token of data.tokens) { const span = make('span', '', token.text); if (/^#[0-9a-f]{3,8}$/i.test(token.color || '')) span.style.color = token.color; fragment.append(span) }
         target?.replaceChildren(fragment)
+        settleHighlights()
       })
-      worker.addEventListener('error', () => { worker?.terminate(); worker = null; pendingHighlights.clear(); updateHighlights() })
+      worker.addEventListener('error', () => { worker?.terminate(); worker = null; pendingHighlights.clear(); awaitingHighlights.clear(); updateHighlights() })
     }
   } catch { worker = null }
   const schedule = () => { if (!scheduled) { scheduled = true; queueMicrotask(updateHighlights) } }
@@ -408,8 +434,9 @@ export function mountCodeSnippets(canvas) {
   root.addEventListener('pointerdown', sourcePointerDown, true)
   root.addEventListener('wheel', sourceWheel, {capture: true, passive: true})
   schedule()
-  return {start, finish, notify, destroy() {
+  return {start, finish, notify, whenHighlighted, destroy() {
     alive = false
+    settleHighlights()
     if (draft) { draft.reject?.(new Error('Canvas closed before code editing finished.')); close(draft) }
     worker?.terminate(); observer.disconnect(); resize?.disconnect()
     feedback?.remove()

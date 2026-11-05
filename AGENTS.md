@@ -52,6 +52,10 @@ silently upgrade/downgrade, or infer native implementation from web support.
   runs local Shiki tokenization and conservative Highlight.js detection.
   Cache by stable DOM/source stamps, not native node-object identity: DOM
   rereads replace node objects and renderer mutations must not feed themselves.
+  Image export must await current-source highlight readiness after fonts, including
+  offviewport code. Stale replies cannot release the wait; worker failure must
+  settle through explicit literal-text fallback, and generation changes refuse
+  export rather than capturing an obsolete document.
   Code tool activation must visibly explain v1 restrictions before arming; expose
   the existing document conversion/New workflow, never auto-upgrade. Native click
   placement emits zero-sized geometry: give the local draft usable dimensions,
@@ -68,6 +72,9 @@ silently upgrade/downgrade, or infer native implementation from web support.
   `data-hakushi-nodrag`. Keep controls/editor excluded, protect actual scrollbar
   tracks, and route overflow wheel scrolling without consuming native zoom or
   Space-pan gestures. Movement remains Hakushi history, not a parallel drag stack.
+  Code Enter/F2 capture must defer to active direct-keyboard modes and gestures;
+  use the existing hook's activeCanvas/directKeyboard bridge so C/G own Enter
+  through completion instead of opening a second editor mid-mode.
 - [FlightRecorder](lib/elixir_canvas/flight_recorder.ex) writes rotating development
   logs (`tmp/logs/dev.log`), a crash index (`tmp/logs/crashes.jsonl`), and
   self-contained server/client crash reproduction bundles (`tmp/crashes/crash-*.json`)

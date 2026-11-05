@@ -339,6 +339,8 @@ scrolls overflowing source; Command/Ctrl-wheel still zooms the canvas and holdin
 Space still pans. Use Copy source or the source editor to work with literal text.
 
 Double-click a code block, press Enter/F2 on it, or use its **Edit** button.
+Active C connection and G geometry modes take precedence: Enter advances/commits
+that mode rather than opening source; finish or cancel the mode before editing.
 Source stays literal: BOM, tabs, Unicode and original line endings survive
 untouched regions, copy, history and JSON saves. Enter inserts a newline;
 Tab/Shift+Tab indents/unindents two spaces. Escape or **Finish** commits;
@@ -366,6 +368,8 @@ Overflow scrolls in the editor/canvas, but image export refuses clipped source:
 Fit every clipped block before Download. Editor controls and overflow/status
 badges are hidden from image exports. Save, copies and image export flush valid
 drafts first; invalid drafts remain visible and block the operation.
+Image export waits for drawing fonts and the current source's highlighting result
+or explicit plain-text fallback; it does not capture a still-pending highlight.
 
 Each source is limited to 256 KiB of UTF-8, with 1 MiB across all code objects,
 including duplicates. These budgets are separate from text-attachment budgets.

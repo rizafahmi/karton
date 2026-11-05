@@ -479,7 +479,7 @@ approval. Any adopted non-native additions precede the final native milestone.
       keyboard isolation, and edit/undo/redo/save/reopen across both editors with
       unrelated content intact. Native engine, implementation, and workflow proof
       remain undelivered; web acceptance below does not prove native workflows.
-      **Web verification:** `mix check` passes 141 ExUnit and 138 Node tests,
+      **Web verification:** `mix check` passes 141 ExUnit and 140 Node tests,
       formatting, warnings-as-errors compilation, JS syntax and both asset entries.
       Temporary-file smoke verifies exact source/metadata saves, external-change
       refusal and version-only copy conversion. Chromium smoke verifies menu and
@@ -503,6 +503,21 @@ approval. Any adopted non-native additions precede the final native milestone.
       Control-wheel zoom, locked-drag refusal and Copy/edit isolation.
       Classic scrollbar tracks have Node boundary coverage only; the browser
       exposed overlay scrollbars, so no thumb/track interaction was certified.
+      **End-to-end web acceptance (2026-11-04):** real Code creation, Unicode
+      source/manual language, move/resize, C connection, native Undo/Redo,
+      Cancel without history, clipped-export refusal, Fit, Save and reload passed
+      on a disposable server-file canvas. Actual saved JSON retains exact source,
+      geometry, bound edge, unknown metadata and integer 9007199254740993.
+      C mode exposed a code-editor Enter interception bug, now fixed and covered.
+      External-change Save flushes a valid draft but preserves external bytes;
+      Save a copy contains the latest graph without clearing dirty/conflict state.
+      Actual 1648×968 PNGs verify opaque/transparent output and excluded UI.
+      Export-startup proof requests while highlighting is pending, then observes
+      colored output identical to native Download after readiness; export now
+      waits for current tokens or explicit plain-text fallback instead of racing
+      the worker. Node coverage includes stale replies and generation replacement.
+      This is automated Chromium/server-file acceptance, not an intended-user
+      session, OS-picker/IME/cross-browser certification, or native/Keynote proof.
 
 Promote optional work only as ranked hypotheses grounded in observed session
 friction.

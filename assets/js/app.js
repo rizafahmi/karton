@@ -399,6 +399,7 @@ const FileCanvas = {
       if (!flushed?.ok) throw refuseExport("Finish a valid pending editor before exporting.")
       try { await flushed.settled } catch (error) { throw refuseExport(error.message || "The pending edit could not finish.") }
       await loadDrawingFonts(workspace)
+      try { await this.codeSnippets.whenHighlighted() } catch (error) { throw refuseExport(error.message) }
       if (!this.el.isConnected || workspace.dataset.generation !== generation) throw refuseExport("Canvas changed before export.")
       if (codeIsClipped(this.canvas.root)) throw refuseExport("Some code source is hidden. Fit or resize every code block before exporting.")
     }

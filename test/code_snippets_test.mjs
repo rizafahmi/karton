@@ -202,13 +202,32 @@ test('worker replies are source/identity/generation scoped and token text cannot
   f.literal.querySelector = selector => selector === '.drawing-code-source' ? pre : selector === '.drawing-code-source code' ? code : selector === '.drawing-code-highlight-status' ? status : null
   await Promise.resolve()
   const request = instance.sent[0]
+  let highlighted = false
+  const ready = f.api.whenHighlighted().then(() => { highlighted = true })
+  await Promise.resolve()
+  assert.equal(highlighted, false)
   assert.equal(request.source, source)
   instance.deliver({...request, revision: 'obsolete', status: 'wrong', tokens: [{text: source}]})
   assert.equal(code.children.length, 0)
+  await Promise.resolve()
+  assert.equal(highlighted, false)
   instance.deliver({...request, status: 'javascript', tokens: [{text: source, color: '#123456'}]})
   assert.equal(code.children[0].children[0].textContent, source)
   assert.equal(code.children[0].children[0].tag, 'span')
   assert.equal(code.children[0].children[0].style.color, '#123456')
+  await ready
+  assert.equal(highlighted, true)
+  const updated = `${source}\n// changed before export`
+  f.literal.dataset.codeContent = JSON.stringify(updated)
+  highlighted = false
+  const currentReady = f.api.whenHighlighted().then(() => { highlighted = true })
+  instance.deliver({...request, status: 'obsolete source', tokens: [{text: source}]})
+  await Promise.resolve()
+  assert.equal(highlighted, false)
+  const currentRequest = instance.sent.at(-1)
+  instance.deliver({...currentRequest, status: 'javascript', tokens: [{text: updated, color: '#123456'}]})
+  await currentReady
+  assert.equal(highlighted, true)
   const before = code.children[0]
   f.workspace.dataset.generation = '2'
   instance.deliver({...request, status: 'late', tokens: [{text: source}]})
@@ -228,9 +247,14 @@ test('worker failure is visibly unavailable, not a successful plain-text highlig
   const status = element('p')
   f.literal.querySelector = selector => selector === '.drawing-code-highlight-status' ? status : null
   await Promise.resolve()
-  assert.equal(status.textContent, 'Highlighting…')
+  let highlighted = false
+  const ready = f.api.whenHighlighted().then(() => { highlighted = true })
+  await Promise.resolve()
+  assert.equal(highlighted, false)
   instance.handlers.get('error')()
   assert.match(status.textContent, /unavailable/)
+  await ready
+  assert.equal(highlighted, true)
   f.api.destroy()
 })
 
@@ -365,4 +389,34 @@ test('source text stays on the native drag path while scrollbar tracks retain na
   f.canvas.space = true
   assert.equal(down({offsetX: 205}).propagationStopped, undefined)
   f.api.destroy()
+})
+
+test('active canvas modes own Enter and F2 before code editing until the mode exits', () => {
+  const f = fixture()
+  const keyboard = {active: true}
+  f.workspace.workspaceHook = {activeCanvas: () => ({directKeyboard: keyboard})}
+  for (const key of ['Enter', 'F2']) {
+    const event = f.canvas.root.emit('keydown', {key})
+    assert.equal(event.defaultPrevented, undefined)
+    assert.equal(f.input(), undefined)
+  }
+  assert.equal(f.calls.length, 0)
+  keyboard.active = false
+  f.activate()
+  assert.equal(f.input().value, '\ufeffa\nb\nc\n')
+  f.api.destroy()
+})
+
+test('replacing the canvas rejects pending highlight readiness rather than exporting an obsolete document', async () => {
+  class WorkerDouble {
+    addEventListener() {}
+    postMessage() {}
+    terminate() {}
+  }
+  const f = fixture({WorkerClass: WorkerDouble})
+  const ready = f.api.whenHighlighted()
+  const rejected = assert.rejects(ready, /Canvas changed/)
+  f.workspace.dataset.generation = '2'
+  f.api.destroy()
+  await rejected
 })

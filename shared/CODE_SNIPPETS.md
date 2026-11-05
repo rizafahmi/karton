@@ -193,6 +193,9 @@ viewport. Native Download handles expected refusals as visible feedback rather
 than retrying them as SVG or reporting them as client crashes. Direct export API
 calls reject. Controls/status are visually hidden in exported output; this is not
 a claim that their markup is removed from serialized SVG XML.
+Image export waits for resolved drawing fonts and current-source highlighting
+or explicit plain-text fallback before capturing output. Stale worker replies
+cannot mark newer source ready; a replaced document refuses the pending export.
 
 ## 5. Versions and separate-copy conversion
 
