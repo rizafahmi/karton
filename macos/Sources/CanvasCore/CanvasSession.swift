@@ -48,6 +48,17 @@ public final class CanvasSession {
         self.root = document.root
     }
 
+    /// Captures a validated UTF-8 JSON snapshot of the current session state
+    /// without mutating the opened document's original bytes or writing a file.
+    public func encodedData() throws -> Data {
+        try CanvasDocument.encode(root)
+    }
+
+    /// Reopens the current session state as an independent validated document.
+    public func encodedDocument() throws -> CanvasDocument {
+        try CanvasDocument(data: encodedData())
+    }
+
     public func position(of id: String) -> CanvasPosition? {
         guard let node = node(id),
               let x = number(node["x"]),

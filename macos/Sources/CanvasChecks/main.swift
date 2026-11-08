@@ -346,11 +346,19 @@ func runChecks() throws {
     try checkConnections(repository: repository)
     try checkGeometry(repository: repository)
     try checkLiteralJSON()
+    try checkCompatibilityRoundTrips(repository: repository)
 }
 
 do {
-    try runChecks()
-    print("All native document checks passed.")
+    let args = Array(CommandLine.arguments.dropFirst())
+    if args.count == 2 && args[0] == "--export-roundtrip" {
+        try exportCrossEditorRoundTrip(in: URL(fileURLWithPath: args[1]))
+    } else if args.count == 2 && args[0] == "--verify-roundtrip" {
+        try verifyCrossEditorRoundTrip(in: URL(fileURLWithPath: args[1]))
+    } else {
+        try runChecks()
+        print("All native document checks passed.")
+    }
 } catch {
     fputs("Native document check failed: \(error)\n", stderr)
     exit(1)

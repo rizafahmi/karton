@@ -671,8 +671,9 @@ public final class CanvasView: NSView {
     private func drawEdge(_ edge: EdgeDrawing) {
         let color = palette(edge.style["stroke"] as? String ?? "ink")
         let width = edge.style["width"] as? NSNumber
-        let validWidth = width != nil && CFGetTypeID(width!) != CFBooleanGetTypeID() && [1.0, 2.0, 4.0].contains(width!.doubleValue)
-        color.setStroke(); edge.path.lineWidth = validWidth ? CGFloat(width!.doubleValue) : 2
+        let validWidth = width != nil && CFGetTypeID(width!) != CFBooleanGetTypeID() &&
+            !["f", "d"].contains(String(cString: width!.objCType)) && [1, 2, 4].contains(width!.intValue)
+        color.setStroke(); edge.path.lineWidth = validWidth ? CGFloat(width!.intValue) : 2
         let dash = edge.style["dash"] as? NSNumber
         let dashed = dash != nil && CFGetTypeID(dash!) == CFBooleanGetTypeID() ? dash!.boolValue : edge.animated
         if dashed { edge.path.setLineDash([6, 4], count: 2, phase: 0) }

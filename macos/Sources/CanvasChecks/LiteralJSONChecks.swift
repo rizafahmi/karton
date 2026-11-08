@@ -1,4 +1,6 @@
+import AppKit
 import CanvasCore
+import CanvasUI
 import Foundation
 
 func checkLiteralJSON() throws {
@@ -35,11 +37,208 @@ func checkLiteralJSON() throws {
     overlongCaption["data"] = ["kind": "rect", "text": "\u{feff}" + String(repeating: "x", count: 2000)]
     try rejects(canvas([overlongCaption]), mentioning: "2000")
     for json in [#"{"version":1.0,"nodes":[],"edges":[]}"#,
-                 #"{"version":2,"nodes":[],"edges":[],"paper":{"grid":20.0}}"#] {
+                 #"{"version":2,"nodes":[],"edges":[],"paper":{"grid":20.0}}"#,
+                 #"{"version":1,"nodes":[{"id":"n","type":"shape","x":0,"y":0,"width":100,"height":50,"data":{"kind":"rect","width":2.0}}],"edges":[]}"#,
+                 #"{"version":1,"nodes":[{"id":"n","type":"shape","x":0,"y":0,"width":100,"height":50,"data":{"kind":"rect","radius":8.0}}],"edges":[]}"#] {
         do {
             _ = try CanvasDocument(data: Data(json.utf8))
             throw CheckFailure(description: "String-preserving decoding accepted a non-integer token")
         } catch is CanvasDocumentError {}
     }
+    let encodedBytes = try CanvasDocument.encode(document.root)
+    let roundTripped = try CanvasDocument(data: encodedBytes)
+    try require(NSDictionary(dictionary: roundTripped.root).isEqual(to: document.root),
+                "CanvasDocument.encode changed literal strings, decimals, booleans or 64-bit integers")
+
+    let combinedNodes = (0..<4).map { code("c\($0)", maximum) } + (0..<4).map { index -> [String: Any] in
+        var node = shape("a\(index)")
+        node["data"] = ["kind": "rect", "attachment": [
+            "filename": "a\(index).txt", "media_type": "text/plain", "encoding": "utf-8", "content": maximum
+        ]]
+        return node
+    }
+    let combinedDoc = try CanvasDocument(data: CanvasDocument.encode(canvas(combinedNodes)))
+    try require((combinedDoc.root["nodes"] as? [Any])?.count == 8,
+                "Independent 1 MiB code and attachment budgets were conflated")
     print("PASS literal JSON: BOM/Unicode/line-ending retention, metadata precision and restored-content quotas")
+}
+
+@MainActor
+func checkCompatibilityRoundTrips(repository: URL) throws {
+    let fixtures = ["v1/document.json", "v1/compatibility.json", "v2/document.json", "v2/code-compatibility.json"]
+    let originalBytes = try Dictionary(uniqueKeysWithValues: fixtures.map { path in
+        (path, try Data(contentsOf: repository.appendingPathComponent("shared/fixtures/\(path)")))
+    })
+    let scratch = FileManager.default.temporaryDirectory
+        .appendingPathComponent("elixir-canvas-checks-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: scratch) }
+
+    for path in fixtures {
+        let tempURL = scratch.appendingPathComponent(path.replacingOccurrences(of: "/", with: "-"))
+        try originalBytes[path]!.write(to: tempURL, options: .atomic)
+        let document = try CanvasDocument(data: Data(contentsOf: tempURL))
+        let session = CanvasSession(document: document)
+        let view = CanvasView(session: session)
+        let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        try require(bitmap.pixelsWide >= 800 && bitmap.pixelsHigh >= 600,
+                    "Offscreen render failed for \(path)")
+        try require(NSDictionary(dictionary: session.root).isEqual(to: document.root) &&
+                    document.originalData == originalBytes[path],
+                    "Rendering \(path) mutated session state or original bytes")
+        let snapshot = try session.encodedData()
+        try snapshot.write(to: tempURL, options: .atomic)
+        let reopened = try CanvasDocument(data: Data(contentsOf: tempURL))
+        try require(NSDictionary(dictionary: reopened.root).isEqual(to: document.root),
+                    "Unedited native round-trip lost content or metadata in \(path)")
+    }
+
+    // v1 compatibility round-trip: move, resize/rotate, caption edit, shape + connection insert, undo/redo.
+    let v1Temp = scratch.appendingPathComponent("v1-roundtrip.json")
+    try originalBytes["v1/compatibility.json"]!.write(to: v1Temp, options: .atomic)
+    let v1Doc = try CanvasDocument(data: Data(contentsOf: v1Temp))
+    let v1Session = CanvasSession(document: v1Doc)
+    let moveRecord = try v1Session.move("text", to: CanvasPosition(x: -75.5, y: 420.25))
+    try require(moveRecord != nil, "v1 text move did not apply")
+    let ellipseBefore = v1Session.geometry(of: "ellipse")!
+    let ellipseAfter = ellipseBefore
+        .resized(handle: .bottomRight, localDelta: CanvasPosition(x: 30, y: 20))
+        .rotated(by: 15)
+    let resizedEllipse = try v1Session.setGeometry("ellipse", to: ellipseAfter)
+    try require(resizedEllipse, "v1 ellipse resize/rotate did not apply")
+    let triangleTextBefore = v1Session.text(of: "triangle")
+    let editedTriangleText = try v1Session.setText("triangle", to: "三角\nUpdated 🌿")
+    try require(editedTriangleText, "v1 triangle caption edit did not apply")
+    let insertedShape = try v1Session.insertShape(.rectangle, at: CanvasPosition(x: 780, y: 40), text: "Added in native")
+    let insertedEdge = try v1Session.insertConnection(source: insertedShape.id, sourceSide: .left,
+                                                      target: "diamond", targetSide: .right)
+    let v1EditedBytes = try v1Session.encodedData()
+    try v1EditedBytes.write(to: v1Temp, options: .atomic)
+    let v1Reopened = try CanvasDocument(data: Data(contentsOf: v1Temp))
+    try require(NSDictionary(dictionary: v1Reopened.root).isEqual(to: v1Session.root),
+                "Edited v1 round-trip did not match in-memory session state")
+    try require(v1Reopened.root["version"] as? Int == 1, "Edited v1 round-trip changed format version")
+    let v1Nodes = v1Reopened.root["nodes"] as! [[String: Any]]
+    let v1Edges = v1Reopened.root["edges"] as! [[String: Any]]
+    try require(v1Nodes.map { $0["id"] as! String } == ["rect", "ellipse", "diamond", "triangle", "text", "line", insertedShape.id],
+                "v1 round-trip altered node stacking order or IDs")
+    try require(v1Edges.map { $0["id"] as! String } == ["styled", "loop", "step-solid", "straight-collision", insertedEdge.id],
+                "v1 round-trip altered edge order or IDs")
+    let reopenedEllipseData = v1Nodes[1]["data"] as! [String: Any]
+    let emptyAttachment = reopenedEllipseData["attachment"] as! [String: Any]
+    try require(emptyAttachment["content"] as? String == "" &&
+                emptyAttachment["future"] as? String == "empty-attachment" &&
+                reopenedEllipseData["font"] as? String == "handwritten" &&
+                reopenedEllipseData["size"] as? String == "l" &&
+                reopenedEllipseData["align"] as? String == "right",
+                "Resizing v1 ellipse lost empty attachment or typography metadata")
+    let collisionData = v1Edges[3]["data"] as! [String: Any]
+    try require(collisionData["connector_style"] as? String == "legacy-collision" &&
+                collisionData["future"] as? String == "collision-kept",
+                "v1 round-trip lost non-object connector_style collision metadata")
+    try v1Session.removeInsertion(insertedEdge)
+    try v1Session.removeInsertion(insertedShape)
+    _ = try v1Session.setText("triangle", to: triangleTextBefore)
+    _ = try v1Session.setGeometry("ellipse", to: ellipseBefore)
+    _ = try v1Session.move("text", to: moveRecord!.before)
+    let v1Restored = try v1Session.encodedDocument()
+    try require(NSDictionary(dictionary: v1Restored.root).isEqual(to: v1Doc.root),
+                "Undoing v1 edits and re-encoding did not restore exact original document")
+
+    // v2 compatibility round-trip: fractional decimal move (130.1), code box resize/rotate, shape caption edit, undo.
+    let v2Temp = scratch.appendingPathComponent("v2-roundtrip.json")
+    try originalBytes["v2/code-compatibility.json"]!.write(to: v2Temp, options: .atomic)
+    let v2Doc = try CanvasDocument(data: Data(contentsOf: v2Temp))
+    let v2Session = CanvasSession(document: v2Doc)
+    let shapeMove = try v2Session.move("shape", to: CanvasPosition(x: -42.5, y: 130.1))!
+    let codeBefore = v2Session.geometry(of: "code-explicit")!
+    let codeAfter = codeBefore
+        .resized(handle: .topLeft, localDelta: CanvasPosition(x: -20, y: -10))
+        .rotated(by: 15)
+    _ = try v2Session.setGeometry("code-explicit", to: codeAfter)
+    let shapeTextBefore = v2Session.text(of: "shape")
+    _ = try v2Session.setText("shape", to: "Connected & verified")
+    let v2EditedBytes = try v2Session.encodedData()
+    try v2EditedBytes.write(to: v2Temp, options: .atomic)
+    let v2Reopened = try CanvasDocument(data: Data(contentsOf: v2Temp))
+    try require(NSDictionary(dictionary: v2Reopened.root).isEqual(to: v2Session.root),
+                "Edited v2 round-trip did not match in-memory session state (including decimal 130.1)")
+    let v2Nodes = v2Reopened.root["nodes"] as! [[String: Any]]
+    let codeAutoData = v2Nodes[1]["data"] as! [String: Any]
+    let codeFutureData = v2Nodes[2]["data"] as! [String: Any]
+    try require(codeAutoData["language"] == nil &&
+                codeFutureData["language"] as? String == "future-language",
+                "v2 round-trip materialized Auto language or lost unknown language ID")
+    _ = try v2Session.setText("shape", to: shapeTextBefore)
+    _ = try v2Session.setGeometry("code-explicit", to: codeBefore)
+    _ = try v2Session.move("shape", to: shapeMove.before)
+    let v2Restored = try v2Session.encodedDocument()
+    try require(NSDictionary(dictionary: v2Restored.root).isEqual(to: v2Doc.root),
+                "Undoing v2 edits and re-encoding did not restore exact original document")
+
+    for path in fixtures {
+        let current = try Data(contentsOf: repository.appendingPathComponent("shared/fixtures/\(path)"))
+        try require(current == originalBytes[path], "Checked-in fixture \(path) was modified")
+    }
+    print("PASS compatibility round-trips: temporary v1/v2 copies, edge variants, collision retention, decimal/64-bit precision and undo restoration")
+}
+
+func exportCrossEditorRoundTrip(in directory: URL) throws {
+    let v1Doc = try CanvasDocument(data: Data(contentsOf: directory.appendingPathComponent("v1.json")))
+    let v1Session = CanvasSession(document: v1Doc)
+    _ = try v1Session.move("text", to: CanvasPosition(x: -75.5, y: 420.25))
+    let ell = v1Session.geometry(of: "ellipse")!
+        .resized(handle: .right, localDelta: CanvasPosition(x: 20, y: 0))
+        .rotated(by: 15)
+    _ = try v1Session.setGeometry("ellipse", to: ell)
+    _ = try v1Session.setText("triangle", to: "三角\nNative edit")
+    let added = try v1Session.insertShape(.rectangle, at: CanvasPosition(x: 780, y: 40), text: "Native node")
+    _ = try v1Session.insertConnection(source: added.id, sourceSide: .left, target: "diamond", targetSide: .right)
+    try v1Session.encodedData().write(to: directory.appendingPathComponent("v1-after-native.json"), options: .atomic)
+
+    let v2Doc = try CanvasDocument(data: Data(contentsOf: directory.appendingPathComponent("v2.json")))
+    let v2Session = CanvasSession(document: v2Doc)
+    _ = try v2Session.move("shape", to: CanvasPosition(x: -42.5, y: 130.1))
+    let codeGeo = v2Session.geometry(of: "code-explicit")!
+        .resized(handle: .bottomRight, localDelta: CanvasPosition(x: 40, y: 20))
+        .rotated(by: 15)
+    _ = try v2Session.setGeometry("code-explicit", to: codeGeo)
+    _ = try v2Session.setText("shape", to: "Native + Web")
+    try v2Session.encodedData().write(to: directory.appendingPathComponent("v2-after-native.json"), options: .atomic)
+}
+
+@MainActor
+func verifyCrossEditorRoundTrip(in directory: URL) throws {
+    let v1Reopened = try CanvasDocument(data: Data(contentsOf: directory.appendingPathComponent("v1-after-native.json")))
+    let v1Session = CanvasSession(document: v1Reopened)
+    let v1View = CanvasView(session: v1Session)
+    let v1Bitmap = v1View.bitmapImageRepForCachingDisplay(in: v1View.bounds)!
+    v1View.cacheDisplay(in: v1View.bounds, to: v1Bitmap)
+    try require(v1Reopened.root["version"] as? Int == 1 &&
+                v1Session.position(of: "diamond") == CanvasPosition(x: 500, y: 25) &&
+                v1Session.position(of: "text") == CanvasPosition(x: -75.5, y: 420.25) &&
+                v1Session.text(of: "triangle") == "三角\nNative edit" &&
+                ((v1Reopened.root["future"] as? [String: Any])?["sequence"] as? NSNumber)?.int64Value == 9_007_199_254_740_993,
+                "Native reopen of web-saved v1 lost edits or metadata")
+
+    let converted = try CanvasDocument(data: Data(contentsOf: directory.appendingPathComponent("v1-converted-to-v2.json")))
+    try require(converted.root["version"] as? Int == 2 &&
+                ((converted.root["future"] as? [String: Any])?["sequence"] as? NSNumber)?.int64Value == 9_007_199_254_740_993,
+                "Native reopen of web-converted v2 copy failed")
+
+    let v2Reopened = try CanvasDocument(data: Data(contentsOf: directory.appendingPathComponent("v2-after-native.json")))
+    let v2Session = CanvasSession(document: v2Reopened)
+    let v2View = CanvasView(session: v2Session)
+    let v2Bitmap = v2View.bitmapImageRepForCachingDisplay(in: v2View.bounds)!
+    v2View.cacheDisplay(in: v2View.bounds, to: v2Bitmap)
+    let v2Nodes = v2Reopened.root["nodes"] as! [[String: Any]]
+    try require(v2Reopened.root["version"] as? Int == 2 &&
+                v2Session.position(of: "code-auto") == CanvasPosition(x: 520, y: -20.5) &&
+                v2Session.position(of: "shape") == CanvasPosition(x: -42.5, y: 130.1) &&
+                v2Session.text(of: "shape") == "Native + Web" &&
+                (v2Nodes[1]["data"] as! [String: Any])["language"] == nil &&
+                (v2Nodes[2]["data"] as! [String: Any])["language"] as? String == "future-language",
+                "Native reopen of web-saved v2 lost edits, code metadata or decimal coordinates")
+    print("PASS cross-editor Native -> Web -> Native round-trip on temporary v1/v2 copies")
 }

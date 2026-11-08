@@ -91,7 +91,7 @@ including self-loops without two distinct named side handles and geometry outsid
 the native app's bounds. Fonts, colors and connector routes are native approximations;
 code is plain text and attachments are cards, not previews. No zoom or export.
 
-Run the standalone native contract checks from the repository root:
+Run the standalone native contract and round-trip checks from the repository root:
 
 ```sh
 swift run --package-path macos -Xswiftc -target -Xswiftc "$(uname -m)-apple-macosx27.0" CanvasChecks

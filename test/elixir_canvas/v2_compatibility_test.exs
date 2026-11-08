@@ -63,4 +63,101 @@ defmodule ElixirCanvas.V2CompatibilityTest do
     assert Graph.edge(reopened.graph, "link").source == "code-explicit"
     assert File.read!(fixture) == original
   end
+
+  test "v2 enforces independent 1 MiB duplicate-inclusive attachment and code budgets" do
+    max_chunk = "\uFEFF" <> String.duplicate("x", 262_141)
+    assert byte_size(max_chunk) == 262_144
+
+    code_nodes =
+      for i <- 1..4 do
+        %{
+          "id" => "code-#{i}",
+          "type" => "code",
+          "x" => i * 100,
+          "y" => 0,
+          "width" => 200,
+          "height" => 120,
+          "data" => %{"content" => max_chunk}
+        }
+      end
+
+    attached_nodes =
+      for i <- 1..4 do
+        %{
+          "id" => "attach-#{i}",
+          "type" => "shape",
+          "x" => i * 100,
+          "y" => 200,
+          "width" => 240,
+          "height" => 112,
+          "data" => %{
+            "kind" => "rect",
+            "text" => "a-#{i}.txt",
+            "attachment" => %{
+              "filename" => "a-#{i}.txt",
+              "media_type" => "text/plain",
+              "encoding" => "utf-8",
+              "content" => max_chunk
+            }
+          }
+        }
+      end
+
+    combined = %{
+      "version" => 2,
+      "nodes" => code_nodes ++ attached_nodes,
+      "edges" => []
+    }
+
+    assert {:ok, graph, _source} = Document.decode(Jason.encode!(combined))
+    assert map_size(graph.nodes) == 8
+
+    over_code =
+      put_in(
+        combined,
+        ["nodes"],
+        combined["nodes"] ++
+          [
+            %{
+              "id" => "extra-code",
+              "type" => "code",
+              "x" => 0,
+              "y" => 0,
+              "width" => 100,
+              "height" => 50,
+              "data" => %{"content" => "x"}
+            }
+          ]
+      )
+
+    assert {:error, _} = Document.decode(Jason.encode!(over_code))
+
+    over_attach =
+      put_in(
+        combined,
+        ["nodes"],
+        combined["nodes"] ++
+          [
+            %{
+              "id" => "extra-attach",
+              "type" => "shape",
+              "x" => 0,
+              "y" => 0,
+              "width" => 100,
+              "height" => 50,
+              "data" => %{
+                "kind" => "rect",
+                "attachment" => %{
+                  "filename" => "extra.txt",
+                  "media_type" => "text/plain",
+                  "encoding" => "utf-8",
+                  "content" => "x"
+                }
+              }
+            }
+          ]
+      )
+
+    assert {:error, _} = Document.decode(Jason.encode!(over_attach))
+  end
 end

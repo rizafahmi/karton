@@ -11,6 +11,19 @@ public final class CanvasDocument {
         try CanvasDocument(data: Data(#"{"version":2,"nodes":[],"edges":[]}"#.utf8))
     }
 
+    /// Serializes and re-validates a canvas root object as portable UTF-8 JSON.
+    public static func encode(_ root: [String: Any]) throws -> Data {
+        try Validator.validate(root)
+        let data: Data
+        do {
+            data = try CanvasJSON.encode(root)
+        } catch {
+            throw CanvasDocumentError("Invalid JSON: \(error.localizedDescription)")
+        }
+        _ = try CanvasDocument(data: data)
+        return data
+    }
+
     public init(data: Data) throws {
         guard !data.contains(0), String(data: data, encoding: .utf8) != nil else {
             throw CanvasDocumentError("Canvas JSON must be UTF-8.")
@@ -79,8 +92,8 @@ private enum Validator {
         try supported(data, "size", ["s", "m", "l"], context)
         try supported(data, "align", ["left", "center", "right"], context)
         try supported(data, "arrow", ["end", "both", "none"], context)
-        for (key, values) in [("width", [1.0, 2.0, 4.0]), ("radius", [0.0, 8.0])] {
-            if let value = data[key], !values.contains(number(value) ?? .nan) { try fail("\(context) has unsupported \(key).") }
+        for (key, values) in [("width", [1, 2, 4]), ("radius", [0, 8])] {
+            if let value = data[key], !values.contains(integer(value) ?? -1) { try fail("\(context) has unsupported \(key).") }
         }
         if let value = data["dash"], !bool(value) { try fail("\(context) dash must be boolean.") }
         if let value = data["rotation"], abs(number(value) ?? .infinity) > 1_000_000 { try fail("\(context) rotation must be finite and within 1000000 degrees.") }

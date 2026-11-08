@@ -429,12 +429,14 @@ never edit [examples/welcome.json](../examples/welcome.json) as disposable proof
 
 `shared/fixtures/v1/document.json` and `shared/fixtures/v2/document.json` are
 baseline inputs. The additional `v1/compatibility.json` covers five shape kinds,
-rotations, a free line, locks, styled/self-loop connectors, attachment text and
-unknown metadata including large integers. `v2/code-compatibility.json` covers
-literal code, mixed line endings/BOM, language variants and a connected shape.
-Web tests move an unrelated node and inspect saved/reopened content and metadata.
-These inputs do not prove a native codec or test suite. Examples remain user
-documents, not writable regression inputs.
+rotations, a free line, locks, all edge paths/markers (`bezier`, `smooth`, `step`,
+`straight`, `arrow`, `dot`, `none`), self-loop and styled/colliding connectors,
+Unicode and empty attachment text, and unknown metadata including 64-bit integers.
+`v2/code-compatibility.json` covers literal code, mixed line endings/BOM, language
+variants and a connected shape. Native `CanvasChecks` and web ExUnit tests exercise
+multi-step edits, undo restoration, independent 1 MiB attachment/code quotas,
+v1-to-v2 version-copy snapshots, and temporary-file round-trips across both codecs.
+Examples remain user documents, not writable regression inputs.
 
 Before editable native autosave, extend coverage and prove both editors for:
 all node kinds/styles/corners/typography and omitted defaults; rotated triangles,

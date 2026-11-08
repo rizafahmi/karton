@@ -715,11 +715,16 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       selection, pointer/arrow movement, resize/rotation, locked-node protection,
       caption editing and Undo/Redo; closing discards changes. Full editable cross-editor proof
       remains pending.
-      Shared v1/v2 compatibility fixtures now cover five shape kinds, free line,
-      rotation/locks, self-loop and styled connectors, Unicode attachment, unknown
-      metadata/large integers, and literal code with mixed line endings/language
-      variants. Web tests and temporary-file saves exercise unrelated moves and
-      round trips; edge variants, invalid/limit cases and native proof remain open.
+      Shared v1/v2 compatibility fixtures cover five shape kinds, free line,
+      rotation/locks, all edge paths/markers (`bezier`, `smooth`, `step`, `straight`,
+      `arrow`, `dot`, `none`), self-loop and automatic/named handles, `animated`/`dash`
+      precedence, non-object `connector_style` collision, Unicode and empty `text/plain`
+      attachments, unknown metadata/64-bit integers, and literal code with mixed line
+      endings/language variants. Native `CanvasDocument.encode` / `CanvasSession.encodedData`
+      and web `Document` tests prove non-lossy temporary-file round-trips, independent
+      1 MiB attachment/code budgets, explicit v1→v2 copy conversion, and cross-editor
+      `Native → Web → Native` edits and undo restoration while keeping the native UI
+      session-only until persistence/autosave is wired.
       Native interaction checks create real AppKit mouse/key events: pointer drag
       commits one move, Command actions call the active canvas history, Undo/Redo
       restore exact geometry, Shift-Arrow moves 10 units, a locked node remains

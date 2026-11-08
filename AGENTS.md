@@ -49,14 +49,15 @@ silently upgrade/downgrade, or infer native implementation from web support.
 ## Architecture map
 
 - Native [CanvasDocument](macos/Sources/CanvasCore/CanvasDocument.swift) validates
-  supported v1/v2 input and retains original bytes.
-  [CanvasJSON](macos/Sources/CanvasCore/CanvasJSON.swift) preserves literal strings:
-  the current SDK's JSONSerialization strips leading BOMs inside strings.
-  Keep raw numeric-token validation before string-preserving JSONDecoder decoding,
-  then validate restored content/quotas; parsing happens on open, not geometry edits.
+  supported v1/v2 input, retains original bytes, and encodes validated JSON snapshots.
+  [CanvasJSON](macos/Sources/CanvasCore/CanvasJSON.swift) preserves literal strings,
+  64-bit integers, and IEEE 754 `Double` round-trips via `JSONDecoder`/`JSONEncoder`
+  (avoiding `JSONSerialization`'s leading-BOM stripping and `NSDecimalNumber` trig drift).
+  Keep raw numeric-token validation before string-preserving decoding, then
+  validate restored content/quotas; parsing happens on open, not geometry edits.
   [CanvasSession](macos/Sources/CanvasCore/CanvasSession.swift) owns mutable in-memory
-  graph state and retained object/connection insertion
-  identity/stacking; connection transactions validate endpoints and self-loop sides.
+  graph state, validated `encodedData()` snapshots, and retained object/connection
+  insertion identity/stacking; connection transactions validate endpoints and self-loop sides.
   [CanvasView](macos/Sources/CanvasUI/CanvasView.swift) owns AppKit hit-testing,
   viewport-centered insertion, selection, rendering and explicit per-canvas history
   groups, not AppKit event-based grouping. Geometry/edges grow scroll bounds
