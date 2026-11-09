@@ -118,6 +118,10 @@ func checkCompatibilityRoundTrips(repository: URL) throws {
     let insertedArrow = try v1Session.insertLine(.arrow, centeredAt: CanvasPosition(x: 780, y: 220))
     let insertedEdge = try v1Session.insertConnection(source: insertedShape.id, sourceSide: .left,
                                                       target: "diamond", targetSide: .right)
+    let styledDiamond = try v1Session.setNodeStyle("diamond", property: .fill, to: .string("green"))
+    try require(styledDiamond != nil, "v1 diamond fill style edit did not apply")
+    let styledEdgeChange = try v1Session.setConnectionStyle("styled", property: .stroke, to: .string("blue"))
+    try require(styledEdgeChange != nil, "v1 styled connection stroke edit did not apply")
     let broughtFront = try v1Session.bringToFront("ellipse")
     try require(broughtFront != nil, "v1 ellipse bringToFront did not apply")
     let lockedText = try v1Session.setLocked("text", to: true)
@@ -155,9 +159,15 @@ func checkCompatibilityRoundTrips(repository: URL) throws {
     try require(collisionData["connector_style"] as? String == "legacy-collision" &&
                 collisionData["future"] as? String == "collision-kept",
                 "v1 round-trip lost non-object connector_style collision metadata")
+    let styledEdgeData = (v1Edges[0]["data"] as! [String: Any])["connector_style"] as! [String: Any]
+    try require(styledEdgeData["stroke"] as? String == "blue" &&
+                styledEdgeData["future"] as? String == "kept",
+                "v1 connector style edit lost unknown connector_style metadata")
     try v1Session.restoreInsertion(deletedLoop)
     _ = try v1Session.setLocked("text", to: nil)
     _ = try v1Session.moveNode("ellipse", toIndex: broughtFront!.fromIndex)
+    try v1Session.applyStyleChange(styledEdgeChange!.inverse)
+    try v1Session.applyStyleChange(styledDiamond!.inverse)
     try v1Session.removeInsertion(insertedEdge)
     try v1Session.removeInsertion(insertedArrow)
     try v1Session.removeInsertion(insertedShape)

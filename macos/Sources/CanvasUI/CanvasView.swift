@@ -61,6 +61,8 @@ public final class CanvasView: NSView {
     private var connectionEditor: ConnectionEditor?
     private var geometryGesture: GeometryGesture?
     private var lineEndpointGesture: LineEndpointGesture?
+    public let styleInspector = StyleInspectorView()
+    public private(set) var isStyleInspectorOpen = false
     public var selectedNodeID: String? { selectedID }
     public var selectedConnectionID: String? { selectedEdgeID }
     public var hasGeometryPreview: Bool { geometryGesture != nil || lineEndpointGesture != nil }
@@ -143,6 +145,14 @@ public final class CanvasView: NSView {
         let size = CGSize(width: max(800, bounds.width), height: max(600, bounds.height))
         super.init(frame: CGRect(origin: .zero, size: size))
         history.groupsByEvent = false
+        styleInspector.isHidden = true
+        styleInspector.onSelectStyle = { [weak self] property, value in
+            try self?.applyStyle(property, to: value)
+        }
+        styleInspector.onClose = { [weak self] in
+            self?.closeStyleInspector(nil)
+        }
+        addSubview(styleInspector)
     }
 
     public required init?(coder: NSCoder) { fatalError("CanvasView requires a document") }
@@ -164,6 +174,7 @@ public final class CanvasView: NSView {
         context.restoreGState()
         if let geometryGesture { drawGeometryHelp(geometryGesture.handle) }
         if let lineEndpointGesture { drawLineEndpointHelp(lineEndpointGesture.endpoint) }
+        positionStyleInspector()
     }
 
     public override func mouseDown(with event: NSEvent) {
@@ -202,6 +213,7 @@ public final class CanvasView: NSView {
             selectedEdgeID = nil
         }
         drag = nil
+        refreshStyleInspector()
         if event.clickCount == 2 {
             beginTextEditing()
             needsDisplay = true
@@ -314,11 +326,20 @@ public final class CanvasView: NSView {
                     self.drag = nil
                     return
                 }
+                if isStyleInspectorOpen {
+                    closeStyleInspector(nil)
+                    return
+                }
                 if selectedID != nil || selectedEdgeID != nil {
                     selectedID = nil
                     selectedEdgeID = nil
+                    refreshStyleInspector()
                     needsDisplay = true
                 }
+                return
+            }
+            if event.charactersIgnoringModifiers == "s" || event.charactersIgnoringModifiers == "S" {
+                showStyleInspector(nil)
                 return
             }
             if event.charactersIgnoringModifiers == "g" || event.charactersIgnoringModifiers == "G" {
@@ -405,10 +426,12 @@ public final class CanvasView: NSView {
         if session.canTransform(id), let geometry = session.geometry(of: id) {
             geometryGesture = GeometryGesture(id: id, geometry: geometry)
             window.makeFirstResponder(self)
+            refreshStyleInspector()
             needsDisplay = true
         } else if session.canEditLineEndpoints(id), let lineGeometry = session.lineGeometry(of: id) {
             lineEndpointGesture = LineEndpointGesture(id: id, geometry: lineGeometry)
             window.makeFirstResponder(self)
+            refreshStyleInspector()
             needsDisplay = true
         } else {
             NSSound.beep()
@@ -450,6 +473,7 @@ public final class CanvasView: NSView {
         do {
             try changeGeometry(gesture.id, to: gesture.current)
             geometryGesture = nil
+            refreshStyleInspector()
             needsDisplay = true
         } catch { NSSound.beep() }
     }
@@ -463,6 +487,7 @@ public final class CanvasView: NSView {
             lineEndpointGesture = nil
             renderLineGeometry(gesture.id, geometry: gesture.before)
         }
+        refreshStyleInspector()
     }
 
     private func changeGeometry(_ id: String, to geometry: CanvasGeometry) throws {
@@ -517,6 +542,7 @@ public final class CanvasView: NSView {
         do {
             try changeLineGeometry(gesture.id, to: gesture.current)
             lineEndpointGesture = nil
+            refreshStyleInspector()
             needsDisplay = true
         } catch { NSSound.beep() }
     }
@@ -563,6 +589,7 @@ public final class CanvasView: NSView {
             self.selectedID = nil
             self.selectedEdgeID = insertion.id
             self.rebuildEdges()
+            self.refreshStyleInspector()
             self.needsDisplay = true
             self.registerUndoConnection(insertion, restoring: false, actionName: "Connect")
         }, completion: { [weak self, weak window] in
@@ -587,6 +614,7 @@ public final class CanvasView: NSView {
                     if target.selectedEdgeID == insertion.id { target.selectedEdgeID = nil }
                 }
                 target.rebuildEdges()
+                target.refreshStyleInspector()
                 target.needsDisplay = true
                 target.registerUndoConnection(insertion, restoring: !restoring, actionName: actionName)
             } catch { NSSound.beep() }
@@ -647,6 +675,7 @@ public final class CanvasView: NSView {
         selectedID = id
         selectedEdgeID = nil
         expandDrawingBounds()
+        refreshStyleInspector()
         needsDisplay = true
     }
 
@@ -662,6 +691,7 @@ public final class CanvasView: NSView {
                     try target.session.removeInsertion(insertion)
                     target.nodes.removeAll { $0.id == insertion.id }
                     if target.selectedID == insertion.id { target.selectedID = nil }
+                    target.refreshStyleInspector()
                     target.needsDisplay = true
                 }
                 target.registerUndoInsertion(insertion, restoring: !restoring, actionName: actionName)
@@ -707,6 +737,7 @@ public final class CanvasView: NSView {
                 let deletion = try session.deleteConnection(edgeID)
                 selectedEdgeID = nil
                 rebuildEdges()
+                refreshStyleInspector()
                 needsDisplay = true
                 registerUndoConnection(deletion, restoring: true, actionName: "Delete Connection")
             } catch {
@@ -803,11 +834,86 @@ public final class CanvasView: NSView {
     private func changeLocked(_ id: String, to locked: Bool?) throws {
         let before = session.lockedValue(of: id)
         guard try session.setLocked(id, to: locked) else { return }
+        refreshStyleInspector()
         needsDisplay = true
         recordUndo(locked == true ? "Lock" : "Unlock") { target in
             do { try target.changeLocked(id, to: before) }
             catch { NSSound.beep() }
         }
+    }
+
+    @objc public func showStyleInspector(_ sender: Any? = nil) {
+        guard window?.attachedSheet == nil, textEditor == nil, connectionEditor == nil else {
+            NSSound.beep()
+            return
+        }
+        isStyleInspectorOpen = true
+        styleInspector.isHidden = false
+        refreshStyleInspector()
+        styleInspector.focusPrimaryControl()
+        needsDisplay = true
+    }
+
+    @objc public func closeStyleInspector(_ sender: Any? = nil) {
+        guard isStyleInspectorOpen else { return }
+        isStyleInspectorOpen = false
+        styleInspector.isHidden = true
+        window?.makeFirstResponder(self)
+        needsDisplay = true
+    }
+
+    public func applyStyle(_ property: CanvasStyleProperty, to value: CanvasStyleValue) throws {
+        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
+              textEditor == nil, connectionEditor == nil else {
+            throw CanvasDocumentError("Finish the active edit before changing styles.")
+        }
+        if let id = selectedID {
+            guard let change = try session.setNodeStyle(id, property: property, to: value) else { return }
+            syncFromSession()
+            registerUndoStyleChange(change)
+        } else if let edgeID = selectedEdgeID {
+            guard let change = try session.setConnectionStyle(edgeID, property: property, to: value) else { return }
+            rebuildEdges()
+            refreshStyleInspector()
+            needsDisplay = true
+            registerUndoStyleChange(change)
+        } else {
+            throw CanvasDocumentError("Select an object or connection to inspect its style.")
+        }
+    }
+
+    private func registerUndoStyleChange(_ change: CanvasStyleChange) {
+        recordUndo("Style") { target in
+            do {
+                let inverse = change.inverse
+                try target.session.applyStyleChange(inverse)
+                target.syncFromSession()
+                target.registerUndoStyleChange(inverse)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func refreshStyleInspector() {
+        guard isStyleInspectorOpen else { return }
+        styleInspector.update(
+            session: session,
+            selectedNodeID: selectedID,
+            selectedConnectionID: selectedEdgeID,
+            hasGeometryPreview: hasGeometryPreview
+        )
+        positionStyleInspector()
+    }
+
+    private func positionStyleInspector() {
+        guard isStyleInspectorOpen else { return }
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        let size = styleInspector.frame.size
+        styleInspector.frame.origin = CGPoint(
+            x: max(12, area.maxX - size.width - 16),
+            y: area.minY + 16
+        )
     }
 
     private func traverseSelection(backwards: Bool) {
@@ -835,6 +941,7 @@ public final class CanvasView: NSView {
             selectedID = nil
             selectedEdgeID = id
         }
+        refreshStyleInspector()
         needsDisplay = true
     }
 
@@ -846,6 +953,7 @@ public final class CanvasView: NSView {
                  data: raw["data"] as? [String: Any] ?? [:])
         }
         rebuildEdges()
+        refreshStyleInspector()
         needsDisplay = true
     }
 

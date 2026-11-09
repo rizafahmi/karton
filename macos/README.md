@@ -3,9 +3,10 @@
 This directory contains an independent native canvas app with session-only
 New, shape/text and standalone line/arrow insertion, connections, object/connection
 selection and Tab traversal, movement, resize/rotation and line endpoint editing,
-duplication, deletion, front/back stacking, lock/unlock, caption editing and
-Undo/Redo. The planned editor is not complete: there is no saving, style editing,
-code creation, recovery, attachment preview, syntax highlighting or PNG export.
+duplication, deletion, front/back stacking, lock/unlock, object/connection style
+editing, caption editing and Undo/Redo. The planned editor is not complete: there
+is no saving, code creation, recovery, attachment preview, syntax highlighting or
+PNG export.
 
 ## Build and run
 
@@ -52,13 +53,22 @@ For the selected unlocked object:
   undoable step.
 - **Edit → Lock / Unlock** (**⌘L**) toggles `locked` on the selected object. Locked
   objects can be selected and unlocked, and connections attached to them can be
-  deleted, but locked objects cannot be moved, resized, rotated, edited, duplicated,
-  reordered or deleted.
-
+  deleted, but locked objects cannot be moved, resized, rotated, edited, styled,
+  duplicated, reordered or deleted.
+- **Edit → Style…** (**S**) opens the upper-right floating AppKit Style inspector
+  for the selected object or connection. It exposes only properties supported by
+  the selected element (fill, stroke, stroke width, solid/dashed, corners,
+  arrowheads, text style/size/alignment, or connection `connector_style`
+  stroke/width/dash plus path and target marker), reads inherited typography and
+  defaults without materializing them, retains `animated` when changing connection
+  dash, and visibly refuses non-object `connector_style` metadata collisions.
+  **Escape** cancels active geometry previews before closing Style, and closes
+  Style before clearing selection.
 Command-Z and Shift-Command-Z undo/redo insertions, connections, completed moves,
-resize/rotation, duplication, deletion, front/back stacking, lock/unlock and caption
-changes. Each command is a separate transaction, even when several commands arrive
-in one event. Native text editors retain their own text history.
+resize/rotation, duplication, deletion, front/back stacking, lock/unlock, style
+edits and caption changes. Each command is a separate transaction, even when
+several commands arrive in one event. Native text editors retain their own text
+history.
 
 Selected unlocked shapes and code blocks show eight resize handles and a round
 rotation handle; selected unlocked standalone lines and arrows show two round
@@ -99,9 +109,8 @@ the sheet with an error. Connecting to a locked object does not modify that obje
 Connections are curved arrows; moving, resizing or rotating either endpoint remeasures
 the route without rewriting its stored sides. Exterior routes expand the scrollable canvas
 without shifting the current view. Undo removes the new connection; Redo restores
-its ID, bindings and order. Connections can be selected and deleted; connection
-labels, reconnection and style editing are not implemented yet.
-
+its ID, bindings and order. Connections can be selected, styled and deleted;
+connection labels and reconnection are not implemented yet.
 Double-click an unlocked shape, or select it and press Return, to edit its caption
 in a native sheet. Return inserts a newline; **⌘Return** or **Done** commits;
 **Escape** or **Cancel** discards the draft. Text is limited to 2,000 graphemes;

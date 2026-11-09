@@ -171,6 +171,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         activeCanvas()?.toggleLock(sender)
     }
 
+    @objc public func showStyleInspector(_ sender: Any?) {
+        activeCanvas()?.showStyleInspector(sender)
+    }
+
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let keyWin = activeKeyWindow()
         let sheetOpen = keyWin?.attachedSheet != nil || keyWin?.sheetParent != nil
@@ -192,7 +196,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
                  #selector(insertShape(_:)), #selector(insertLine(_:)),
                  #selector(duplicateSelection(_:)), #selector(deleteSelection(_:)),
                  #selector(bringToFront(_:)), #selector(sendToBack(_:)),
-                 #selector(toggleLock(_:)):
+                 #selector(toggleLock(_:)), #selector(showStyleInspector(_:)):
                 return false
             default:
                 return true
@@ -220,7 +224,8 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         if menuItem.action == #selector(insertConnection(_:)) {
             return canvas.canInsertConnection && !canvas.hasGeometryPreview && !sheetOpen
         }
-        if menuItem.action == #selector(insertShape(_:)) || menuItem.action == #selector(insertLine(_:)) {
+        if menuItem.action == #selector(insertShape(_:)) || menuItem.action == #selector(insertLine(_:)) ||
+           menuItem.action == #selector(showStyleInspector(_:)) {
             return !canvas.hasGeometryPreview && !sheetOpen
         }
         return true
@@ -340,6 +345,9 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         let geometry = NSMenuItem(title: "Edit Geometry", action: #selector(editGeometry(_:)), keyEquivalent: "")
         geometry.target = self
         editMenu.addItem(geometry)
+        let style = NSMenuItem(title: "Style…", action: #selector(showStyleInspector(_:)), keyEquivalent: "")
+        style.target = self
+        editMenu.addItem(style)
         editItem.submenu = editMenu
         let insertItem = NSMenuItem(title: "Insert", action: nil, keyEquivalent: "")
         main.addItem(insertItem)

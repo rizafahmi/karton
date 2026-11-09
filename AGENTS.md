@@ -15,7 +15,8 @@ An independent native Mac editor is in progress, sharing JSON contracts rather
 than the web runtime. `macos/` currently provides session-only New, shape/text
 and standalone line/arrow insertion, connections, object/connection selection and
 Tab traversal, movement, box resize/rotation and line endpoint editing, duplication,
-deletion, front/back stacking, lock/unlock, captions and Undo/Redo; it never saves.
+deletion, front/back stacking, lock/unlock, object/connection style inspection and
+editing, captions and Undo/Redo; it never saves.
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.
@@ -72,9 +73,12 @@ silently upgrade/downgrade, or infer native implementation from web support.
   [GeometryGesture](macos/Sources/CanvasUI/GeometryGesture.swift) keeps resize/rotation
   and line-endpoint previews outside session JSON until commit. Preserve omitted
   rotation and non-padded boxes on cancel/Undo/no-op; lines use endpoint semantics, not box scaling.
-  [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift) and
-  [ConnectionEditor](macos/Sources/CanvasUI/ConnectionEditor.swift) keep native
-  sheet drafts separate until valid commit; cancellation leaves history untouched.
+  [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift),
+  [ConnectionEditor](macos/Sources/CanvasUI/ConnectionEditor.swift), and
+  [StyleInspectorView](macos/Sources/CanvasUI/StyleInspector.swift) keep native
+  sheets and the floating upper-right AppKit Style inspector synchronized with
+  `CanvasSession` without materializing omitted defaults on observation;
+  cancellation and no-ops leave history untouched.
   The session is not persistence: closing discards changes and source bytes stay
   untouched. Keep mutations out of the view and file writes out of the session.
 - [Document](lib/elixir_canvas/document.ex) owns v1/v2 JSON validation,

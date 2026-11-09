@@ -346,6 +346,7 @@ func runChecks() throws {
     try checkConnections(repository: repository)
     try checkGeometry(repository: repository)
     try checkLifecycle(repository: repository)
+    try checkStyles(repository: repository)
     try checkLiteralJSON()
     try checkCompatibilityRoundTrips(repository: repository)
     try checkTheme(repository: repository)

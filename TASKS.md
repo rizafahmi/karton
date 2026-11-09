@@ -710,11 +710,12 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       capture failed, so the actual windows were not visually captured.
       Native contract checks cover shared fixtures and selected refusal/quota cases.
       The native app uses approximate routes, plain code and attachment cards,
-      with no editable saves, style editing, code creation, recovery or
+      with no editable saves, code creation, recovery or
       export. It supports session-only New, shape/text and standalone line/arrow
       insertion, connections, object/connection selection and Tab traversal,
       pointer/arrow movement, resize/rotation and line endpoint editing, duplication,
-      deletion, front/back stacking, lock/unlock, caption editing and Undo/Redo;
+      deletion, front/back stacking, lock/unlock, object and connection style
+      inspection/editing (`S` / Edit → Style…), caption editing and Undo/Redo;
       closing discards changes. Full editable cross-editor proof remains pending.
       Shared v1/v2 compatibility fixtures cover five shape kinds, free line,
       rotation/locks, all edge paths/markers (`bezier`, `smooth`, `step`, `straight`,
@@ -791,6 +792,17 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       / Send to Back (`⌘⇧]` / `⌘⇧[`) with overlap bitmap proof and no-op redo
       preservation, and undoable Lock / Unlock (`⌘L`) preserving omitted versus
       explicit `locked` fields.
+      Native AppKit Style inspector (`S` and **Edit → Style…**) now exposes
+      capability-specific controls for shapes (`fill`, `stroke`, `width`, `dash`,
+      `radius` on rectangles, `font`, `size`, `align`), text (`fill`, `font`,
+      `size`, `align`), standalone lines (`stroke`, `width`, `dash`, `arrow`),
+      code blocks (`fill`, `stroke`, `width`, `dash`, `radius`, `size`), and
+      connections (`edge.data.connector_style` `stroke`, `width`, `dash` plus
+      top-level `path` and `marker`, with `animated` retention and visible
+      non-object `connector_style` collision refusal). Observation never materializes
+      omitted defaults; same-selection patches preserve native control identity and
+      focus, and staged Escape cancels
+      geometry previews before closing Style and before clearing selection.
       Final package smoke caught an invalid bundle resource signature: direct
       execution died with signal 9, signature verification failed, and Launch
       Services refused to spawn it. The bundler now ad-hoc signs the assembled

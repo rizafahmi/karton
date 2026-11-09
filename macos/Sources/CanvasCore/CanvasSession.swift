@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 public struct CanvasPosition: Equatable, Sendable {
@@ -23,6 +24,34 @@ public enum CanvasShapeKind: String, CaseIterable, Sendable {
 
 public enum CanvasLineKind: String, CaseIterable, Sendable {
     case line, arrow
+}
+
+public enum CanvasStyleProperty: String, CaseIterable, Sendable {
+    case fill, stroke, width, dash, radius, arrow, path, marker, font, size, align
+}
+
+public enum CanvasStyleValue: Equatable, Sendable {
+    case string(String)
+    case int(Int)
+    case bool(Bool)
+    case omitted
+}
+
+public struct CanvasStyleChange {
+    fileprivate enum Target {
+        case node(id: String, beforeData: [String: Any], afterData: [String: Any])
+        case connection(id: String, beforeEdge: [String: Any], afterEdge: [String: Any])
+    }
+    fileprivate let target: Target
+
+    public var inverse: CanvasStyleChange {
+        switch target {
+        case .node(let id, let before, let after):
+            return CanvasStyleChange(target: .node(id: id, beforeData: after, afterData: before))
+        case .connection(let id, let before, let after):
+            return CanvasStyleChange(target: .connection(id: id, beforeEdge: after, afterEdge: before))
+        }
+    }
 }
 
 /// Retained insertion identity and stacking position for exact Undo/Redo.
@@ -527,6 +556,274 @@ public final class CanvasSession {
         }
         edges.insert(edge, at: insertion.index)
         root["edges"] = edges
+    }
+
+    public static let supportedColors = ["none", "ink", "gray", "blue", "green", "yellow", "red", "violet", "accent", "surface"]
+    public static let supportedFonts = ["sans", "heading", "mono", "handwritten"]
+    public static let supportedWidths = [1, 2, 4]
+    public static let supportedRadii = [0, 8]
+    public static let supportedArrows = ["end", "both", "none"]
+    public static let supportedPaths = ["bezier", "smooth", "step", "straight"]
+    public static let supportedMarkers = ["arrow", "dot", "none"]
+    public static let supportedSizes = ["s", "m", "l"]
+    public static let supportedAlignments = ["left", "center", "right"]
+    public func availableStyleProperties(forNode id: String) -> [CanvasStyleProperty] {
+        guard let raw = node(id), let type = raw["type"] as? String,
+              let data = raw["data"] as? [String: Any] else { return [] }
+        switch type {
+        case "shape":
+            let kind = data["kind"] as? String ?? "rect"
+            if kind == "text" { return [.fill, .font, .size, .align] }
+            if kind == "rect" { return [.fill, .stroke, .width, .dash, .radius, .font, .size, .align] }
+            return [.fill, .stroke, .width, .dash, .font, .size, .align]
+        case "shape-line":
+            return [.stroke, .width, .dash, .arrow]
+        case "code":
+            return [.fill, .stroke, .width, .dash, .radius, .size]
+        default:
+            return []
+        }
+    }
+
+    public func availableStyleProperties(forConnection id: String) -> [CanvasStyleProperty] {
+        hasConnection(id) ? [.stroke, .width, .dash, .path, .marker] : []
+    }
+
+    public func effectiveNodeStyle(of id: String) -> [CanvasStyleProperty: CanvasStyleValue]? {
+        guard let raw = node(id), let type = raw["type"] as? String,
+              let data = raw["data"] as? [String: Any] else { return nil }
+        let docFont = (root["appearance"] as? [String: Any])?["font"] as? String ?? "sans"
+        switch type {
+        case "shape":
+            let kind = data["kind"] as? String ?? "rect"
+            if kind == "text" {
+                return [
+                    .fill: .string(data["fill"] as? String ?? "none"),
+                    .font: .string(data["font"] as? String ?? docFont),
+                    .size: .string(data["size"] as? String ?? "m"),
+                    .align: .string(data["align"] as? String ?? "left")
+                ]
+            }
+            var values: [CanvasStyleProperty: CanvasStyleValue] = [
+                .fill: .string(data["fill"] as? String ?? "blue"),
+                .stroke: .string(data["stroke"] as? String ?? "blue"),
+                .width: .int(intValue(data["width"]) ?? 2),
+                .dash: .bool(boolValue(data["dash"]) ?? false),
+                .font: .string(data["font"] as? String ?? docFont),
+                .size: .string(data["size"] as? String ?? "m"),
+                .align: .string(data["align"] as? String ?? "center")
+            ]
+            if kind == "rect" {
+                values[.radius] = .int(intValue(data["radius"]) ?? 8)
+            }
+            return values
+        case "shape-line":
+            return [
+                .stroke: .string(data["stroke"] as? String ?? "ink"),
+                .width: .int(intValue(data["width"]) ?? 2),
+                .dash: .bool(boolValue(data["dash"]) ?? false),
+                .arrow: .string(data["arrow"] as? String ?? "end")
+            ]
+        case "code":
+            return [
+                .fill: .string(data["fill"] as? String ?? "none"),
+                .stroke: .string(data["stroke"] as? String ?? "ink"),
+                .width: .int(intValue(data["width"]) ?? 2),
+                .dash: .bool(boolValue(data["dash"]) ?? false),
+                .radius: .int(intValue(data["radius"]) ?? 0),
+                .size: .string(data["size"] as? String ?? "m")
+            ]
+        default:
+            return nil
+        }
+    }
+
+    public func effectiveConnectionStyle(of id: String) -> [CanvasStyleProperty: CanvasStyleValue]? {
+        guard let raw = edge(id) else { return nil }
+        let data = raw["data"] as? [String: Any] ?? [:]
+        let style = data["connector_style"] as? [String: Any] ?? [:]
+        let stroke: CanvasStyleValue
+        if let s = style["stroke"] as? String, Self.supportedColors.contains(s) {
+            stroke = .string(s)
+        } else {
+            stroke = .omitted
+        }
+        let width: Int
+        if let w = intValue(style["width"]), Self.supportedWidths.contains(w) {
+            width = w
+        } else {
+            width = 2
+        }
+        let dash = boolValue(style["dash"]) ?? (boolValue(raw["animated"]) ?? false)
+        return [
+            .stroke: stroke,
+            .width: .int(width),
+            .dash: .bool(dash),
+            .path: .string(raw["path"] as? String ?? "bezier"),
+            .marker: .string(raw["marker"] as? String ?? "arrow")
+        ]
+    }
+
+    @discardableResult
+    public func setNodeStyle(
+        _ id: String, property: CanvasStyleProperty, to value: CanvasStyleValue
+    ) throws -> CanvasStyleChange? {
+        guard let raw = node(id),
+              var nodes = root["nodes"] as? [[String: Any]],
+              let index = nodes.firstIndex(where: { $0["id"] as? String == id }),
+              let beforeData = raw["data"] as? [String: Any] else {
+            throw CanvasDocumentError("Unknown node ID: \(id).")
+        }
+        guard !isLocked(id) else {
+            throw CanvasDocumentError("Unlock the selected object before changing styles.")
+        }
+        let allowed = availableStyleProperties(forNode: id)
+        guard allowed.contains(property) else {
+            throw CanvasDocumentError("This style is not supported for the selected object; nothing was changed.")
+        }
+        let rawValue = try validatedStyleJSONValue(property: property, value: value)
+        guard effectiveNodeStyle(of: id)?[property] != value else { return nil }
+        var afterData = beforeData
+        afterData[property.rawValue] = rawValue
+        nodes[index]["data"] = afterData
+        var candidate = root
+        candidate["nodes"] = nodes
+        try CanvasDocument.validate(candidate)
+        root = candidate
+        return CanvasStyleChange(target: .node(id: id, beforeData: beforeData, afterData: afterData))
+    }
+
+    @discardableResult
+    public func setConnectionStyle(
+        _ id: String, property: CanvasStyleProperty, to value: CanvasStyleValue
+    ) throws -> CanvasStyleChange? {
+        guard var edges = root["edges"] as? [[String: Any]],
+              let index = edges.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw CanvasDocumentError("Unknown connection ID: \(id).")
+        }
+        guard [.stroke, .width, .dash, .path, .marker].contains(property) else {
+            throw CanvasDocumentError("Invalid connector style command.")
+        }
+        let rawValue = try validatedStyleJSONValue(property: property, value: value)
+        let beforeEdge = edges[index]
+        let beforeData = beforeEdge["data"] as? [String: Any]
+        if [.stroke, .width, .dash].contains(property),
+           let existingStyle = beforeData?["connector_style"], !(existingStyle is [String: Any]) {
+            throw CanvasDocumentError("Connector style conflicts with existing metadata; nothing was changed.")
+        }
+        guard effectiveConnectionStyle(of: id)?[property] != value else { return nil }
+        var afterEdge = beforeEdge
+        if property == .path || property == .marker {
+            afterEdge[property.rawValue] = rawValue
+        } else {
+            var afterData = beforeData ?? [:]
+            var style = afterData["connector_style"] as? [String: Any] ?? [:]
+            style[property.rawValue] = rawValue
+            afterData["connector_style"] = style
+            afterEdge["data"] = afterData
+        }
+        edges[index] = afterEdge
+        var candidate = root
+        candidate["edges"] = edges
+        try CanvasDocument.validate(candidate)
+        root = candidate
+        return CanvasStyleChange(target: .connection(id: id, beforeEdge: beforeEdge, afterEdge: afterEdge))
+    }
+
+    public func applyStyleChange(_ change: CanvasStyleChange) throws {
+        var candidate = root
+        switch change.target {
+        case .node(let id, _, let afterData):
+            guard var nodes = candidate["nodes"] as? [[String: Any]],
+                  let index = nodes.firstIndex(where: { $0["id"] as? String == id }),
+                  !isLocked(id) else {
+                throw CanvasDocumentError("Cannot apply style change to missing or locked node.")
+            }
+            nodes[index]["data"] = afterData
+            candidate["nodes"] = nodes
+        case .connection(let id, _, let afterEdge):
+            guard var edges = candidate["edges"] as? [[String: Any]],
+                  let index = edges.firstIndex(where: { $0["id"] as? String == id }) else {
+                throw CanvasDocumentError("Cannot apply style change to missing connection.")
+            }
+            edges[index] = afterEdge
+            candidate["edges"] = edges
+        }
+        try CanvasDocument.validate(candidate)
+        root = candidate
+    }
+
+    private func validatedStyleJSONValue(
+        property: CanvasStyleProperty, value: CanvasStyleValue
+    ) throws -> Any {
+        switch (property, value) {
+        case (.fill, .string(let color)), (.stroke, .string(let color)):
+            guard Self.supportedColors.contains(color) else {
+                throw CanvasDocumentError("Unsupported color: \(color).")
+            }
+            return color
+        case (.width, .int(let width)):
+            guard Self.supportedWidths.contains(width) else {
+                throw CanvasDocumentError("Unsupported stroke width: \(width).")
+            }
+            return width
+        case (.dash, .bool(let dash)):
+            return dash
+        case (.radius, .int(let radius)):
+            guard Self.supportedRadii.contains(radius) else {
+                throw CanvasDocumentError("Unsupported corner radius: \(radius).")
+            }
+            return radius
+        case (.arrow, .string(let arrow)):
+            guard Self.supportedArrows.contains(arrow) else {
+                throw CanvasDocumentError("Unsupported arrowhead style: \(arrow).")
+            }
+            return arrow
+        case (.path, .string(let path)):
+            guard Self.supportedPaths.contains(path) else {
+                throw CanvasDocumentError("Unsupported connection path: \(path).")
+            }
+            return path
+        case (.marker, .string(let marker)):
+            guard Self.supportedMarkers.contains(marker) else {
+                throw CanvasDocumentError("Unsupported connection marker: \(marker).")
+            }
+            return marker
+        case (.font, .string(let font)):
+            guard Self.supportedFonts.contains(font) else {
+                throw CanvasDocumentError("Unsupported font role: \(font).")
+            }
+            return font
+        case (.size, .string(let size)):
+            guard Self.supportedSizes.contains(size) else {
+                throw CanvasDocumentError("Unsupported text size: \(size).")
+            }
+            return size
+        case (.align, .string(let align)):
+            guard Self.supportedAlignments.contains(align) else {
+                throw CanvasDocumentError("Unsupported text alignment: \(align).")
+            }
+            return align
+        default:
+            throw CanvasDocumentError("Invalid value for \(property.rawValue).")
+        }
+    }
+
+    private func edge(_ id: String) -> [String: Any]? {
+        (root["edges"] as? [[String: Any]])?.first { $0["id"] as? String == id }
+    }
+
+    private func intValue(_ value: Any?) -> Int? {
+        guard let n = value as? NSNumber,
+              CFGetTypeID(n) != CFBooleanGetTypeID(),
+              !["f", "d"].contains(String(cString: n.objCType)) else { return nil }
+        return Int(exactly: n.int64Value)
+    }
+
+    private func boolValue(_ value: Any?) -> Bool? {
+        guard let n = value as? NSNumber,
+              CFGetTypeID(n) == CFBooleanGetTypeID() else { return nil }
+        return n.boolValue
     }
 
     private func validateConnection(
