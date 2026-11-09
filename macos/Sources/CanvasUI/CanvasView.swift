@@ -104,7 +104,7 @@ public final class CanvasView: NSView {
     public override var acceptsFirstResponder: Bool { true }
 
     public override func draw(_ dirtyRect: NSRect) {
-        NSColor.textBackgroundColor.setFill()
+        CanvasTheme.canvasBackground.setFill()
         dirtyRect.fill()
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
@@ -530,7 +530,8 @@ public final class CanvasView: NSView {
                             to: point(node.data["to"], in: node.box)) <= 8
         }
         let kind = node.type == "code" ? "rect" : node.kind
-        return outline(kind, node.box, number(node.data["radius"], kind == "text" ? 0 : 8)).contains(local)
+        let defaultRadius: CGFloat = (node.type == "code" || kind == "text") ? 0 : 8
+        return outline(kind, node.box, number(node.data["radius"], defaultRadius)).contains(local)
     }
 
     private func drawSelection(_ node: Node) {
@@ -540,7 +541,7 @@ public final class CanvasView: NSView {
         context.rotate(by: node.rotation * .pi / 180)
         context.translateBy(x: -node.center.x, y: -node.center.y)
         let path = NSBezierPath(rect: node.box.insetBy(dx: -5, dy: -5))
-        NSColor.controlAccentColor.setStroke()
+        CanvasTheme.selectionCobalt.setStroke()
         path.lineWidth = 2
         path.setLineDash([5, 3], count: 2, phase: 0)
         path.stroke()
@@ -552,16 +553,17 @@ public final class CanvasView: NSView {
         stalk.move(to: CGPoint(x: top.x, y: top.y))
         stalk.line(to: CGPoint(x: rotate.x, y: rotate.y))
         stalk.lineWidth = 1
-        NSColor.controlAccentColor.setStroke()
+        CanvasTheme.selectionCobalt.setStroke()
         stalk.stroke()
         for handle in CanvasGeometryHandle.allCases {
             let point = geometry.point(for: handle)
             let rect = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
             let path = handle == .rotation ? NSBezierPath(ovalIn: rect) : NSBezierPath(rect: rect)
             let active = geometryGesture?.handle == handle
-            (active ? NSColor.controlAccentColor : NSColor.textBackgroundColor).setFill()
+            (active ? CanvasTheme.selectionCobalt : CanvasTheme.elevatedSurface).setFill()
             path.fill()
-            path.lineWidth = active ? 2 : 1
+            CanvasTheme.selectionCobalt.setStroke()
+            path.lineWidth = active ? 2 : 1.5
             path.stroke()
         }
     }
@@ -593,12 +595,16 @@ public final class CanvasView: NSView {
         }
         let width = max(1, min(560, visibleRect.width - 24))
         let rect = CGRect(x: visibleRect.minX + 12, y: visibleRect.minY + 12, width: width, height: 54)
-        NSColor.windowBackgroundColor.setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
+        let pill = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
+        CanvasTheme.elevatedSurface.setFill()
+        pill.fill()
+        CanvasTheme.borderSubtle.setStroke()
+        pill.lineWidth = 1
+        pill.stroke()
         let text = "\(name) · Tab / Shift-Tab: handles · Arrows: preview\nShift: larger steps · Return: commit · Escape: cancel"
         (text as NSString).draw(in: rect.insetBy(dx: 8, dy: 6),
                                withAttributes: [.font: NSFont.systemFont(ofSize: 12),
-                                                .foregroundColor: NSColor.labelColor])
+                                                .foregroundColor: CanvasTheme.primaryText])
     }
 
     private func drawPaper(_ dirty: CGRect) {
@@ -606,8 +612,8 @@ public final class CanvasView: NSView {
         guard background != "none" else { return }
         let grid = max(4, number(paper["grid"], 20))
         let path = NSBezierPath()
-        NSColor.separatorColor.withAlphaComponent(0.35).setStroke()
-        NSColor.separatorColor.withAlphaComponent(0.4).setFill()
+        CanvasTheme.mutedText.withAlphaComponent(0.32).setStroke()
+        CanvasTheme.mutedText.withAlphaComponent(0.4).setFill()
         var x = floor(dirty.minX / grid) * grid
         while x <= dirty.maxX {
             if background == "lines" {
@@ -651,10 +657,13 @@ public final class CanvasView: NSView {
             if arrow == "both" { drawArrow(at: from, from: to, color: color) }
         } else {
             let kind = node.type == "code" ? "rect" : node.kind
-            let path = outline(kind, node.box, number(data["radius"], kind == "text" ? 0 : 8))
-            let fill = data["fill"] as? String ?? (kind == "text" ? "none" : "blue")
+            let defaultRadius: CGFloat = (node.type == "code" || kind == "text") ? 0 : 8
+            let path = outline(kind, node.box, number(node.data["radius"], defaultRadius))
+            let defaultFill = (node.type == "code" || kind == "text") ? "none" : "blue"
+            let fill = data["fill"] as? String ?? defaultFill
             palette(fill).setFill(); path.fill()
-            palette(data["stroke"] as? String ?? (kind == "text" ? "none" : "blue")).setStroke()
+            let defaultStroke = node.type == "code" ? "ink" : (kind == "text" ? "none" : "blue")
+            palette(data["stroke"] as? String ?? defaultStroke).setStroke()
             configure(path, data); path.stroke()
             let text = Self.nodeText(node)
             let role = node.type == "code" ? "mono" : (data["font"] as? String ?? fontRole)
@@ -683,8 +692,14 @@ public final class CanvasView: NSView {
         if !edge.label.isEmpty {
             let size = Self.labelSize(edge.label, role: fontRole)
             let rect = CGRect(x: edge.labelPoint.x - size.width / 2, y: edge.labelPoint.y - size.height / 2, width: size.width, height: size.height)
-            NSColor.textBackgroundColor.setFill(); NSBezierPath(roundedRect: rect.insetBy(dx: -4, dy: -2), xRadius: 3, yRadius: 3).fill()
-            (edge.label as NSString).draw(in: rect, withAttributes: [.font: font(fontRole, "m"), .foregroundColor: NSColor.labelColor])
+            let pill = rect.insetBy(dx: -5, dy: -2)
+            CanvasTheme.elevatedSurface.setFill()
+            pill.fill()
+            let pillBorder = NSBezierPath(rect: pill)
+            pillBorder.lineWidth = 1
+            CanvasTheme.borderSubtle.setStroke()
+            pillBorder.stroke()
+            (edge.label as NSString).draw(in: rect, withAttributes: [.font: font(fontRole, "m"), .foregroundColor: CanvasTheme.primaryText])
         }
     }
 
@@ -820,26 +835,10 @@ private func font(_ role: String, _ size: String) -> NSFont {
 }
 private func alignment(_ value: String) -> NSTextAlignment { value == "right" ? .right : value == "center" ? .center : .left }
 private func palette(_ name: String) -> NSColor {
-    switch name {
-    case "none": return .clear
-    case "surface": return .controlBackgroundColor
-    case "accent": return .controlAccentColor
-    case "gray": return .systemGray
-    case "blue": return .systemBlue
-    case "green": return .systemGreen
-    case "yellow": return .systemYellow
-    case "red": return .systemRed
-    case "violet": return .systemPurple
-    default: return .labelColor
-    }
+    CanvasTheme.palette(name)
 }
 private func textColor(on fill: String) -> NSColor {
-    guard fill != "none", let color = palette(fill).usingColorSpace(.deviceRGB) else { return .labelColor }
-    func linear(_ component: CGFloat) -> CGFloat {
-        component <= 0.04045 ? component / 12.92 : pow((component + 0.055) / 1.055, 2.4)
-    }
-    let luminance = 0.2126 * linear(color.redComponent) + 0.7152 * linear(color.greenComponent) + 0.0722 * linear(color.blueComponent)
-    return luminance > 0.179 ? .black : .white
+    CanvasTheme.textColor(onFill: fill)
 }
 private func configure(_ path: NSBezierPath, _ data: [String: Any]) {
     path.lineWidth = number(data["width"], 2)

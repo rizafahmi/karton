@@ -347,6 +347,145 @@ func runChecks() throws {
     try checkGeometry(repository: repository)
     try checkLiteralJSON()
     try checkCompatibilityRoundTrips(repository: repository)
+    try checkTheme(repository: repository)
+}
+
+@MainActor
+func checkTheme(repository: URL) throws {
+    func relativeLuminance(_ color: NSColor) throws -> CGFloat {
+        guard let rgb = color.usingColorSpace(.sRGB) else {
+            throw CheckFailure(description: "Color could not convert to sRGB")
+        }
+        func channel(_ c: CGFloat) -> CGFloat {
+            c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(rgb.redComponent)
+            + 0.7152 * channel(rgb.greenComponent)
+            + 0.0722 * channel(rgb.blueComponent)
+    }
+
+    func contrastRatio(_ a: NSColor, _ b: NSColor) throws -> CGFloat {
+        let la = try relativeLuminance(a)
+        let lb = try relativeLuminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
+
+    for fill in ["accent", "blue", "green", "violet", "yellow", "red", "gray", "surface", "none"] {
+        let bg = fill == "none" ? CanvasTheme.canvasBackground : CanvasTheme.palette(fill)
+        let ink = CanvasTheme.textColor(onFill: fill)
+        try require(ink == CanvasTheme.highlighterInk, "Fill \(fill) did not pin Ebony highlighter ink")
+        let ratio = try contrastRatio(bg, ink)
+        try require(ratio >= 4.5, "Fill \(fill) contrast \(ratio) fell below WCAG AA 4.5:1")
+    }
+
+    for darkFill in ["ink", "future-fill"] {
+        let swatch = CanvasTheme.palette(darkFill)
+        let text = CanvasTheme.textColor(onFill: darkFill)
+        try require(text == CanvasTheme.elevatedSurface, "Dark fill \(darkFill) did not use white text")
+        let ratio = try contrastRatio(swatch, text)
+        try require(ratio >= 12.0, "Dark fill \(darkFill) contrast \(ratio) was too low")
+    }
+
+    let inkContrast = try contrastRatio(CanvasTheme.canvasBackground, CanvasTheme.palette("ink"))
+    try require(inkContrast >= 12.0, "Default ink stroke contrast \(inkContrast) on Plaster background was too low")
+
+    let themeDoc = try CanvasDocument(
+        data: encoded([
+            "version": 2,
+            "paper": ["background": "none"],
+            "nodes": [shape("s1")],
+            "edges": [] as [[String: Any]],
+        ])
+    )
+    let v2Session = CanvasSession(document: themeDoc)
+    let beforeRoot = v2Session.root
+    let view = CanvasView(session: v2Session)
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+        styleMask: [.titled],
+        backing: .buffered,
+        defer: false
+    )
+    window.contentView = view
+    window.makeFirstResponder(view)
+    view.insertShape(.rectangle)
+    view.beginGeometryEditing()
+    guard
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: 200,
+            pixelsHigh: 200,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .calibratedRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ),
+        let ctx = NSGraphicsContext(bitmapImageRep: rep)
+    else {
+        throw CheckFailure(description: "Could not allocate sRGB bitmap context for CanvasView")
+    }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = ctx
+    view.draw(NSRect(x: 0, y: 0, width: 200, height: 200))
+    NSGraphicsContext.restoreGraphicsState()
+    let cornerColor = rep.colorAt(x: 3, y: 3)?.usingColorSpace(.sRGB)
+    let expectedBg = CanvasTheme.canvasBackground.usingColorSpace(.sRGB)!
+    try require(
+        cornerColor != nil
+            && abs(cornerColor!.redComponent - expectedBg.redComponent) < 0.03
+            && abs(cornerColor!.greenComponent - expectedBg.greenComponent) < 0.03
+            && abs(cornerColor!.blueComponent - expectedBg.blueComponent) < 0.03,
+        "Rendered canvas background (\(String(describing: cornerColor))) did not match Raw Gallery Plaster (#f7f7f5)"
+    )
+    view.undoMove(nil) // cancels geometry preview
+    view.undoMove(nil) // undoes inserted rectangle
+    try require(
+        NSDictionary(dictionary: v2Session.root).isEqual(to: beforeRoot)
+            && v2Session.document.originalData == themeDoc.originalData,
+        "Theme rendering or undo mutated session state or original bytes"
+    )
+    let previousAppearance = NSApp.appearance
+    defer { NSApp.appearance = previousAppearance }
+    NSApp.appearance = NSAppearance(named: .aqua)
+    let welcomeWindow = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 520, height: 264),
+        styleMask: [.titled, .closable, .miniaturizable],
+        backing: .buffered,
+        defer: false
+    )
+    let welcomeView = WelcomeContentView(frame: NSRect(x: 0, y: 0, width: 520, height: 264))
+    let newBtn = NSButton(title: "New Canvas", target: nil, action: nil)
+    newBtn.frame = NSRect(x: 32, y: 214, width: 140, height: 32)
+    newBtn.keyEquivalent = "\r"
+    let openBtn = NSButton(title: "Open Canvas…", target: nil, action: nil)
+    openBtn.frame = NSRect(x: 184, y: 214, width: 140, height: 32)
+    welcomeView.addSubview(newBtn)
+    welcomeView.addSubview(openBtn)
+    welcomeWindow.contentView = welcomeView
+    welcomeView.layoutSubtreeIfNeeded()
+    let footerRect = NSRect(x: 0, y: 196, width: 520, height: 68)
+    try require(
+        footerRect.contains(newBtn.frame)
+            && footerRect.contains(openBtn.frame)
+            && !newBtn.frame.intersects(openBtn.frame),
+        "Welcome window action buttons did not fit cleanly inside the footer bar"
+    )
+    guard let welcomeRep = welcomeView.bitmapImageRepForCachingDisplay(in: welcomeView.bounds) else {
+        throw CheckFailure(description: "Could not allocate WelcomeContentView bitmap")
+    }
+    welcomeView.cacheDisplay(in: welcomeView.bounds, to: welcomeRep)
+    let welcomeBg = welcomeRep.colorAt(x: 5, y: 5)?.usingColorSpace(.sRGB)
+    try require(
+        welcomeBg != nil
+            && abs(welcomeBg!.redComponent - expectedBg.redComponent) < 0.03
+            && abs(welcomeBg!.greenComponent - expectedBg.greenComponent) < 0.03
+            && abs(welcomeBg!.blueComponent - expectedBg.blueComponent) < 0.03,
+        "WelcomeContentView background did not match Raw Gallery Plaster (#f7f7f5)"
+    )
+    print("PASS Neo-Acid light mode palette, highlighter/ink text contrast and bitmap rendering")
 }
 
 do {

@@ -8,8 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var windows: [NSWindowController] = []
     private var welcome: NSWindowController?
     private var untitledCount = 0
-
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .aqua)
         installMenu()
         NSApp.setActivationPolicy(.regular)
         let arguments = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") }
@@ -36,19 +36,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     private func showWelcome() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 264),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
         window.title = "Elixir Canvas — Session-only viewer"
+        window.backgroundColor = CanvasTheme.canvasBackground
         window.center()
-        let label = NSTextField(labelWithString: "Create a canvas or open an existing JSON file.\nSession changes are not saved.")
-        label.alignment = .center
-        label.frame = NSRect(x: 30, y: 125, width: 420, height: 52)
-        let button = NSButton(title: "Open Canvas…", target: self, action: #selector(chooseDocument(_:)))
-        button.frame = NSRect(x: 250, y: 65, width: 150, height: 34)
+        let content = WelcomeContentView(frame: NSRect(x: 0, y: 0, width: 520, height: 264))
         let new = NSButton(title: "New Canvas", target: self, action: #selector(newDocument(_:)))
-        new.frame = NSRect(x: 80, y: 65, width: 150, height: 34)
-        window.contentView?.addSubview(new)
-        window.contentView?.addSubview(label)
-        window.contentView?.addSubview(button)
+        new.frame = NSRect(x: 32, y: 214, width: 140, height: 32)
+        new.keyEquivalent = "\r"
+        let button = NSButton(title: "Open Canvas…", target: self, action: #selector(chooseDocument(_:)))
+        button.frame = NSRect(x: 184, y: 214, width: 140, height: 32)
+        content.addSubview(new)
+        content.addSubview(button)
+        window.contentView = content
         let controller = NSWindowController(window: window)
         welcome = controller
         controller.showWindow(nil)
@@ -84,10 +89,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
+        scroll.drawsBackground = true
+        scroll.backgroundColor = CanvasTheme.canvasBackground
         scroll.documentView = canvas
-        let window = NSWindow(contentRect: scroll.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let window = NSWindow(
+            contentRect: scroll.frame,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
         window.delegate = self
         window.title = "\(name) — Session changes not saved"
+        window.backgroundColor = CanvasTheme.canvasBackground
         window.contentView = scroll
         window.center()
         let controller = NSWindowController(window: window)

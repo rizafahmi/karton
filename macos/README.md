@@ -26,11 +26,11 @@ blank version-2 canvas. **File → Open…** opens supported v1/v2 JSON files.
 Each New/Open creates a separate session window without replacing existing work.
 
 Use **Insert → Rectangle / Ellipse / Diamond / Triangle / Text…** to add content
-at the current viewport center, including after scrolling. With canvas focus,
-**R / O / D / I / T** perform the same commands; these keys stay ordinary text
-inside the editor. Shapes start unfilled with an ink outline and inherit document
-typography. New text stays in its sheet until committed; Cancel or empty Done
-creates nothing. Each insertion is one undoable action; Redo retains its ID.
+at the current viewport center, including after scrolling. With
+canvas focus, **R / O / D / I / T** perform the same commands; these keys stay
+ordinary text inside the editor. Shapes start unfilled with an ink outline and
+inherit document typography. New text stays in its sheet until committed; Cancel
+or empty Done creates nothing. Each insertion is one undoable action; Redo retains its ID.
 Inserting repeatedly uses the same center; drag each object to arrange it.
 
 Click an object to select it; drag it, or use Arrow keys (Shift-Arrow moves 10
@@ -88,7 +88,8 @@ changes without a confirmation prompt. It validates versions, graph references,
 content limits and supported rendering semantics before opening; unsupported
 documents are refused with a message. Some valid web canvases may be refused,
 including self-loops without two distinct named side handles and geometry outside
-the native app's bounds. Fonts, colors and connector routes are native approximations;
+the native app's bounds. The canvas uses the light-first Neo-Acid color palette while
+fonts and connector routes remain native approximations;
 code is plain text and attachments are cards, not previews. No zoom or export.
 
 Run the standalone native contract and round-trip checks from the repository root:
@@ -115,9 +116,11 @@ warnings on the development machine even when the build succeeds.
 - Shared fixtures are checked-in compatibility inputs. Copy them to temporary
   locations before editing or saving; do not maintain native-only copies of the
   same contract fixtures.
-- Native UI follows Apple Human Interface Guidelines rather than the web app's
-  Neo-Acid styling. Preserve authored geometry, named colors, semantic font roles,
-  and unknown metadata across document round-trips.
+- Native window chrome, menus, and sheets follow Apple Human Interface Guidelines
+  under Light Aqua appearance, paired with the light-first Neo-Acid canvas
+  palette (`CanvasTheme`), Cobalt selection, and branded Welcome window. Preserve
+  authored geometry, named colors, semantic font roles, and unknown metadata
+  across document round-trips.
 
 ## Planned editor direction
 

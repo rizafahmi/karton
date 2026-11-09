@@ -78,8 +78,11 @@ components:
 > Shared dark-first palette tokens remain available; a dark-mode switch is not
 > part of this design pass. The approved Mona Sans/Monaspace Neon pairing replaces
 > the source kit's body/mono fonts while preserving all other Neo-Acid guardrails.
-> This is the web design system, not the independent native macOS app's design:
-> native UI follows Apple's HIG rather than reproducing web Neo-Acid chrome.
+> This is the web design system, not the independent native macOS app's UI
+> controls: `macos/` uses native AppKit Aqua window chrome, menus, and sheets
+> while sharing the light-first Raw Gallery Plaster (`#f7f7f5`) canvas palette,
+> Ebony Ink (`#0a0b0d`) highlighter contrast rule, Cobalt (`#1a3bf5`) selection,
+> and Welcome window brand lockup via `CanvasTheme`.
 >
 > **Control layout:** Paper and the file menu occupy the top left; Download and
 > Save occupy the top right. Save state sits directly below the save actions,

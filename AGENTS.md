@@ -58,10 +58,13 @@ silently upgrade/downgrade, or infer native implementation from web support.
   [CanvasSession](macos/Sources/CanvasCore/CanvasSession.swift) owns mutable in-memory
   graph state, validated `encodedData()` snapshots, and retained object/connection
   insertion identity/stacking; connection transactions validate endpoints and self-loop sides.
-  [CanvasView](macos/Sources/CanvasUI/CanvasView.swift) owns AppKit hit-testing,
-  viewport-centered insertion, selection, rendering and explicit per-canvas history
-  groups, not AppKit event-based grouping. Geometry/edges grow scroll bounds
-  without shifting the visible world position; Undo does not shrink them.
+  [CanvasTheme](macos/Sources/CanvasUI/CanvasTheme.swift) defines the light-first
+  Neo-Acid canvas palette (`#f7f7f5` Raw Gallery Plaster background, `#ecece6`
+  surface, `#0a0b0d` Ebony Ink for strokes and light/highlighter fills, `#ffffff`
+  text on `ink` fills, and `#1a3bf5` Cobalt selection). [CanvasView](macos/Sources/CanvasUI/CanvasView.swift)
+  owns AppKit hit-testing, viewport-centered insertion, selection, rendering and
+  explicit per-canvas history groups, not AppKit event-based grouping. Geometry/edges
+  grow scroll bounds without shifting the visible world position; Undo does not shrink them.
   [CanvasGeometry](macos/Sources/CanvasCore/CanvasGeometry.swift) owns validated
   authored boxes and rotated-anchor math; [GeometryGesture](macos/Sources/CanvasUI/GeometryGesture.swift)
   keeps resize/rotation previews outside session JSON until commit. Preserve
@@ -283,9 +286,11 @@ design skill's font list, not its other guardrails. See
 [DESIGN: Typography](DESIGN.md#3-typography) for font inventory, weights, role
 mapping, and inspector behavior rather than duplicating those rules here.
 
-The planned native Mac interface follows Apple Human Interface Guidelines, not
-the web Neo-Acid controls or font pairing. It shares the JSON contract's geometry,
-named colors, and semantic font roles, not pixel-identical rendering or a runtime.
+The native Mac interface pairs Apple Human Interface Guidelines for window
+chrome, menus, and modal sheets (pinned to Light Aqua appearance to match the
+light-first canvas) with the Neo-Acid canvas palette (`CanvasTheme`), Cobalt
+selection, and the branded Welcome window. It shares the JSON contract's
+geometry, named colors, and semantic font roles, not the web runtime.
 
 ## Setup and verification
 

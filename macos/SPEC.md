@@ -285,8 +285,14 @@ must implement that policy without a hidden migration or source replacement.
 | Known read-only file | Open visibly read-only if fully renderable; Save As may produce a separately editable document only after capability validation |
 
 Native font family/palette mappings may differ from the web UI; store generic
-roles and named colors. Opening, measuring, resolving fonts, or switching system
-appearance never resizes existing objects or inserts style defaults. If native
+roles and named colors. The native canvas uses the light-first Neo-Acid palette
+(`CanvasTheme`: Raw Gallery Plaster `#f7f7f5` background, `#ecece6` surface,
+`#0a0b0d` Ebony Ink for `ink` strokes and text on light/highlighter fills, and
+`#ffffff` text on `ink` fills) paired with Light Aqua AppKit controls and a
+branded Welcome window; transparent Keynote PNG exports use the same canonical
+palette.
+Opening, measuring, resolving fonts, or switching
+system appearance never resizes existing objects or inserts style defaults. If native
 text wraps differently, retain authored boxes until an intentional edit; preview
 and commit measured growth only during that edit. Include glyph fallback in both
 canvas and export, and test the actual mappings before declaring support.
