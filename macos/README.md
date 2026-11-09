@@ -1,11 +1,15 @@
 # Native macOS editor
 
 This directory contains an independent native canvas app with session-only
-New, shape/text and standalone line/arrow insertion, connections, object/connection
-selection and Tab traversal, movement, resize/rotation and line endpoint editing,
-duplication, deletion, front/back stacking, lock/unlock, object/connection style
-editing, caption editing and Undo/Redo. The planned editor is not complete: there
-is no saving, code creation, recovery, attachment preview, syntax highlighting or
+New, shape/text and standalone line/arrow insertion, adjacent thoughts (`N`),
+connections (including labels and endpoint/side reconnection), object/connection
+selection, selection-preserving Tab traversal, Space tap selection toggle and
+Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
+resize/rotation and line endpoint editing, duplication, deletion, front/back
+stacking, lock/unlock, object/connection/canvas style editing, caption editing
+with automatic box growth, read-only attachment source preview/copy, canvas
+zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`) and Undo/Redo. The planned editor is not
+complete: there is no saving, code creation, recovery, syntax highlighting or
 PNG export.
 
 ## Build and run
@@ -32,16 +36,32 @@ Use **Insert → Rectangle / Ellipse / Diamond / Triangle / Text…** or
 after scrolling. With canvas focus, **R / O / D / I / T** and **L / A** perform the
 same commands; these keys stay ordinary text inside the editor. Shapes start
 unfilled with an ink outline and inherit document typography; standalone lines and
-arrows remain free-standing (`type: "shape-line"`, never bound to objects). New text
-stays in its sheet until committed; Cancel or empty Done creates nothing. Each
+arrows remain free-standing (`type: "shape-line"`, never bound to objects). New
+**T** text opens an inline on-canvas draft editor at the viewport center until
+committed; Escape or an empty Return creates nothing. Each
 insertion is one undoable action; Redo retains its ID. Inserting repeatedly uses the
 same center; drag each object to arrange it.
 
-Click an object or connection (curve or label pill) to select it, or press
-**Tab / Shift-Tab** to cycle through objects and connections in canvas order;
-**Escape** clears the selection. Drag a selected object, or use Arrow keys
-(Shift-Arrow moves 10 world units).
+Click an object or connection (curve or label pill) to select it, Shift-click or
+drag a marquee box on empty canvas space (or press **⌘A**) to select multiple
+objects, or press **Tab / Shift-Tab** to cycle through objects and connections in
+canvas order. Tap **Space** to toggle selection of the focused item while keeping
+traversal selection-preserving; hold **Space** and drag to pan the viewport
+without changing selection or history. **Escape** cancels an active draft/gesture
+or closes Style before clearing the selection. Drag selected unlocked objects, or
+use Arrow keys (Shift-Arrow moves 10 world units). Use **View → Zoom In / Zoom Out /
+Actual Size / Zoom to Fit** (or canvas **+ / -**, **⇧0** / **⌘0**, **⇧1**, and
+trackpad pinch magnification) to scale and fit the viewport without mutating
+document coordinates.
 
+With a single unlocked shape selected or focused, press **N** (or choose
+**Insert → Adjacent Thought**), then press a cardinal arrow (**↑ / → / ↓ / ←**) to
+place an inline thought draft 48 world units beyond the source's rotated bounds
+(automatically skipping any rotated blockers along that ray). Type inline
+(**Shift-Return** inserts a newline; **Return** commits in one undoable step and
+focuses the new rectangle for an immediate chained **N**; **Escape** cancels
+either stage without touching history). As multiline text grows, the preview box
+grows and rechecks ray blockers.
 For the selected unlocked object:
 
 - **Edit → Duplicate** (**⌘D**) adds an unlocked copy offset by `(+24, +24)` with a
@@ -56,19 +76,21 @@ For the selected unlocked object:
   deleted, but locked objects cannot be moved, resized, rotated, edited, styled,
   duplicated, reordered or deleted.
 - **Edit → Style…** (**S**) opens the upper-right floating AppKit Style inspector
-  for the selected object or connection. It exposes only properties supported by
-  the selected element (fill, stroke, stroke width, solid/dashed, corners,
-  arrowheads, text style/size/alignment, or connection `connector_style`
-  stroke/width/dash plus path and target marker), reads inherited typography and
+  for the selected object or connection, or for the canvas (**Paper**, **Grid size**
+  and **Default text**) when nothing is selected. It exposes only properties supported
+  by the active target (fill, stroke, stroke width, solid/dashed, corners,
+  arrowheads, text style/size/alignment, connection `connector_style`
+  stroke/width/dash plus path and target marker, or canvas `paper.background`,
+  `paper.grid` and `appearance.font`), reads inherited typography and
   defaults without materializing them, retains `animated` when changing connection
   dash, and visibly refuses non-object `connector_style` metadata collisions.
   **Escape** cancels active geometry previews before closing Style, and closes
   Style before clearing selection.
-Command-Z and Shift-Command-Z undo/redo insertions, connections, completed moves,
-resize/rotation, duplication, deletion, front/back stacking, lock/unlock, style
-edits and caption changes. Each command is a separate transaction, even when
-several commands arrive in one event. Native text editors retain their own text
-history.
+Command-Z and Shift-Command-Z undo/redo insertions, connections, connection
+reconnections/label edits, completed moves, resize/rotation, duplication, deletion,
+front/back stacking, lock/unlock, object/connection/canvas style edits and caption
+changes. Each command is a separate transaction, even when several commands arrive
+in one event. Native text editors retain their own text history.
 
 Selected unlocked shapes and code blocks show eight resize handles and a round
 rotation handle; selected unlocked standalone lines and arrows show two round
@@ -100,23 +122,33 @@ commit. Cancellation/no-op preserves Redo, metadata, non-padded line boxes and
 omitted rotation fields.
 
 Select a source object and press **C**, or choose **Insert → Connection…**.
-Choose source/target objects and Automatic or named attachment sides, then
-**Create Connection** (Return). **Cancel** (Escape) makes no change and preserves
-Redo. With no selection the source defaults to the first object; an empty canvas
-disables the menu command. A single-object canvas defaults to a right-to-top
+Choose source/target objects, Automatic or named attachment sides and an optional
+label, then **Create Connection** (Return). **Cancel** (Escape) makes no change and
+preserves Redo. With no selection the source defaults to the first object; an empty
+canvas disables the menu command. A single-object canvas defaults to a right-to-top
 self-loop. Self-loops require two different named sides; invalid choices stay in
 the sheet with an error. Connecting to a locked object does not modify that object.
-Connections are curved arrows; moving, resizing or rotating either endpoint remeasures
-the route without rewriting its stored sides. Exterior routes expand the scrollable canvas
-without shifting the current view. Undo removes the new connection; Redo restores
-its ID, bindings and order. Connections can be selected, styled and deleted;
-connection labels and reconnection are not implemented yet.
-Double-click an unlocked shape, or select it and press Return, to edit its caption
-in a native sheet. Return inserts a newline; **⌘Return** or **Done** commits;
-**Escape** or **Cancel** discards the draft. Text is limited to 2,000 graphemes;
-an invalid draft stays open without truncation. Code, line and connection text
-editing are not implemented. Attachment cards edit only their caption, not content.
-Text edits retain authored geometry; automatic box growth is not implemented.
+Select an existing connection and press **Return** / double-click (focusing its
+label field) or press **C** / choose **Edit → Edit Connection…** to edit its label
+and reconnect its source/target objects or attachment sides in one undoable step.
+Connections are bound arrows; moving, resizing or rotating either endpoint remeasures
+the route without rewriting its stored sides. Exterior routes and labels expand the
+scrollable canvas without shifting the current view. Undo removes or restores the
+connection; Redo preserves its ID, bindings and order.
+
+Double-click an unlocked shape (or choose **Edit → Edit Text…**, or select a shape
+without an attachment and press **Return**) to edit its caption inline directly on
+the canvas. **Shift-Return** inserts a newline; **Return** or **⌘Return** commits;
+**Escape** discards the draft. Text is limited to 2,000 graphemes; an invalid draft stays open
+without truncation. As multiline text exceeds the initial box height, the shape
+previews and commits the grown height in a single undoable transaction (keeping the
+top anchor fixed on rotated shapes, measured with the current placeholder native
+font approximations); cancelling restores the original text and height.
+Double-click or press **Return** on a shape with an embedded text attachment (or
+choose **Edit → Preview Attachment…**), including locked cards, to open a read-only
+literal UTF-8 source preview sheet with **Copy Source**; previewing and copying
+never modify the document or undo history. Code and standalone-line text editing
+are not implemented.
 
 The app never saves or changes source files. Closing the window discards session
 changes without a confirmation prompt. It validates versions, graph references,
@@ -125,7 +157,7 @@ documents are refused with a message. Some valid web canvases may be refused,
 including self-loops without two distinct named side handles and geometry outside
 the native app's bounds. The canvas uses the light-first Neo-Acid color palette while
 fonts and connector routes remain native approximations;
-code is plain text and attachments are cards, not previews. No zoom or export.
+code is plain text. No PNG export yet.
 
 Run the standalone native contract and round-trip checks from the repository root:
 

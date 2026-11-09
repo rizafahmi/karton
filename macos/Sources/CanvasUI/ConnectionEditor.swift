@@ -2,10 +2,27 @@ import AppKit
 import CanvasCore
 
 @MainActor
-final class ConnectionEditor: NSObject {
+final class ConnectionEditor: NSObject, NSTextFieldDelegate {
     struct ObjectOption {
         let id: String
         let title: String
+    }
+
+    private final class LabelTextField: NSTextField {
+        var onSubmit: (() -> Void)?
+        var onCancel: (() -> Void)?
+
+        override func keyDown(with event: NSEvent) {
+            if event.keyCode == 53 {
+                onCancel?()
+                return
+            }
+            if event.keyCode == 36 {
+                onSubmit?()
+                return
+            }
+            super.keyDown(with: event)
+        }
     }
 
     private let panel: NSPanel
@@ -14,41 +31,82 @@ final class ConnectionEditor: NSObject {
     private let target = NSPopUpButton()
     private let sourceSide = NSPopUpButton()
     private let targetSide = NSPopUpButton()
+    private let labelField = LabelTextField()
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
-    private let commit: (String, CanvasConnectionSide?, String, CanvasConnectionSide?) throws -> Void
+    private let focusLabel: Bool
+    private let commit: (String, CanvasConnectionSide?, String, CanvasConnectionSide?, String?) throws -> Void
     private let completion: () -> Void
 
-    init(objects: [ObjectOption], selectedID: String?,
-         commit: @escaping (String, CanvasConnectionSide?, String, CanvasConnectionSide?) throws -> Void,
-         completion: @escaping () -> Void) {
+    init(
+        objects: [ObjectOption],
+        selectedID: String? = nil,
+        existingConnection: CanvasConnectionState? = nil,
+        focusLabel: Bool = false,
+        commit: @escaping (String, CanvasConnectionSide?, String, CanvasConnectionSide?, String?) throws -> Void,
+        completion: @escaping () -> Void
+    ) {
         self.objects = objects
+        self.focusLabel = focusLabel
         self.commit = commit
         self.completion = completion
-        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 580, height: 400),
+        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 580, height: 444),
                         styleMask: [.titled], backing: .buffered, defer: false)
         super.init()
-        panel.title = "Create Connection"
-        configure(source, label: "Source", id: "connection-source", y: 338)
-        configure(sourceSide, label: "Source side", id: "connection-source-side", y: 294)
-        configure(target, label: "Target", id: "connection-target", y: 250)
-        configure(targetSide, label: "Target side", id: "connection-target-side", y: 206)
+        let isEditing = existingConnection != nil
+        panel.title = isEditing ? "Edit Connection" : "Create Connection"
+        configure(source, label: "Source", id: "connection-source", y: 382)
+        configure(sourceSide, label: "Source side", id: "connection-source-side", y: 338)
+        configure(target, label: "Target", id: "connection-target", y: 294)
+        configure(targetSide, label: "Target side", id: "connection-target-side", y: 250)
+
+        let labelCaption = NSTextField(labelWithString: "Label")
+        labelCaption.frame = NSRect(x: 24, y: 211, width: 116, height: 22)
+        labelField.frame = NSRect(x: 148, y: 206, width: 408, height: 28)
+        labelField.identifier = NSUserInterfaceItemIdentifier("connection-label")
+        labelField.placeholderString = "Optional label"
+        labelField.setAccessibilityLabel("Label")
+        labelField.isEditable = true
+        labelField.isSelectable = true
+        labelField.isBezeled = true
+        labelField.bezelStyle = .squareBezel
+        labelField.font = .systemFont(ofSize: 13)
+        labelField.delegate = self
+        labelField.onSubmit = { [weak self] in self?.createConnection() }
+        labelField.onCancel = { [weak self] in self?.cancelEditing() }
+        panel.contentView?.addSubview(labelCaption)
+        panel.contentView?.addSubview(labelField)
+
         for object in objects {
             source.addItem(withTitle: object.title)
             target.addItem(withTitle: object.title)
         }
-        let sourceIndex = objects.firstIndex { $0.id == selectedID } ?? 0
-        source.selectItem(at: sourceIndex)
-        target.selectItem(at: objects.indices.first { $0 != sourceIndex } ?? sourceIndex)
         for popup in [sourceSide, targetSide] {
             popup.addItem(withTitle: "Automatic")
             for side in CanvasConnectionSide.allCases { popup.addItem(withTitle: side.rawValue.capitalized) }
         }
-        if objects.count == 1 {
-            sourceSide.selectItem(at: 2) // Right; self-loops require distinct named sides.
-            targetSide.selectItem(at: 1) // Top.
+        if let existing = existingConnection {
+            let sIdx = objects.firstIndex { $0.id == existing.source } ?? 0
+            let tIdx = objects.firstIndex { $0.id == existing.target } ?? 0
+            source.selectItem(at: sIdx)
+            target.selectItem(at: tIdx)
+            let sSideIdx = existing.sourceSide.flatMap { CanvasConnectionSide.allCases.firstIndex(of: $0).map { $0 + 1 } } ?? 0
+            let tSideIdx = existing.targetSide.flatMap { CanvasConnectionSide.allCases.firstIndex(of: $0).map { $0 + 1 } } ?? 0
+            sourceSide.selectItem(at: sSideIdx)
+            targetSide.selectItem(at: tSideIdx)
+            labelField.stringValue = existing.label ?? ""
+        } else {
+            let sourceIndex = objects.firstIndex { $0.id == selectedID } ?? 0
+            source.selectItem(at: sourceIndex)
+            target.selectItem(at: objects.indices.first { $0 != sourceIndex } ?? sourceIndex)
+            if objects.count == 1 {
+                sourceSide.selectItem(at: 2) // Right; self-loops require distinct named sides.
+                targetSide.selectItem(at: 1) // Top.
+            }
+            labelField.stringValue = ""
         }
+
         let hint = NSTextField(wrappingLabelWithString:
-            "Creates a curved arrow. Automatic sides follow the objects as they move. A self-loop needs two different named sides.")
+            "Creates or updates a bound arrow. Automatic sides follow the objects as they move. A self-loop needs two different named sides.")
         hint.frame = NSRect(x: 24, y: 144, width: 532, height: 48)
         hint.textColor = .secondaryLabelColor
         panel.contentView?.addSubview(hint)
@@ -61,7 +119,8 @@ final class ConnectionEditor: NSObject {
         cancel.frame = NSRect(x: 300, y: 20, width: 92, height: 32)
         cancel.keyEquivalent = "\u{1b}"
         cancel.identifier = NSUserInterfaceItemIdentifier("connection-cancel")
-        let create = NSButton(title: "Create Connection", target: self, action: #selector(createConnection))
+        let create = NSButton(title: isEditing ? "Save Connection" : "Create Connection",
+                              target: self, action: #selector(createConnection))
         create.frame = NSRect(x: 400, y: 20, width: 156, height: 32)
         create.keyEquivalent = "\r"
         create.identifier = NSUserInterfaceItemIdentifier("connection-create")
@@ -70,7 +129,8 @@ final class ConnectionEditor: NSObject {
         source.nextKeyView = sourceSide
         sourceSide.nextKeyView = target
         target.nextKeyView = targetSide
-        targetSide.nextKeyView = cancel
+        targetSide.nextKeyView = labelField
+        labelField.nextKeyView = cancel
         cancel.nextKeyView = create
         create.nextKeyView = source
     }
@@ -87,7 +147,19 @@ final class ConnectionEditor: NSObject {
 
     func present(on window: NSWindow) {
         window.beginSheet(panel)
-        panel.makeFirstResponder(target)
+        panel.makeFirstResponder(focusLabel ? labelField : target)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            createConnection()
+            return true
+        }
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            cancelEditing()
+            return true
+        }
+        return false
     }
 
     private func side(_ popup: NSPopUpButton) -> CanvasConnectionSide? {
@@ -98,14 +170,28 @@ final class ConnectionEditor: NSObject {
     @objc private func createConnection() {
         guard objects.indices.contains(source.indexOfSelectedItem),
               objects.indices.contains(target.indexOfSelectedItem) else { return }
+        if let fieldEditor = panel.fieldEditor(false, for: labelField) as? NSTextView,
+           fieldEditor.hasMarkedText() {
+            return
+        }
         do {
-            try commit(objects[source.indexOfSelectedItem].id, side(sourceSide),
-                       objects[target.indexOfSelectedItem].id, side(targetSide))
+            let labelValue = labelField.stringValue.isEmpty ? nil : labelField.stringValue
+            try commit(
+                objects[source.indexOfSelectedItem].id,
+                side(sourceSide),
+                objects[target.indexOfSelectedItem].id,
+                side(targetSide),
+                labelValue
+            )
             dismiss()
         } catch {
             errorLabel.stringValue = error.localizedDescription
             errorLabel.isHidden = false
-            panel.makeFirstResponder(sourceSide)
+            if error.localizedDescription.localizedCaseInsensitiveContains("label") {
+                panel.makeFirstResponder(labelField)
+            } else {
+                panel.makeFirstResponder(sourceSide)
+            }
         }
     }
 

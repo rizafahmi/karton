@@ -206,6 +206,76 @@ func checkConnections(repository: URL) throws {
     try require(difference(color(snapshot(), at: outsidePoint), background) > 0.2,
                 "Exterior route was clipped instead of drawn")
 
+    // Exercise connection label editing (Return / double-click) and endpoint/side reconnection (C) on existing connection.
+    // Select the connection (index 0 in edges) via Tab traversal (node 0 -> node 1 -> edge 0 -> edge 1).
+    window.makeFirstResponder(view)
+    view.keyDown(with: key(53)) // Clear selection
+    view.keyDown(with: key(48)) // source
+    view.keyDown(with: key(48)) // target
+    view.keyDown(with: key(48)) // edge 0 (normalConnection edgeID)
+    try require(view.selectedConnectionID == edgeID, "Tab did not select the first connection")
+    let beforeConnEdit = uiSession.root
+    // Press Return on the selected connection to open Edit Connection with Label focused.
+    view.keyDown(with: key(36))
+    try require(window.attachedSheet?.title == "Edit Connection", "Return on selected connection did not open Edit Connection sheet")
+    let labelControl = try control("connection-label", as: NSTextField.self)
+    try require(labelControl.stringValue == "", "Unlabeled connection did not start with empty label field")
+    // No-op commit preserves omitted label and redo history.
+    try control("connection-create", as: NSButton.self).performClick(nil)
+    try require(window.attachedSheet == nil && NSDictionary(dictionary: uiSession.root).isEqual(to: beforeConnEdit),
+                "No-op connection edit materialized omitted label or mutated root")
+
+    // Reopen with Return, verify >2000-char label is accepted per edge contract, then commit a Unicode label + Undo/Redo.
+    let longLabel = String(repeating: "x", count: 2001)
+    view.keyDown(with: key(36))
+    try control("connection-label", as: NSTextField.self).stringValue = longLabel
+    try control("connection-create", as: NSButton.self).performClick(nil)
+    try require(window.attachedSheet == nil && uiSession.connectionState(of: edgeID)?.label == longLabel,
+                "Long connection label was not accepted per edge contract")
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: uiSession.root).isEqual(to: beforeConnEdit),
+                "Undo long connection label did not restore omitted label")
+    view.keyDown(with: key(36))
+    let editLabelField = try control("connection-label", as: NSTextField.self)
+    editLabelField.stringValue = "接続ラベル"
+    try control("connection-create", as: NSButton.self).performClick(nil)
+    try require(window.attachedSheet == nil, "Valid connection label commit did not close sheet")
+    try require(uiSession.connectionState(of: edgeID)?.label == "接続ラベル",
+                "Connection label edit did not persist")
+    let labeledRoot = uiSession.root
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: uiSession.root).isEqual(to: beforeConnEdit),
+                "Undo connection label edit did not restore omitted label")
+    view.redoMove(nil)
+    try require(NSDictionary(dictionary: uiSession.root).isEqual(to: labeledRoot),
+                "Redo connection label edit did not restore label")
+    // Reconnect endpoints and sides via C on the selected connection (reverse direction: target.bottom -> source.bottom).
+    view.keyDown(with: key(8, characters: "c"))
+    try require(window.attachedSheet?.title == "Edit Connection", "C on selected connection did not open Edit Connection sheet")
+    try control("connection-source", as: NSPopUpButton.self).selectItem(at: 1) // target
+    try control("connection-source-side", as: NSPopUpButton.self).selectItem(at: 3) // Bottom
+    try control("connection-target", as: NSPopUpButton.self).selectItem(at: 0) // source
+    try control("connection-target-side", as: NSPopUpButton.self).selectItem(at: 3) // Bottom
+    try control("connection-label", as: NSTextField.self).stringValue = "" // Clear label
+    try control("connection-create", as: NSButton.self).performClick(nil)
+    let reconnectedState = uiSession.connectionState(of: edgeID)!
+    try require(reconnectedState.source == target.id && reconnectedState.sourceSide == .bottom &&
+                reconnectedState.target == source.id && reconnectedState.targetSide == .bottom &&
+                reconnectedState.label == nil &&
+                ((uiSession.root["edges"] as! [[String: Any]])[0]["label"] == nil),
+                "Reconnecting and clearing label did not update endpoints/sides or remove cleared label")
+    let reconnectedRoot = uiSession.root
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: uiSession.root).isEqual(to: labeledRoot),
+                "Undo connection reconnect did not restore previous endpoints, sides, and label")
+    view.redoMove(nil)
+    try require(NSDictionary(dictionary: uiSession.root).isEqual(to: reconnectedRoot),
+                "Redo connection reconnect did not restore updated endpoints and sides")
+    view.undoMove(nil)
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: uiSession.root).isEqual(to: beforeConnEdit),
+                "Two undos did not return connection to pre-edit state")
+
     // Back-to-back commands must not merge into AppKit's implicit event group.
     let retainedFirstSession = uiSession.root
     let historySession = CanvasSession(document: document)
@@ -240,6 +310,6 @@ func checkConnections(repository: URL) throws {
                 "Single-object self-loop Redo lost identity")
     try require(NSDictionary(dictionary: uiSession.root).isEqual(to: retainedFirstSession),
                 "One canvas history changed another session")
-    print("PASS native connections: endpoint/self-loop refusal, sheets, rendered movement, history and v1/source retention")
+    print("PASS native connections: endpoint/self-loop refusal, labels, reconnection, sheets, rendered movement, history and v1/source retention")
     window.orderOut(nil)
 }

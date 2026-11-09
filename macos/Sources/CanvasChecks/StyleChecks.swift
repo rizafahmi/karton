@@ -56,8 +56,8 @@ func checkStyles(repository: URL) throws {
     ]
     let rootObject: [String: Any] = [
         "version": 2,
-        "appearance": ["font": "heading"],
-        "paper": ["background": "none"],
+        "appearance": ["font": "heading", "future-appearance": "kept"],
+        "paper": ["background": "none", "future-paper": "kept"],
         "nodes": nodes,
         "edges": edges
     ]
@@ -129,15 +129,71 @@ func checkStyles(repository: URL) throws {
 
     let baselineRoot = session.root
 
-    // 1. Open Style inspector via Edit -> Style… with empty selection; verify observation never mutates root.
+    // 1. Open Style inspector via Edit -> Style… with empty selection; verify Canvas document controls and zero mutation on observation.
     try require(!view.isStyleInspectorOpen && inspector.isHidden, "Style inspector started open")
     try require(appDelegate.validateMenuItem(styleMenuItem), "Edit -> Style… was disabled")
     _ = appDelegate.perform(styleMenuItem.action!, with: styleMenuItem)
     try require(view.isStyleInspectorOpen && !inspector.isHidden, "Edit -> Style… did not open inspector")
-    try require(try label("style-title").stringValue == "Style" &&
-                !(try label("style-message").isHidden) &&
-                visibleProperties().isEmpty,
-                "Empty-selection Style inspector did not show guidance without controls")
+    try require(try label("style-title").stringValue == "Canvas" &&
+                (try label("style-message").isHidden) &&
+                visibleProperties() == [.paperBackground, .paperGrid, .font] &&
+                popup(.paperBackground)?.titleOfSelectedItem == "None" &&
+                popup(.paperGrid)?.titleOfSelectedItem == "20 px" &&
+                popup(.font)?.titleOfSelectedItem == "Title",
+                "Empty-selection Style inspector did not show Canvas paper, grid, and default font controls")
+    try require(NSDictionary(dictionary: session.root).isEqual(to: baselineRoot),
+                "Opening empty-selection Canvas Style inspector materialized defaults")
+
+    // Test no-op document style selection and real document style edits (paper background, grid size, default font) + Undo/Redo.
+    try choose(.paperBackground, title: "None")
+    try choose(.paperGrid, title: "20 px")
+    try choose(.font, title: "Title")
+    try require(NSDictionary(dictionary: session.root).isEqual(to: baselineRoot),
+                "Selecting already-effective Canvas document styles mutated root")
+    func maxGridDiff(at world: CGPoint, from base: NSColor) -> CGFloat {
+        let point = view.viewPoint(forWorldPoint: world)
+        let rect = CGRect(x: floor(point.x) - 3, y: floor(point.y) - 3, width: 6, height: 6)
+        let rep = view.bitmapImageRepForCachingDisplay(in: rect)!
+        view.cacheDisplay(in: rect, to: rep)
+        var maxDiff: CGFloat = 0
+        for px in 0..<rep.pixelsWide {
+            for py in 0..<rep.pixelsHigh {
+                if let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) {
+                    maxDiff = max(maxDiff, colorDiff(c, base))
+                }
+            }
+        }
+        return maxDiff
+    }
+    let gridPoint = CGPoint(x: 40, y: 40) // Empty canvas area at a multiple of 20 and 40
+    let blankPaperColor = sample(gridPoint)
+    try require(maxGridDiff(at: gridPoint, from: blankPaperColor) < 0.01,
+                "Blank paper was not uniform around gridPoint")
+    try choose(.paperBackground, title: "Cross")
+    try choose(.paperGrid, title: "40 px")
+    try choose(.font, title: "Mono")
+    let updatedPaper = session.root["paper"] as? [String: Any]
+    let updatedAppearance = session.root["appearance"] as? [String: Any]
+    try require(updatedPaper?["background"] as? String == "cross" &&
+                (updatedPaper?["grid"] as? NSNumber)?.intValue == 40 &&
+                updatedPaper?["future-paper"] as? String == "kept" &&
+                updatedAppearance?["font"] as? String == "mono" &&
+                updatedAppearance?["future-appearance"] as? String == "kept",
+                "Canvas document style edits did not persist or lost unknown paper/appearance metadata")
+    try require(maxGridDiff(at: gridPoint, from: blankPaperColor) > 0.05,
+                "Changing paper background from None to Cross did not draw grid marks on canvas")
+    dispatchKey(6, "z", modifiers: [.command]) // Undo font
+    dispatchKey(6, "z", modifiers: [.command]) // Undo grid
+    dispatchKey(6, "z", modifiers: [.command]) // Undo background
+    try require(NSDictionary(dictionary: session.root).isEqual(to: baselineRoot) &&
+                maxGridDiff(at: gridPoint, from: blankPaperColor) < 0.01,
+                "Undoing Canvas document style edits did not restore baseline root and blank paper")
+    dispatchKey(6, "Z", modifiers: [.command, .shift]) // Redo background
+    try require((session.root["paper"] as? [String: Any])?["background"] as? String == "cross",
+                "Redo Canvas paper background did not reapply Cross")
+    dispatchKey(6, "z", modifiers: [.command]) // Undo back to baseline
+    try require(NSDictionary(dictionary: session.root).isEqual(to: baselineRoot),
+                "Undo after Redo did not restore baseline root")
 
     // Close with Escape and reopen with S shortcut after selecting "rect".
     dispatchKey(53, "\u{1b}")

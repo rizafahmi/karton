@@ -18,6 +18,10 @@ public enum CanvasGeometryHandle: Int, CaseIterable, Sendable {
     }
 }
 
+public enum CanvasThoughtDirection: String, CaseIterable, Sendable {
+    case up, right, down, left
+}
+
 /// Authored box plus optional rotation. Nil retains an omitted rotation field.
 public struct CanvasGeometry: Equatable, Sendable {
     public let x: Double
@@ -81,6 +85,71 @@ public struct CanvasGeometry: Equatable, Sendable {
         guard degrees != 0 else { return self }
         return CanvasGeometry(x: x, y: y, width: width, height: height,
                               rotation: (rotation ?? 0) + degrees)
+    }
+
+    /// Axis-aligned world bounding box of the rotated geometry.
+    public var rotatedAxisAlignedBounds: (x: Double, y: Double, width: Double, height: Double) {
+        let angle = (rotation ?? 0) * .pi / 180
+        let w = abs(cos(angle)) * width + abs(sin(angle)) * height
+        let h = abs(sin(angle)) * width + abs(cos(angle)) * height
+        return (x: x + (width - w) / 2, y: y + (height - h) / 2, width: w, height: h)
+    }
+
+    /// Places a fresh upright 160x96-minimum rectangle 48 world units beyond the source's
+    /// rotated bounds along `direction`, skipping any ray blockers (and their 48-unit clearance).
+    public static func adjacentThoughtBox(
+        source: CanvasGeometry,
+        obstacles: [CanvasGeometry],
+        direction: CanvasThoughtDirection,
+        height: Double = 96
+    ) -> CanvasGeometry {
+        let width = 160.0
+        let resolvedHeight = max(96.0, height)
+        let gap = 48.0
+        let origin = source.rotatedAxisAlignedBounds
+        let horizontal = direction == .left || direction == .right
+        let forward = direction == .right || direction == .down
+        var boxX = source.x + (source.width - width) / 2
+        var boxY = source.y + (source.height - resolvedHeight) / 2
+        if horizontal {
+            boxY = floor(boxY * 10 + 0.5) / 10
+            boxX = forward ? (origin.x + origin.width + gap) : (origin.x - width - gap)
+        } else {
+            boxX = floor(boxX * 10 + 0.5) / 10
+            boxY = forward ? (origin.y + origin.height + gap) : (origin.y - resolvedHeight - gap)
+        }
+        let blockers = obstacles.map(\.rotatedAxisAlignedBounds).filter { other in
+            if horizontal {
+                return boxY < other.y + other.height + gap && boxY + resolvedHeight + gap > other.y
+            } else {
+                return boxX < other.x + other.width + gap && boxX + width + gap > other.x
+            }
+        }
+        for _ in 0...blockers.count {
+            let overlaps = blockers.filter { other in
+                if horizontal {
+                    return boxX < other.x + other.width + gap && boxX + width + gap > other.x
+                } else {
+                    return boxY < other.y + other.height + gap && boxY + resolvedHeight + gap > other.y
+                }
+            }
+            if overlaps.isEmpty { break }
+            if horizontal {
+                boxX = forward
+                    ? overlaps.map { $0.x + $0.width + gap }.max()!
+                    : overlaps.map { $0.x - width - gap }.min()!
+            } else {
+                boxY = forward
+                    ? overlaps.map { $0.y + $0.height + gap }.max()!
+                    : overlaps.map { $0.y - resolvedHeight - gap }.min()!
+            }
+        }
+        if horizontal {
+            boxX = (forward ? ceil(boxX * 10) : floor(boxX * 10)) / 10
+        } else {
+            boxY = (forward ? ceil(boxY * 10) : floor(boxY * 10)) / 10
+        }
+        return CanvasGeometry(x: boxX, y: boxY, width: width, height: resolvedHeight, rotation: nil)
     }
 }
 

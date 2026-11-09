@@ -1,11 +1,16 @@
 # Native macOS implementation specification
 
 Status: design specification; the session-only native app supports blank v2 New,
-shape/text and standalone line/arrow insertion, connections, object/connection
-selection and Tab traversal, movement, resize/rotation and line endpoint editing,
-duplication, deletion, front/back stacking, lock/unlock, object/connection style
-editing, captions and Undo/Redo. Text edits retain geometry; the full editor,
-persistence and acceptance proof remain incomplete.
+shape/text and standalone line/arrow insertion, adjacent thoughts (`N` → cardinal
+direction → inline draft with rotated ray-blocker avoidance and live measured
+growth), connections (including labels and reconnection), object/connection
+selection, selection-preserving Tab traversal, Space tap selection toggle and
+Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
+resize/rotation and line endpoint editing, duplication, deletion, front/back
+stacking, lock/unlock, object/connection/canvas style editing, captions with
+measured box growth (using current placeholder font approximations), read-only
+attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`) and
+Undo/Redo. The full editor, persistence and acceptance proof remain incomplete.
 
 ## 1. Approval boundary and outcome
 

@@ -175,14 +175,16 @@ func runChecks() throws {
                         charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
     }
     func activeEditor() throws -> NSTextView {
-        guard let sheet = window.attachedSheet,
-              let editor = sheet.firstResponder as? NSTextView else {
-            throw CheckFailure(description: "Native text sheet did not focus its editor")
+        guard window.attachedSheet == nil,
+              view.hasActiveInlineTextEditor,
+              let editor = view.inlineTextEditorView,
+              window.firstResponder === editor else {
+            throw CheckFailure(description: "Canvas did not focus its inline text editor without a popup sheet")
         }
         return editor
     }
     view.keyDown(with: key(36))
-    try require(window.attachedSheet == nil, "Locked shape opened a text editor")
+    try require(!view.hasActiveInlineTextEditor && window.attachedSheet == nil, "Locked shape opened a text editor")
     let movedCenter = view.viewPoint(forWorldPoint: CGPoint(x: 190, y: 155))
     view.mouseDown(with: mouse(.leftMouseDown, movedCenter))
     view.mouseUp(with: mouse(.leftMouseUp, movedCenter))
@@ -195,7 +197,7 @@ func runChecks() throws {
     try require(session.text(of: "moving") == nil, "Draft leaked into committed content")
     editor.keyDown(with: key(36, modifiers: [.command]))
     try require(session.text(of: "moving") == caption, "Command-Return did not commit literal multiline text")
-    try require(window.attachedSheet == nil, "Commit left sheet open")
+    try require(!view.hasActiveInlineTextEditor && window.attachedSheet == nil, "Commit left inline text editor open")
     view.undoMove(nil)
     try require(NSDictionary(dictionary: session.root).isEqual(to: beforeTextRoot), "Text Undo did not restore complete original metadata and absent text")
     view.redoMove(nil)
@@ -209,7 +211,7 @@ func runChecks() throws {
     editor = try activeEditor()
     editor.string = String(repeating: "a", count: 2001)
     editor.keyDown(with: key(36, modifiers: [.command]))
-    try require(window.attachedSheet != nil && session.text(of: "moving") == caption,
+    try require(view.hasActiveInlineTextEditor && session.text(of: "moving") == caption,
                 "Over-limit draft was committed or dismissed")
     try require(editor.string.count == 2001, "Invalid draft was truncated")
     editor.string = String(repeating: "e\u{301}", count: 2000)
@@ -308,7 +310,7 @@ func runChecks() throws {
                 "Native text Undo affected canvas content/history")
     editor.string = String(repeating: "a", count: 2001)
     editor.keyDown(with: key(36, modifiers: [.command]))
-    try require(window.attachedSheet != nil &&
+    try require(view.hasActiveInlineTextEditor &&
                 NSDictionary(dictionary: session.root).isEqual(to: beforeInsert),
                 "Invalid new text escaped its draft")
     editor.string = "A new thought\n👩🏽‍💻"
@@ -324,6 +326,21 @@ func runChecks() throws {
     try require(NSDictionary(dictionary: session.root).isEqual(to: newTextRoot),
                 "New text redo lost identity or content")
     view.undoMove(nil)
+    // Clicking outside on the canvas while typing inline text commits the text (only Escape cancels).
+    view.insertShape(.text)
+    editor = try activeEditor()
+    editor.string = "Committed by outside click"
+    let outsidePt = view.viewPoint(forWorldPoint: CGPoint(x: -300, y: -300))
+    view.mouseDown(with: mouse(.leftMouseDown, outsidePt))
+    view.mouseUp(with: mouse(.leftMouseUp, outsidePt))
+    let clickedTextNode = (session.root["nodes"] as! [[String: Any]]).last!
+    let clickedTextID = clickedTextNode["id"] as! String
+    try require(!view.hasActiveInlineTextEditor &&
+                session.text(of: clickedTextID) == "Committed by outside click",
+                "Clicking outside inline text editor cancelled instead of committing")
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: session.root).isEqual(to: beforeInsert),
+                "Undo after outside-click text commit did not restore baseline")
     view.keyDown(with: key(15, characters: "r"))
     let keyboardShape = (session.root["nodes"] as! [[String: Any]]).last!
     let keyboardID = keyboardShape["id"] as! String
@@ -346,6 +363,7 @@ func runChecks() throws {
     try checkConnections(repository: repository)
     try checkGeometry(repository: repository)
     try checkLifecycle(repository: repository)
+    try checkAdjacentThoughtsAndViewport(repository: repository)
     try checkStyles(repository: repository)
     try checkLiteralJSON()
     try checkCompatibilityRoundTrips(repository: repository)

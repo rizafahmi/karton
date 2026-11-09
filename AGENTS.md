@@ -13,10 +13,16 @@ unless requested, not permanently prohibited directions.
 
 An independent native Mac editor is in progress, sharing JSON contracts rather
 than the web runtime. `macos/` currently provides session-only New, shape/text
-and standalone line/arrow insertion, connections, object/connection selection and
-Tab traversal, movement, box resize/rotation and line endpoint editing, duplication,
-deletion, front/back stacking, lock/unlock, object/connection style inspection and
-editing, captions and Undo/Redo; it never saves.
+and standalone line/arrow insertion, adjacent thoughts (`N` → cardinal direction
+→ inline draft with rotated ray-blocker avoidance and live measured growth),
+connections (with labels and reconnection), object/connection selection,
+selection-preserving Tab traversal, Space tap selection toggle and Space-drag
+viewport panning, marquee and Shift-click/⌘A multi-selection, movement, box
+resize/rotation and line endpoint editing, duplication, deletion, front/back
+stacking, lock/unlock, object/connection/canvas style inspection and editing,
+captions with box growth (measured using current placeholder system font
+approximations), read-only attachment preview/copy, canvas zoom/fit (`+`/`-`,
+`⇧1`, `⇧0`/`⌘0`) and Undo/Redo; it never saves.
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.
@@ -65,19 +71,27 @@ silently upgrade/downgrade, or infer native implementation from web support.
   Neo-Acid canvas palette (`#f7f7f5` Raw Gallery Plaster background, `#ecece6`
   surface, `#0a0b0d` Ebony Ink for strokes and light/highlighter fills, `#ffffff`
   text on `ink` fills, and `#1a3bf5` Cobalt selection). [CanvasView](macos/Sources/CanvasUI/CanvasView.swift)
-  owns AppKit object/connection hit-testing, Tab traversal, viewport-centered insertion,
-  selection, duplication, deletion, front/back stacking, lock/unlock, rendering and
-  explicit per-canvas history groups, not AppKit event-based grouping. Geometry/edges
+  owns AppKit object/connection hit-testing, Tab traversal, Space tap/hold-pan,
+  marquee and multi-selection, viewport-centered and adjacent-thought (`N`)
+  insertion, inline on-canvas shape/text caption editing with live/committed box
+  growth (measured using current placeholder font approximations), zoom/fit
+  (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), duplication, deletion, front/back stacking,
+  lock/unlock, rendering and explicit per-canvas history groups, not AppKit
+  event-based grouping. Geometry/edges
   [CanvasGeometry](macos/Sources/CanvasCore/CanvasGeometry.swift) owns validated
-  authored boxes, rotated-anchor math, and standalone line endpoint geometry;
-  [GeometryGesture](macos/Sources/CanvasUI/GeometryGesture.swift) keeps resize/rotation
-  and line-endpoint previews outside session JSON until commit. Preserve omitted
-  rotation and non-padded boxes on cancel/Undo/no-op; lines use endpoint semantics, not box scaling.
-  [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift),
-  [ConnectionEditor](macos/Sources/CanvasUI/ConnectionEditor.swift), and
-  [StyleInspectorView](macos/Sources/CanvasUI/StyleInspector.swift) keep native
-  sheets and the floating upper-right AppKit Style inspector synchronized with
-  `CanvasSession` without materializing omitted defaults on observation;
+  authored boxes, rotated-anchor math, adjacent-thought ray placement/blocker
+  skipping, and standalone line endpoint geometry;
+  [GeometryGesture](macos/Sources/CanvasUI/GeometryGesture.swift) keeps
+  resize/rotation and line-endpoint previews outside session JSON until commit.
+  Preserve omitted rotation and non-padded boxes on cancel/Undo/no-op; lines use
+  endpoint semantics, not box scaling.
+  [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift) (`AttachmentPreviewSheet`),
+  [ConnectionEditor](macos/Sources/CanvasUI/ConnectionEditor.swift) (connection
+  creation, label editing, and endpoint/side reconnection), and
+  [StyleInspectorView](macos/Sources/CanvasUI/StyleInspector.swift) (object,
+  connection, and empty-selection canvas `paper`/`appearance.font` controls) keep
+  native sheets and the floating upper-right AppKit Style inspector synchronized
+  with `CanvasSession` without materializing omitted defaults on observation;
   cancellation and no-ops leave history untouched.
   The session is not persistence: closing discards changes and source bytes stay
   untouched. Keep mutations out of the view and file writes out of the session.

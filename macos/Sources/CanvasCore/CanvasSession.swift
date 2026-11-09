@@ -27,6 +27,8 @@ public enum CanvasLineKind: String, CaseIterable, Sendable {
 }
 
 public enum CanvasStyleProperty: String, CaseIterable, Sendable {
+    case paperBackground = "background"
+    case paperGrid = "grid"
     case fill, stroke, width, dash, radius, arrow, path, marker, font, size, align
 }
 
@@ -41,6 +43,7 @@ public struct CanvasStyleChange {
     fileprivate enum Target {
         case node(id: String, beforeData: [String: Any], afterData: [String: Any])
         case connection(id: String, beforeEdge: [String: Any], afterEdge: [String: Any])
+        case document(key: String, beforeValue: Any?, afterValue: Any?)
     }
     fileprivate let target: Target
 
@@ -50,6 +53,8 @@ public struct CanvasStyleChange {
             return CanvasStyleChange(target: .node(id: id, beforeData: after, afterData: before))
         case .connection(let id, let before, let after):
             return CanvasStyleChange(target: .connection(id: id, beforeEdge: after, afterEdge: before))
+        case .document(let key, let before, let after):
+            return CanvasStyleChange(target: .document(key: key, beforeValue: after, afterValue: before))
         }
     }
 }
@@ -69,6 +74,60 @@ public struct CanvasConnectionInsertion {
     public let id: String
     fileprivate let edge: [String: Any]
     fileprivate let index: Int
+}
+
+public struct CanvasConnectionState: Equatable, Sendable {
+    public let id: String
+    public let source: String
+    public let sourceSide: CanvasConnectionSide?
+    public let target: String
+    public let targetSide: CanvasConnectionSide?
+    public let label: String?
+
+    public init(
+        id: String,
+        source: String,
+        sourceSide: CanvasConnectionSide?,
+        target: String,
+        targetSide: CanvasConnectionSide?,
+        label: String?
+    ) {
+        self.id = id
+        self.source = source
+        self.sourceSide = sourceSide
+        self.target = target
+        self.targetSide = targetSide
+        self.label = label
+    }
+}
+
+public struct CanvasConnectionUpdate {
+    public let id: String
+    fileprivate let beforeEdge: [String: Any]
+    fileprivate let afterEdge: [String: Any]
+
+    public var inverse: CanvasConnectionUpdate {
+        CanvasConnectionUpdate(id: id, beforeEdge: afterEdge, afterEdge: beforeEdge)
+    }
+}
+
+public struct CanvasAttachment: Equatable, Sendable {
+    public let filename: String
+    public let mediaType: String
+    public let encoding: String
+    public let content: String
+
+    public var utf8ByteCount: Int { content.utf8.count }
+}
+
+public struct CanvasTextChange {
+    public let id: String
+    fileprivate let beforeNode: [String: Any]
+    fileprivate let afterNode: [String: Any]
+
+    public var inverse: CanvasTextChange {
+        CanvasTextChange(id: id, beforeNode: afterNode, afterNode: beforeNode)
+    }
 }
 
 /// Retained node and incident connections for atomic Delete Undo/Redo.
@@ -235,6 +294,23 @@ public final class CanvasSession {
         (node(id)?["data"] as? [String: Any])?["text"] as? String
     }
 
+    public func attachment(of id: String) -> CanvasAttachment? {
+        guard let raw = node(id),
+              raw["type"] as? String == "shape",
+              let data = raw["data"] as? [String: Any],
+              let att = data["attachment"] as? [String: Any],
+              let filename = att["filename"] as? String,
+              let mediaType = att["media_type"] as? String,
+              let encoding = att["encoding"] as? String,
+              let content = att["content"] as? String else { return nil }
+        return CanvasAttachment(
+            filename: filename,
+            mediaType: mediaType,
+            encoding: encoding,
+            content: content
+        )
+    }
+
     public func canEditText(_ id: String) -> Bool {
         node(id)?["type"] as? String == "shape" && !isLocked(id)
     }
@@ -242,6 +318,14 @@ public final class CanvasSession {
     /// Changes only the caption; nil restores an originally absent text field.
     @discardableResult
     public func setText(_ id: String, to text: String?) throws -> Bool {
+        try setTextAndGeometry(id, to: text, geometry: nil) != nil
+    }
+
+    /// Atomically updates caption text and optional grown geometry in one transaction.
+    @discardableResult
+    public func setTextAndGeometry(
+        _ id: String, to text: String?, geometry: CanvasGeometry? = nil
+    ) throws -> CanvasTextChange? {
         guard canEditText(id),
               var nodes = root["nodes"] as? [[String: Any]],
               let index = nodes.firstIndex(where: { $0["id"] as? String == id }),
@@ -251,15 +335,46 @@ public final class CanvasSession {
         if let text, text.count > 2_000 {
             throw CanvasDocumentError("Text must contain at most 2000 characters.")
         }
-        guard self.text(of: id) != text else { return false }
+        if let geometry {
+            try geometry.validate()
+        }
+        let textChanged = self.text(of: id) != text
+        let geometryChanged = geometry != nil && self.geometry(of: id) != geometry
+        guard textChanged || geometryChanged else { return nil }
+        let beforeNode = nodes[index]
+        var afterNode = beforeNode
         data["text"] = text
-        nodes[index]["data"] = data
-        root["nodes"] = nodes
-        return true
+        if let geometry {
+            afterNode["x"] = geometry.x
+            afterNode["y"] = geometry.y
+            afterNode["width"] = geometry.width
+            afterNode["height"] = geometry.height
+            data["rotation"] = geometry.rotation
+        }
+        afterNode["data"] = data
+        nodes[index] = afterNode
+        var candidate = root
+        candidate["nodes"] = nodes
+        try CanvasDocument.validate(candidate)
+        root = candidate
+        return CanvasTextChange(id: id, beforeNode: beforeNode, afterNode: afterNode)
+    }
+
+    public func applyTextChange(_ change: CanvasTextChange) throws {
+        guard var nodes = root["nodes"] as? [[String: Any]],
+              let index = nodes.firstIndex(where: { $0["id"] as? String == change.id }),
+              !isLocked(change.id) else {
+            throw CanvasDocumentError("Cannot apply text change to missing or locked shape.")
+        }
+        nodes[index] = change.afterNode
+        var candidate = root
+        candidate["nodes"] = nodes
+        try CanvasDocument.validate(candidate)
+        root = candidate
     }
 
     public func insertShape(
-        _ kind: CanvasShapeKind, at position: CanvasPosition, text: String? = nil
+        _ kind: CanvasShapeKind, at position: CanvasPosition, text: String? = nil, height: Double? = nil
     ) throws -> CanvasShapeInsertion {
         guard position.x.isFinite, position.y.isFinite,
               abs(position.x) <= 1_000_000, abs(position.y) <= 1_000_000 else {
@@ -267,6 +382,11 @@ public final class CanvasSession {
         }
         if let text, text.count > 2_000 {
             throw CanvasDocumentError("Text must contain at most 2000 characters.")
+        }
+        let defaultHeight: Double = kind == .text ? 48 : 96
+        let resolvedHeight = height ?? defaultHeight
+        guard resolvedHeight.isFinite, resolvedHeight > 0, resolvedHeight <= 1_000_000 else {
+            throw CanvasDocumentError("A shape needs positive dimensions within 1000000.")
         }
         let id = UUID().uuidString
         var data: [String: Any] = [
@@ -276,7 +396,7 @@ public final class CanvasSession {
         data["text"] = text
         let raw: [String: Any] = [
             "id": id, "type": "shape", "x": position.x, "y": position.y,
-            "width": 160, "height": kind == .text ? 48 : 96,
+            "width": 160, "height": resolvedHeight,
             "data": data
         ]
         let insertion = CanvasShapeInsertion(
@@ -284,6 +404,50 @@ public final class CanvasSession {
         )
         try restoreInsertion(insertion)
         return insertion
+    }
+
+    public func canInsertAdjacentThought(from id: String) -> Bool {
+        node(id)?["type"] as? String == "shape" && !isLocked(id)
+    }
+
+    public func adjacentThoughtGeometry(
+        from sourceID: String, direction: CanvasThoughtDirection, height: Double = 96
+    ) throws -> CanvasGeometry {
+        guard canInsertAdjacentThought(from: sourceID),
+              let sourceGeometry = geometry(of: sourceID) else {
+            throw CanvasDocumentError("Select an unlocked shape to grow an adjacent thought.")
+        }
+        let rawNodes = root["nodes"] as? [[String: Any]] ?? []
+        let obstacles: [CanvasGeometry] = rawNodes.compactMap { raw in
+            guard let id = raw["id"] as? String, id != sourceID else { return nil }
+            return geometry(of: id)
+        }
+        let box = CanvasGeometry.adjacentThoughtBox(
+            source: sourceGeometry,
+            obstacles: obstacles,
+            direction: direction,
+            height: max(96, height)
+        )
+        try box.validate()
+        return box
+    }
+
+    public func insertAdjacentThought(
+        from sourceID: String,
+        direction: CanvasThoughtDirection,
+        text: String,
+        height: Double = 96
+    ) throws -> CanvasShapeInsertion {
+        if text.count > 2_000 {
+            throw CanvasDocumentError("Text must contain at most 2000 characters.")
+        }
+        let box = try adjacentThoughtGeometry(from: sourceID, direction: direction, height: max(96, height))
+        return try insertShape(
+            .rectangle,
+            at: CanvasPosition(x: box.x, y: box.y),
+            text: text,
+            height: box.height
+        )
     }
 
     public func insertLine(
@@ -499,15 +663,18 @@ public final class CanvasSession {
     }
     public func insertConnection(
         source: String, sourceSide: CanvasConnectionSide? = nil,
-        target: String, targetSide: CanvasConnectionSide? = nil
+        target: String, targetSide: CanvasConnectionSide? = nil,
+        label: String? = nil
     ) throws -> CanvasConnectionInsertion {
         try validateConnection(source: source, sourceSide: sourceSide, target: target, targetSide: targetSide)
+        let normalizedLabel = (label?.isEmpty == false) ? label : nil
         let id = UUID().uuidString
         var edge: [String: Any] = [
             "id": id, "source": source, "target": target, "path": "bezier", "marker": "arrow"
         ]
         edge["source_handle"] = sourceSide?.rawValue
         edge["target_handle"] = targetSide?.rawValue
+        edge["label"] = normalizedLabel
         var edges = root["edges"] as? [[String: Any]] ?? []
         let insertion = CanvasConnectionInsertion(
             id: id, edge: edge, index: edges.count
@@ -515,6 +682,92 @@ public final class CanvasSession {
         edges.append(edge)
         root["edges"] = edges
         return insertion
+    }
+
+    public func connectionState(of id: String) -> CanvasConnectionState? {
+        guard let raw = edge(id),
+              let source = raw["source"] as? String,
+              let target = raw["target"] as? String else { return nil }
+        let sourceSide = (raw["source_handle"] as? String).flatMap(CanvasConnectionSide.init(rawValue:))
+        let targetSide = (raw["target_handle"] as? String).flatMap(CanvasConnectionSide.init(rawValue:))
+        let label = raw["label"] as? String
+        return CanvasConnectionState(
+            id: id,
+            source: source,
+            sourceSide: sourceSide,
+            target: target,
+            targetSide: targetSide,
+            label: label
+        )
+    }
+
+    @discardableResult
+    public func updateConnection(
+        _ id: String,
+        source: String,
+        sourceSide: CanvasConnectionSide? = nil,
+        target: String,
+        targetSide: CanvasConnectionSide? = nil,
+        label: String? = nil
+    ) throws -> CanvasConnectionUpdate? {
+        guard var edges = root["edges"] as? [[String: Any]],
+              let index = edges.firstIndex(where: { $0["id"] as? String == id }),
+              let current = connectionState(of: id) else {
+            throw CanvasDocumentError("Unknown connection ID: \(id).")
+        }
+        try validateConnection(source: source, sourceSide: sourceSide, target: target, targetSide: targetSide)
+        let normalizedLabel = (label?.isEmpty == false) ? label : nil
+        let currentEffectiveLabel = (current.label?.isEmpty == false) ? current.label : nil
+        guard current.source != source ||
+              current.sourceSide != sourceSide ||
+              current.target != target ||
+              current.targetSide != targetSide ||
+              currentEffectiveLabel != normalizedLabel else {
+            return nil
+        }
+        let beforeEdge = edges[index]
+        var afterEdge = beforeEdge
+        afterEdge["source"] = source
+        if current.sourceSide != sourceSide {
+            if let sourceSide {
+                afterEdge["source_handle"] = sourceSide.rawValue
+            } else {
+                afterEdge.removeValue(forKey: "source_handle")
+            }
+        }
+        afterEdge["target"] = target
+        if current.targetSide != targetSide {
+            if let targetSide {
+                afterEdge["target_handle"] = targetSide.rawValue
+            } else {
+                afterEdge.removeValue(forKey: "target_handle")
+            }
+        }
+        if currentEffectiveLabel != normalizedLabel {
+            if let normalizedLabel {
+                afterEdge["label"] = normalizedLabel
+            } else {
+                afterEdge.removeValue(forKey: "label")
+            }
+        }
+        edges[index] = afterEdge
+        var candidate = root
+        candidate["edges"] = edges
+        try CanvasDocument.validate(candidate)
+        root = candidate
+        return CanvasConnectionUpdate(id: id, beforeEdge: beforeEdge, afterEdge: afterEdge)
+    }
+
+    public func applyConnectionUpdate(_ update: CanvasConnectionUpdate) throws {
+        guard var edges = root["edges"] as? [[String: Any]],
+              let index = edges.firstIndex(where: { $0["id"] as? String == update.id }) else {
+            throw CanvasDocumentError("Cannot apply connection update to missing connection.")
+        }
+        edges[index] = update.afterEdge
+        var candidate = root
+        candidate["edges"] = edges
+        try CanvasDocument.validate(candidate)
+        root = candidate
     }
 
     public func removeInsertion(_ insertion: CanvasConnectionInsertion) throws {
@@ -558,6 +811,8 @@ public final class CanvasSession {
         root["edges"] = edges
     }
 
+    public static let supportedPaperBackgrounds = ["dots", "lines", "cross", "none"]
+    public static let defaultPaperGridPresets = [10, 16, 20, 24, 32, 40]
     public static let supportedColors = ["none", "ink", "gray", "blue", "green", "yellow", "red", "violet", "accent", "surface"]
     public static let supportedFonts = ["sans", "heading", "mono", "handwritten"]
     public static let supportedWidths = [1, 2, 4]
@@ -567,6 +822,65 @@ public final class CanvasSession {
     public static let supportedMarkers = ["arrow", "dot", "none"]
     public static let supportedSizes = ["s", "m", "l"]
     public static let supportedAlignments = ["left", "center", "right"]
+
+    public func availableDocumentStyleProperties() -> [CanvasStyleProperty] {
+        [.paperBackground, .paperGrid, .font]
+    }
+
+    public func effectiveDocumentStyle() -> [CanvasStyleProperty: CanvasStyleValue] {
+        let paper = root["paper"] as? [String: Any]
+        let appearance = root["appearance"] as? [String: Any]
+        let background = paper?["background"] as? String ?? "dots"
+        let grid = intValue(paper?["grid"]) ?? 20
+        let font = appearance?["font"] as? String ?? "sans"
+        return [
+            .paperBackground: .string(background),
+            .paperGrid: .int(grid),
+            .font: .string(font)
+        ]
+    }
+
+    @discardableResult
+    public func setDocumentStyle(
+        property: CanvasStyleProperty, to value: CanvasStyleValue
+    ) throws -> CanvasStyleChange? {
+        guard availableDocumentStyleProperties().contains(property) else {
+            throw CanvasDocumentError("This style is not supported for the canvas; nothing was changed.")
+        }
+        let rawValue = try validatedStyleJSONValue(property: property, value: value)
+        guard effectiveDocumentStyle()[property] != value else { return nil }
+        var candidate = root
+        let topKey: String
+        let beforeValue: Any?
+        let afterValue: Any?
+        switch property {
+        case .paperBackground, .paperGrid:
+            topKey = "paper"
+            beforeValue = root[topKey]
+            if let existing = candidate[topKey], !(existing is NSNull), !(existing is [String: Any]) {
+                throw CanvasDocumentError("Paper must be an object.")
+            }
+            var paper = (candidate[topKey] as? [String: Any]) ?? [:]
+            paper[property.rawValue] = rawValue
+            candidate[topKey] = paper
+            afterValue = paper
+        case .font:
+            topKey = "appearance"
+            beforeValue = root[topKey]
+            if let existing = candidate[topKey], !(existing is [String: Any]) {
+                throw CanvasDocumentError("Appearance must be an object.")
+            }
+            var appearance = (candidate[topKey] as? [String: Any]) ?? [:]
+            appearance["font"] = rawValue
+            candidate[topKey] = appearance
+            afterValue = appearance
+        default:
+            throw CanvasDocumentError("Invalid document style property.")
+        }
+        try CanvasDocument.validate(candidate)
+        root = candidate
+        return CanvasStyleChange(target: .document(key: topKey, beforeValue: beforeValue, afterValue: afterValue))
+    }
     public func availableStyleProperties(forNode id: String) -> [CanvasStyleProperty] {
         guard let raw = node(id), let type = raw["type"] as? String,
               let data = raw["data"] as? [String: Any] else { return [] }
@@ -748,6 +1062,12 @@ public final class CanvasSession {
             }
             edges[index] = afterEdge
             candidate["edges"] = edges
+        case .document(let key, _, let afterValue):
+            if let afterValue {
+                candidate[key] = afterValue
+            } else {
+                candidate.removeValue(forKey: key)
+            }
         }
         try CanvasDocument.validate(candidate)
         root = candidate
@@ -757,6 +1077,16 @@ public final class CanvasSession {
         property: CanvasStyleProperty, value: CanvasStyleValue
     ) throws -> Any {
         switch (property, value) {
+        case (.paperBackground, .string(let bg)):
+            guard Self.supportedPaperBackgrounds.contains(bg) else {
+                throw CanvasDocumentError("Unsupported paper background: \(bg).")
+            }
+            return bg
+        case (.paperGrid, .int(let grid)):
+            guard (4...200).contains(grid) else {
+                throw CanvasDocumentError("Paper grid must be an integer from 4 to 200.")
+            }
+            return grid
         case (.fill, .string(let color)), (.stroke, .string(let color)):
             guard Self.supportedColors.contains(color) else {
                 throw CanvasDocumentError("Unsupported color: \(color).")
@@ -808,6 +1138,7 @@ public final class CanvasSession {
             throw CanvasDocumentError("Invalid value for \(property.rawValue).")
         }
     }
+
 
     private func edge(_ id: String) -> [String: Any]? {
         (root["edges"] as? [[String: Any]])?.first { $0["id"] as? String == id }

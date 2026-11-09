@@ -46,52 +46,230 @@ public final class CanvasView: NSView {
         let animated: Bool
     }
 
+    private final class ThoughtDraftTextView: NSTextView {
+        private let draftUndoManager = UndoManager()
+        override var undoManager: UndoManager? { draftUndoManager }
+        var onCommit: (() -> Void)?
+        var onCancel: (() -> Void)?
+        var onChange: ((String) -> Void)?
+
+        func resetUndo() {
+            draftUndoManager.removeAllActions()
+        }
+        override var string: String {
+            didSet {
+                onChange?(string)
+            }
+        }
+
+        override func didChangeText() {
+            super.didChangeText()
+            onChange?(string)
+        }
+
+        override func keyDown(with event: NSEvent) {
+            if !hasMarkedText() {
+                if event.keyCode == 53 {
+                    onCancel?()
+                    return
+                }
+                if event.keyCode == 36 || event.keyCode == 76 {
+                    if event.modifierFlags.contains(.shift) || event.modifierFlags.contains(.option) {
+                        insertNewlineIgnoringFieldEditor(nil)
+                    } else {
+                        onCommit?()
+                    }
+                    return
+                }
+            }
+            super.keyDown(with: event)
+        }
+    }
+
+    private enum InlineTextState {
+        case adjacentChoosing(sourceID: String)
+        case adjacentEditing(sourceID: String, direction: CanvasThoughtDirection, geometry: CanvasGeometry, text: String, error: String?)
+        case newText(position: CanvasPosition, geometry: CanvasGeometry, text: String, error: String?)
+        case shapeCaption(id: String, beforeText: String?, beforeGeometry: CanvasGeometry, previewGeometry: CanvasGeometry, text: String, error: String?)
+    }
+
+    private struct MarqueeGesture {
+        let start: CGPoint
+        var current: CGPoint
+        let baseSelection: Set<String>
+
+        var worldRect: CGRect {
+            CGRect(
+                x: min(start.x, current.x),
+                y: min(start.y, current.y),
+                width: abs(current.x - start.x),
+                height: abs(current.y - start.y)
+            )
+        }
+    }
+
     private var nodes: [Node]
     private var edges: [EdgeDrawing]
-    private let paper: [String: Any]
-    private let fontRole: String
+    private var paper: [String: Any]
+    private var fontRole: String
     private var origin: CGPoint
+    public private(set) var zoomScale: CGFloat = 1.0
     private let session: CanvasSession
     private let history = UndoManager()
     public override var undoManager: UndoManager? { history }
     private var selectedID: String?
+    public private(set) var selectedNodeIDs: Set<String> = []
     private var selectedEdgeID: String?
-    private var drag: (id: String, mouse: CGPoint, position: CanvasPosition)?
-    private var textEditor: ShapeTextEditor?
+    public private(set) var focusedNodeID: String?
+    public private(set) var focusedConnectionID: String?
+    private var spaceSelectionMode = false
+    private var isSpacePressed = false
+    private var spacePanDragged = false
+    private var spacePanStart: (viewportPoint: CGPoint, worldOrigin: CGPoint)?
+    private var marqueeGesture: MarqueeGesture?
+    private var drag: (ids: [String], mouse: CGPoint, positions: [String: CanvasPosition])?
     private var connectionEditor: ConnectionEditor?
+    private var attachmentPreview: AttachmentPreviewSheet?
+    public var attachmentPasteboard: NSPasteboard = .general
     private var geometryGesture: GeometryGesture?
     private var lineEndpointGesture: LineEndpointGesture?
+    private var inlineTextState: InlineTextState?
+    private let thoughtScrollView = NSScrollView()
+    private let thoughtInputView = ThoughtDraftTextView(frame: NSRect(x: 0, y: 0, width: 160, height: 96))
     public let styleInspector = StyleInspectorView()
     public private(set) var isStyleInspectorOpen = false
     public var selectedNodeID: String? { selectedID }
     public var selectedConnectionID: String? { selectedEdgeID }
     public var hasGeometryPreview: Bool { geometryGesture != nil || lineEndpointGesture != nil }
+    public var hasActiveInlineTextEditor: Bool {
+        switch inlineTextState {
+        case .adjacentEditing, .newText, .shapeCaption: return true
+        case .adjacentChoosing, .none: return false
+        }
+    }
+    public var inlineTextEditorView: NSTextView? {
+        hasActiveInlineTextEditor ? thoughtInputView : nil
+    }
+    public var inlineTextError: String? {
+        switch inlineTextState {
+        case .adjacentEditing(_, _, _, _, let err),
+             .newText(_, _, _, let err),
+             .shapeCaption(_, _, _, _, _, let err):
+            return err
+        case .adjacentChoosing, .none:
+            return nil
+        }
+    }
+    public var hasAdjacentThoughtPreview: Bool {
+        switch inlineTextState {
+        case .adjacentChoosing, .adjacentEditing: return true
+        case .newText, .shapeCaption, .none: return false
+        }
+    }
+    public var isChoosingAdjacentThoughtDirection: Bool {
+        if case .adjacentChoosing = inlineTextState { return true }
+        return false
+    }
+    public var hasAdjacentThoughtDraft: Bool {
+        if case .adjacentEditing = inlineTextState { return true }
+        return false
+    }
+    public var adjacentThoughtDraftGeometry: CanvasGeometry? {
+        if case .adjacentEditing(_, _, let geo, _, _) = inlineTextState { return geo }
+        return nil
+    }
+    public var adjacentThoughtDraftText: String? {
+        if case .adjacentEditing(_, _, _, let text, _) = inlineTextState { return text }
+        return nil
+    }
+    public var adjacentThoughtError: String? {
+        if case .adjacentEditing(_, _, _, _, let error) = inlineTextState { return error }
+        return nil
+    }
+    public var adjacentThoughtTextView: NSTextView? {
+        hasAdjacentThoughtDraft ? thoughtInputView : nil
+    }
+    public var visibleWorldRect: CGRect {
+        let rect = visibleRect.width > 0 ? visibleRect : bounds
+        return CGRect(
+            x: rect.minX / zoomScale + origin.x,
+            y: rect.minY / zoomScale + origin.y,
+            width: rect.width / zoomScale,
+            height: rect.height / zoomScale
+        )
+    }
+    public var canInsertAdjacentThought: Bool {
+        !hasGeometryPreview && inlineTextState == nil && drag == nil && adjacentThoughtSourceID != nil
+    }
+    private var adjacentThoughtSourceID: String? {
+        guard selectedEdgeID == nil, focusedConnectionID == nil else { return nil }
+        if spaceSelectionMode, let focusedID = focusedNodeID {
+            return session.canInsertAdjacentThought(from: focusedID) ? focusedID : nil
+        }
+        guard selectedNodeIDs.count <= 1,
+              let id = selectedID ?? focusedNodeID else { return nil }
+        return session.canInsertAdjacentThought(from: id) ? id : nil
+    }
     public var canEditGeometry: Bool {
-        selectedID.map { session.canTransform($0) || session.canEditLineEndpoints($0) } ?? false
+        guard selectedNodeIDs.count <= 1, inlineTextState == nil else { return false }
+        return selectedID.map { session.canTransform($0) || session.canEditLineEndpoints($0) } ?? false
     }
     public var canInsertConnection: Bool {
         nodes.contains { $0.type != "shape-line" }
     }
+    public var canEditTextSelection: Bool {
+        !hasGeometryPreview && inlineTextState == nil && drag == nil &&
+            selectedNodeIDs.count <= 1 && (selectedID.map { session.canEditText($0) } ?? false)
+    }
+    public var canPreviewAttachment: Bool {
+        !hasGeometryPreview && inlineTextState == nil && drag == nil &&
+            selectedNodeIDs.count <= 1 && (selectedID.map { session.attachment(of: $0) != nil } ?? false)
+    }
+    public var canEditConnectionSelection: Bool {
+        !hasGeometryPreview && inlineTextState == nil && drag == nil && canInsertConnection &&
+            (selectedEdgeID.map { session.hasConnection($0) } ?? false)
+    }
     public var canDeleteSelection: Bool {
-        guard !hasGeometryPreview, drag == nil else { return false }
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
+        if !selectedNodeIDs.isEmpty {
+            return selectedNodeIDs.contains { session.canDeleteNode($0) }
+        }
         if let id = selectedID { return session.canDeleteNode(id) }
         if let edgeID = selectedEdgeID { return session.hasConnection(edgeID) }
         return false
     }
     public var canDuplicateSelection: Bool {
-        guard !hasGeometryPreview, drag == nil, let id = selectedID else { return false }
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
+        if !selectedNodeIDs.isEmpty {
+            return selectedNodeIDs.contains { session.canDuplicateNode($0) }
+        }
+        guard let id = selectedID else { return false }
         return session.canDuplicateNode(id)
     }
     public var canBringToFront: Bool {
-        guard !hasGeometryPreview, drag == nil, let id = selectedID else { return false }
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
+        if selectedNodeIDs.count > 1 {
+            let unlocked = nodes.map(\.id).filter { selectedNodeIDs.contains($0) && !session.isLocked($0) }
+            guard !unlocked.isEmpty else { return false }
+            let tail = Array(nodes.map(\.id).suffix(unlocked.count))
+            return tail != unlocked
+        }
+        guard let id = selectedID else { return false }
         return session.canBringToFront(id)
     }
     public var canSendToBack: Bool {
-        guard !hasGeometryPreview, drag == nil, let id = selectedID else { return false }
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
+        if selectedNodeIDs.count > 1 {
+            let unlocked = nodes.map(\.id).filter { selectedNodeIDs.contains($0) && !session.isLocked($0) }
+            guard !unlocked.isEmpty else { return false }
+            let head = Array(nodes.map(\.id).prefix(unlocked.count))
+            return head != unlocked
+        }
+        guard let id = selectedID else { return false }
         return session.canSendToBack(id)
     }
     public var canToggleLock: Bool {
-        !hasGeometryPreview && drag == nil && selectedID != nil
+        !hasGeometryPreview && inlineTextState == nil && drag == nil && selectedID != nil
     }
     public var isSelectedNodeLocked: Bool {
         selectedID.map { session.isLocked($0) } ?? false
@@ -145,6 +323,35 @@ public final class CanvasView: NSView {
         let size = CGSize(width: max(800, bounds.width), height: max(600, bounds.height))
         super.init(frame: CGRect(origin: .zero, size: size))
         history.groupsByEvent = false
+        thoughtScrollView.hasVerticalScroller = true
+        thoughtScrollView.autohidesScrollers = true
+        thoughtScrollView.borderType = .noBorder
+        thoughtScrollView.drawsBackground = false
+        thoughtScrollView.isHidden = true
+        thoughtInputView.isRichText = false
+        thoughtInputView.allowsUndo = true
+        thoughtInputView.drawsBackground = false
+        thoughtInputView.isAutomaticQuoteSubstitutionEnabled = false
+        thoughtInputView.isAutomaticDashSubstitutionEnabled = false
+        thoughtInputView.isAutomaticTextReplacementEnabled = false
+        thoughtInputView.font = font(role, "m")
+        thoughtInputView.alignment = .center
+        thoughtInputView.textColor = CanvasTheme.primaryText
+        thoughtInputView.insertionPointColor = CanvasTheme.primaryText
+        thoughtInputView.minSize = .zero
+        thoughtInputView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        thoughtInputView.textContainerInset = NSSize(width: 8, height: 8)
+        thoughtInputView.isVerticallyResizable = false
+        thoughtInputView.isHorizontallyResizable = false
+        thoughtInputView.autoresizingMask = [.width]
+        thoughtInputView.textContainer?.widthTracksTextView = true
+        thoughtInputView.textContainer?.lineFragmentPadding = 0
+        thoughtInputView.setAccessibilityLabel("Canvas text editor")
+        thoughtInputView.onCommit = { [weak self] in self?.commitInlineText() }
+        thoughtInputView.onCancel = { [weak self] in self?.cancelInlineText() }
+        thoughtInputView.onChange = { [weak self] updated in self?.updateInlineText(updated) }
+        thoughtScrollView.documentView = thoughtInputView
+        addSubview(thoughtScrollView)
         styleInspector.isHidden = true
         styleInspector.onSelectStyle = { [weak self] property, value in
             try self?.applyStyle(property, to: value)
@@ -164,33 +371,74 @@ public final class CanvasView: NSView {
         dirtyRect.fill()
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
+        context.scaleBy(x: zoomScale, y: zoomScale)
         context.translateBy(x: -origin.x, y: -origin.y)
-        drawPaper(dirtyRect.offsetBy(dx: origin.x, dy: origin.y))
+        let worldDirty = CGRect(
+            x: dirtyRect.minX / zoomScale + origin.x,
+            y: dirtyRect.minY / zoomScale + origin.y,
+            width: dirtyRect.width / zoomScale,
+            height: dirtyRect.height / zoomScale
+        )
+        drawPaper(worldDirty)
         for edge in edges { drawEdge(edge) }
         for node in nodes { drawNode(node) }
-        if let selectedID, let node = nodes.first(where: { $0.id == selectedID }) {
+        if selectedNodeIDs.count > 1 {
+            for node in nodes where selectedNodeIDs.contains(node.id) {
+                drawMultiSelectionOutline(node, isFocused: node.id == focusedNodeID)
+            }
+        } else if let selectedID, let node = nodes.first(where: { $0.id == selectedID }) {
             drawSelection(node)
+        }
+        if spaceSelectionMode, let focusedID = focusedNodeID, !selectedNodeIDs.contains(focusedID),
+           let node = nodes.first(where: { $0.id == focusedID }) {
+            drawFocusedNodeOutline(node)
+        }
+        if let marquee = marqueeGesture, marquee.worldRect.width > 0 || marquee.worldRect.height > 0 {
+            let rect = marquee.worldRect
+            CanvasTheme.selectionCobalt.withAlphaComponent(0.12).setFill()
+            rect.fill()
+            let border = NSBezierPath(rect: rect)
+            CanvasTheme.selectionCobalt.setStroke()
+            border.lineWidth = 1 / zoomScale
+            border.stroke()
+        }
+        if let inlineTextState {
+            drawInlineTextPreview(inlineTextState)
         }
         context.restoreGState()
         if let geometryGesture { drawGeometryHelp(geometryGesture.handle) }
         if let lineEndpointGesture { drawLineEndpointHelp(lineEndpointGesture.endpoint) }
+        if let inlineTextState { drawInlineTextHelp(inlineTextState) }
+        positionInlineTextEditor()
         positionStyleInspector()
     }
 
     public override func mouseDown(with event: NSEvent) {
+        if inlineTextState != nil {
+            guard finishInlineTextBeforeCanvasAction() else { return }
+        }
         window?.makeFirstResponder(self)
+        if isSpacePressed {
+            let clipOrigin = enclosingScrollView?.contentView.bounds.origin ?? .zero
+            let viewPt = convert(event.locationInWindow, from: nil)
+            let viewportPt = CGPoint(x: viewPt.x - clipOrigin.x, y: viewPt.y - clipOrigin.y)
+            spacePanStart = (viewportPoint: viewportPt, worldOrigin: visibleWorldRect.origin)
+            spacePanDragged = false
+            return
+        }
         let point = worldPoint(for: event)
-        if let id = selectedID, session.canTransform(id),
+        if selectedNodeIDs.count <= 1, let id = selectedID, session.canTransform(id),
            let node = nodes.first(where: { $0.id == id }),
            let handle = geometryHandle(at: point, node: node) {
             var gesture = geometryGesture ?? GeometryGesture(id: id, geometry: node.geometry)
             gesture.startPointer(at: CanvasPosition(x: point.x, y: point.y), handle: handle)
             geometryGesture = gesture
             drag = nil
+            marqueeGesture = nil
             needsDisplay = true
             return
         }
-        if let id = selectedID, session.canEditLineEndpoints(id),
+        if selectedNodeIDs.count <= 1, let id = selectedID, session.canEditLineEndpoints(id),
            let node = nodes.first(where: { $0.id == id }),
            let lineGeometry = node.lineGeometry,
            let endpoint = lineEndpointHandle(at: point, lineGeometry: lineGeometry) {
@@ -198,34 +446,81 @@ public final class CanvasView: NSView {
             gesture.startPointer(at: CanvasPosition(x: point.x, y: point.y), endpoint: endpoint)
             lineEndpointGesture = gesture
             drag = nil
+            marqueeGesture = nil
             needsDisplay = true
             return
         }
         cancelGeometry()
+        let shift = event.modifierFlags.contains(.shift)
         if let hitNode = nodes.reversed().first(where: { contains(point, node: $0) }) {
-            selectedID = hitNode.id
-            selectedEdgeID = nil
+            if shift {
+                spaceSelectionMode = true
+                if selectedNodeIDs.contains(hitNode.id) {
+                    selectedNodeIDs.remove(hitNode.id)
+                } else {
+                    selectedNodeIDs.insert(hitNode.id)
+                }
+                selectedID = nodes.first(where: { selectedNodeIDs.contains($0.id) })?.id
+                focusedNodeID = hitNode.id
+                selectedEdgeID = nil
+                focusedConnectionID = nil
+            } else if !selectedNodeIDs.contains(hitNode.id) || selectedNodeIDs.count <= 1 {
+                selectSingleNode(hitNode.id)
+            } else {
+                focusedNodeID = hitNode.id
+            }
+            marqueeGesture = nil
         } else if let hitEdge = edges.reversed().first(where: { contains(point, edge: $0) }) {
-            selectedID = nil
-            selectedEdgeID = hitEdge.id
+            selectSingleConnection(hitEdge.id)
+            marqueeGesture = nil
         } else {
-            selectedID = nil
-            selectedEdgeID = nil
+            if !shift {
+                clearSelection()
+            }
+            marqueeGesture = MarqueeGesture(
+                start: point,
+                current: point,
+                baseSelection: shift ? selectedNodeIDs : []
+            )
         }
         drag = nil
         refreshStyleInspector()
         if event.clickCount == 2 {
-            beginTextEditing()
+            marqueeGesture = nil
+            activatePrimaryEditor()
             needsDisplay = true
             return
         }
-        if let id = selectedID, !session.isLocked(id), let position = session.position(of: id) {
-            drag = (id: id, mouse: point, position: position)
+        if marqueeGesture == nil {
+            let activeIDs = selectedNodeIDs.isEmpty ? (selectedID.map { [$0] } ?? []) : nodes.map(\.id).filter { selectedNodeIDs.contains($0) }
+            let unlockedIDs = activeIDs.filter { !session.isLocked($0) }
+            var initialPositions: [String: CanvasPosition] = [:]
+            for id in unlockedIDs {
+                if let pos = session.position(of: id) {
+                    initialPositions[id] = pos
+                }
+            }
+            if !initialPositions.isEmpty {
+                drag = (ids: unlockedIDs, mouse: point, positions: initialPositions)
+            }
         }
         needsDisplay = true
     }
 
     public override func mouseDragged(with event: NSEvent) {
+        if let panStart = spacePanStart {
+            spacePanDragged = true
+            let clipOrigin = enclosingScrollView?.contentView.bounds.origin ?? .zero
+            let viewPt = convert(event.locationInWindow, from: nil)
+            let viewportPt = CGPoint(x: viewPt.x - clipOrigin.x, y: viewPt.y - clipOrigin.y)
+            let worldDX = (viewportPt.x - panStart.viewportPoint.x) / zoomScale
+            let worldDY = (viewportPt.y - panStart.viewportPoint.y) / zoomScale
+            setVisibleWorldOrigin(CGPoint(
+                x: panStart.worldOrigin.x - worldDX,
+                y: panStart.worldOrigin.y - worldDY
+            ))
+            return
+        }
         if var gesture = geometryGesture, gesture.pointerStart != nil {
             let point = worldPoint(for: event)
             do {
@@ -244,16 +539,39 @@ public final class CanvasView: NSView {
             } catch { NSSound.beep() }
             return
         }
+        if var marquee = marqueeGesture {
+            let point = worldPoint(for: event)
+            marquee.current = point
+            marqueeGesture = marquee
+            let rect = marquee.worldRect
+            let hitIDs = nodes.filter { node in
+                let b = node.geometry.rotatedAxisAlignedBounds
+                return CGRect(x: b.x, y: b.y, width: b.width, height: b.height).intersects(rect)
+            }.map(\.id)
+            selectedNodeIDs = marquee.baseSelection.union(hitIDs)
+            selectedID = nodes.first(where: { selectedNodeIDs.contains($0.id) })?.id
+            selectedEdgeID = nil
+            if selectedNodeIDs.count > 1 { spaceSelectionMode = true }
+            refreshStyleInspector()
+            needsDisplay = true
+            return
+        }
         guard let drag else { return }
         let point = worldPoint(for: event)
-        let position = CanvasPosition(
-            x: drag.position.x + Double(point.x - drag.mouse.x),
-            y: drag.position.y + Double(point.y - drag.mouse.y)
-        )
-        try? moveWithoutHistory(drag.id, to: position)
+        let dx = Double(point.x - drag.mouse.x)
+        let dy = Double(point.y - drag.mouse.y)
+        for id in drag.ids {
+            guard let initial = drag.positions[id] else { continue }
+            let position = CanvasPosition(x: initial.x + dx, y: initial.y + dy)
+            try? moveWithoutHistory(id, to: position)
+        }
     }
 
     public override func mouseUp(with event: NSEvent) {
+        if spacePanStart != nil {
+            spacePanStart = nil
+            return
+        }
         if geometryGesture?.pointerStart != nil {
             commitGeometry()
             return
@@ -262,17 +580,49 @@ public final class CanvasView: NSView {
             commitLineEndpoints()
             return
         }
-        guard let drag, let current = session.position(of: drag.id) else {
-            self.drag = nil
+        if marqueeGesture != nil {
+            marqueeGesture = nil
+            refreshStyleInspector()
+            needsDisplay = true
             return
         }
+        guard let drag else { return }
         self.drag = nil
-        if current != drag.position {
-            registerUndoMove(drag.id, to: drag.position)
+        let changed = drag.ids.filter { id in
+            guard let initial = drag.positions[id], let current = session.position(of: id) else { return false }
+            return current != initial
+        }
+        if !changed.isEmpty {
+            let snapshot = drag.positions
+            registerUndoMoves(changed, to: snapshot)
         }
     }
 
+    public override func keyUp(with event: NSEvent) {
+        if event.keyCode == 49 {
+            let shouldToggle = isSpacePressed && !spacePanDragged && spacePanStart == nil &&
+                !hasGeometryPreview && inlineTextState == nil && drag == nil
+            isSpacePressed = false
+            spacePanDragged = false
+            spacePanStart = nil
+            if shouldToggle {
+                toggleFocusedSelection()
+            }
+            return
+        }
+        super.keyUp(with: event)
+    }
+
+    public override func magnify(with event: NSEvent) {
+        let anchor = convert(event.locationInWindow, from: nil)
+        setZoom(zoomScale * (1 + event.magnification), centeredAt: anchor)
+    }
+
     public override func keyDown(with event: NSEvent) {
+        if inlineTextState != nil {
+            inlineTextKeyDown(event)
+            return
+        }
         if geometryGesture != nil {
             geometryKeyDown(event)
             return
@@ -285,6 +635,9 @@ public final class CanvasView: NSView {
         if flags == [.command] {
             let shifted = event.modifierFlags.contains(.shift)
             switch event.charactersIgnoringModifiers?.lowercased() {
+            case "a" where !shifted:
+                selectAll(nil)
+                return
             case "d" where !shifted:
                 duplicateSelection(nil)
                 return
@@ -293,6 +646,15 @@ public final class CanvasView: NSView {
                 return
             case "z":
                 if shifted { redoMove(nil) } else { undoMove(nil) }
+                return
+            case "+", "=":
+                zoomIn(nil)
+                return
+            case "-", "_":
+                zoomOut(nil)
+                return
+            case "0" where !shifted:
+                resetZoom(nil)
                 return
             case "]" where shifted, "}" where shifted:
                 bringToFront(nil)
@@ -309,9 +671,28 @@ public final class CanvasView: NSView {
                     sendToBack(nil)
                     return
                 }
+                if event.keyCode == 24 {
+                    zoomIn(nil)
+                    return
+                }
+                if event.keyCode == 27 {
+                    zoomOut(nil)
+                    return
+                }
+                if !shifted && event.keyCode == 29 {
+                    resetZoom(nil)
+                    return
+                }
             }
         }
         if flags.isEmpty {
+            if event.keyCode == 49 {
+                if !event.isARepeat {
+                    isSpacePressed = true
+                    spacePanDragged = false
+                }
+                return
+            }
             if event.keyCode == 51 || event.keyCode == 117 {
                 deleteSelection(nil)
                 return
@@ -322,20 +703,51 @@ public final class CanvasView: NSView {
             }
             if event.keyCode == 53 {
                 if let drag {
-                    try? moveWithoutHistory(drag.id, to: drag.position)
+                    for id in drag.ids {
+                        if let initial = drag.positions[id] {
+                            try? moveWithoutHistory(id, to: initial)
+                        }
+                    }
                     self.drag = nil
+                    return
+                }
+                if marqueeGesture != nil {
+                    marqueeGesture = nil
+                    needsDisplay = true
                     return
                 }
                 if isStyleInspectorOpen {
                     closeStyleInspector(nil)
                     return
                 }
-                if selectedID != nil || selectedEdgeID != nil {
-                    selectedID = nil
-                    selectedEdgeID = nil
+                if selectedID != nil || !selectedNodeIDs.isEmpty || selectedEdgeID != nil ||
+                   focusedNodeID != nil || focusedConnectionID != nil {
+                    clearSelection()
                     refreshStyleInspector()
                     needsDisplay = true
                 }
+                return
+            }
+            if event.modifierFlags.contains(.shift) {
+                if event.keyCode == 18 || event.charactersIgnoringModifiers == "1" || event.characters == "!" {
+                    zoomToFit(nil)
+                    return
+                }
+                if event.keyCode == 29 || event.charactersIgnoringModifiers == "0" || event.characters == ")" {
+                    resetZoom(nil)
+                    return
+                }
+            }
+            if event.characters == "+" || event.characters == "=" || event.keyCode == 24 {
+                zoomIn(nil)
+                return
+            }
+            if event.characters == "-" || event.characters == "_" || event.keyCode == 27 {
+                zoomOut(nil)
+                return
+            }
+            if event.charactersIgnoringModifiers == "n" || event.charactersIgnoringModifiers == "N" {
+                beginAdjacentThought()
                 return
             }
             if event.charactersIgnoringModifiers == "s" || event.charactersIgnoringModifiers == "S" {
@@ -374,7 +786,7 @@ public final class CanvasView: NSView {
                 return
             }
             if event.keyCode == 36 {
-                beginTextEditing()
+                activatePrimaryEditor()
                 return
             }
         }
@@ -389,39 +801,74 @@ public final class CanvasView: NSView {
             super.keyDown(with: event)
             return
         }
-        guard let id = selectedID, !session.isLocked(id), let current = session.position(of: id) else {
+        let activeIDs = selectedNodeIDs.isEmpty ? (selectedID.map { [$0] } ?? []) : nodes.map(\.id).filter { selectedNodeIDs.contains($0) }
+        let unlockedIDs = activeIDs.filter { !session.isLocked($0) }
+        guard !unlockedIDs.isEmpty else {
             NSSound.beep()
             return
         }
-        let next = CanvasPosition(x: current.x + delta.0, y: current.y + delta.1)
-        do {
-            try moveWithoutHistory(id, to: next)
-            registerUndoMove(id, to: current)
-        } catch {
+        var beforePositions: [String: CanvasPosition] = [:]
+        for id in unlockedIDs {
+            if let current = session.position(of: id) {
+                beforePositions[id] = current
+            }
+        }
+        var movedIDs: [String] = []
+        for id in unlockedIDs {
+            guard let current = beforePositions[id] else { continue }
+            let next = CanvasPosition(x: current.x + delta.0, y: current.y + delta.1)
+            if (try? moveWithoutHistory(id, to: next)) != nil {
+                movedIDs.append(id)
+            }
+        }
+        if !movedIDs.isEmpty {
+            registerUndoMoves(movedIDs, to: beforePositions)
+        } else {
             NSSound.beep()
         }
     }
 
     @objc public func undoMove(_ sender: Any?) {
-        guard window?.attachedSheet == nil, textEditor == nil, connectionEditor == nil, drag == nil else {
+        guard window?.attachedSheet == nil, connectionEditor == nil,
+              attachmentPreview == nil, drag == nil else {
             NSSound.beep()
             return
         }
+        if inlineTextState != nil { cancelInlineText(); return }
         if hasGeometryPreview { cancelGeometry(); return }
         history.undo()
     }
 
     @objc public func redoMove(_ sender: Any?) {
-        guard window?.attachedSheet == nil, textEditor == nil, connectionEditor == nil, drag == nil else {
+        guard window?.attachedSheet == nil, connectionEditor == nil,
+              attachmentPreview == nil, drag == nil else {
             NSSound.beep()
             return
         }
+        if inlineTextState != nil { cancelInlineText(); return }
         if hasGeometryPreview { cancelGeometry(); return }
         history.redo()
     }
 
+    @objc public override func selectAll(_ sender: Any?) {
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil,
+              window?.attachedSheet == nil, connectionEditor == nil else {
+            NSSound.beep()
+            return
+        }
+        guard !nodes.isEmpty else { return }
+        selectedNodeIDs = Set(nodes.map(\.id))
+        selectedID = nodes.first?.id
+        focusedNodeID = selectedID
+        selectedEdgeID = nil
+        focusedConnectionID = nil
+        spaceSelectionMode = selectedNodeIDs.count > 1
+        refreshStyleInspector()
+        needsDisplay = true
+    }
     public func beginGeometryEditing() {
-        guard !hasGeometryPreview, drag == nil, let window, window.attachedSheet == nil,
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil,
+              selectedNodeIDs.count <= 1, let window, window.attachedSheet == nil,
               let id = selectedID else { NSSound.beep(); return }
         if session.canTransform(id), let geometry = session.geometry(of: id) {
             geometryGesture = GeometryGesture(id: id, geometry: geometry)
@@ -567,9 +1014,10 @@ public final class CanvasView: NSView {
         needsDisplay = true
     }
 
-    public func beginConnection() {
-        guard let window, window.attachedSheet == nil, textEditor == nil,
-              connectionEditor == nil, !hasGeometryPreview, drag == nil, canInsertConnection else { NSSound.beep(); return }
+    public func beginConnection(focusLabel: Bool = false) {
+        guard let window, window.attachedSheet == nil,
+              connectionEditor == nil, attachmentPreview == nil,
+              !hasGeometryPreview, inlineTextState == nil, drag == nil, canInsertConnection else { NSSound.beep(); return }
         let connectible = nodes.filter { $0.type != "shape-line" }
         let options = connectible.enumerated().map { index, node in
             var caption = ""
@@ -580,24 +1028,65 @@ public final class CanvasView: NSView {
             let title = caption.isEmpty ? kind.capitalized : "\(caption) [\(kind)]"
             return ConnectionEditor.ObjectOption(id: node.id, title: "\(index + 1). \(title)")
         }
-        connectionEditor = ConnectionEditor(objects: options, selectedID: selectedID, commit: {
-            [weak self] source, sourceSide, target, targetSide in
-            guard let self else { return }
-            let insertion = try self.session.insertConnection(
-                source: source, sourceSide: sourceSide, target: target, targetSide: targetSide
-            )
-            self.selectedID = nil
-            self.selectedEdgeID = insertion.id
-            self.rebuildEdges()
-            self.refreshStyleInspector()
-            self.needsDisplay = true
-            self.registerUndoConnection(insertion, restoring: false, actionName: "Connect")
-        }, completion: { [weak self, weak window] in
-            guard let self else { return }
-            self.connectionEditor = nil
-            window?.makeFirstResponder(self)
-        })
+        let existing = selectedEdgeID.flatMap { session.connectionState(of: $0) }
+        connectionEditor = ConnectionEditor(
+            objects: options,
+            selectedID: selectedID,
+            existingConnection: existing,
+            focusLabel: focusLabel && existing != nil,
+            commit: { [weak self] source, sourceSide, target, targetSide, label in
+                guard let self else { return }
+                if let existing {
+                    guard let update = try self.session.updateConnection(
+                        existing.id,
+                        source: source,
+                        sourceSide: sourceSide,
+                        target: target,
+                        targetSide: targetSide,
+                        label: label
+                    ) else { return }
+                    self.selectedID = nil
+                    self.selectedEdgeID = existing.id
+                    self.rebuildEdges()
+                    self.refreshStyleInspector()
+                    self.needsDisplay = true
+                    self.registerUndoConnectionUpdate(update)
+                } else {
+                    let insertion = try self.session.insertConnection(
+                        source: source, sourceSide: sourceSide,
+                        target: target, targetSide: targetSide,
+                        label: label
+                    )
+                    self.selectedID = nil
+                    self.selectedEdgeID = insertion.id
+                    self.rebuildEdges()
+                    self.refreshStyleInspector()
+                    self.needsDisplay = true
+                    self.registerUndoConnection(insertion, restoring: false, actionName: "Connect")
+                }
+            },
+            completion: { [weak self, weak window] in
+                guard let self else { return }
+                self.connectionEditor = nil
+                window?.makeFirstResponder(self)
+            }
+        )
         connectionEditor?.present(on: window)
+    }
+
+    private func registerUndoConnectionUpdate(_ update: CanvasConnectionUpdate) {
+        recordUndo("Edit Connection") { target in
+            do {
+                let inverse = update.inverse
+                try target.session.applyConnectionUpdate(inverse)
+                target.selectedID = nil
+                target.selectedEdgeID = inverse.id
+                target.rebuildEdges()
+                target.refreshStyleInspector()
+                target.needsDisplay = true
+                target.registerUndoConnectionUpdate(inverse)
+            } catch { NSSound.beep() }
+        }
     }
 
     private func registerUndoConnection(
@@ -623,20 +1112,16 @@ public final class CanvasView: NSView {
 
     /// Inserts at the currently visible center, never at the source file's origin.
     public func insertShape(_ kind: CanvasShapeKind) {
-        guard let window, window.attachedSheet == nil, textEditor == nil,
+        if inlineTextState != nil {
+            guard finishInlineTextBeforeCanvasAction() else { return }
+        }
+        guard let window, window.attachedSheet == nil,
+              connectionEditor == nil, attachmentPreview == nil,
               !hasGeometryPreview, drag == nil else { return }
-        let center = CGPoint(x: visibleRect.midX + origin.x, y: visibleRect.midY + origin.y)
+        let center = CGPoint(x: visibleWorldRect.midX, y: visibleWorldRect.midY)
         let position = CanvasPosition(x: center.x - 80, y: center.y - (kind == .text ? 24 : 48))
         if kind == .text {
-            textEditor = ShapeTextEditor(text: "", commit: { [weak self] text in
-                guard !text.isEmpty else { return }
-                try self?.createShape(kind, at: position, text: text)
-            }, completion: { [weak self, weak window] in
-                guard let self else { return }
-                self.textEditor = nil
-                window?.makeFirstResponder(self)
-            })
-            textEditor?.present(on: window)
+            beginNewTextShape(at: position)
         } else {
             do { try createShape(kind, at: position) }
             catch { NSSound.beep() }
@@ -645,9 +1130,13 @@ public final class CanvasView: NSView {
     }
 
     public func insertLine(_ kind: CanvasLineKind) {
-        guard let window, window.attachedSheet == nil, textEditor == nil,
+        if inlineTextState != nil {
+            guard finishInlineTextBeforeCanvasAction() else { return }
+        }
+        guard let window, window.attachedSheet == nil,
+              connectionEditor == nil, attachmentPreview == nil,
               !hasGeometryPreview, drag == nil else { return }
-        let center = CanvasPosition(x: visibleRect.midX + origin.x, y: visibleRect.midY + origin.y)
+        let center = CanvasPosition(x: visibleWorldRect.midX, y: visibleWorldRect.midY)
         do {
             let insertion = try session.insertLine(kind, centeredAt: center)
             displayInsertion(insertion.id)
@@ -658,8 +1147,10 @@ public final class CanvasView: NSView {
         window.makeFirstResponder(self)
     }
 
-    private func createShape(_ kind: CanvasShapeKind, at position: CanvasPosition, text: String? = nil) throws {
-        let insertion = try session.insertShape(kind, at: position, text: text)
+    private func createShape(
+        _ kind: CanvasShapeKind, at position: CanvasPosition, text: String? = nil, height: Double? = nil
+    ) throws {
+        let insertion = try session.insertShape(kind, at: position, text: text, height: height)
         displayInsertion(insertion.id)
         registerUndoInsertion(insertion, restoring: false, actionName: "Insert Shape")
     }
@@ -672,8 +1163,7 @@ public final class CanvasView: NSView {
                           box: CGRect(x: number(raw["x"]), y: number(raw["y"]),
                                       width: number(raw["width"]), height: number(raw["height"])),
                           data: raw["data"] as? [String: Any] ?? [:]), at: index)
-        selectedID = id
-        selectedEdgeID = nil
+        selectSingleNode(id)
         expandDrawingBounds()
         refreshStyleInspector()
         needsDisplay = true
@@ -690,7 +1180,9 @@ public final class CanvasView: NSView {
                 } else {
                     try target.session.removeInsertion(insertion)
                     target.nodes.removeAll { $0.id == insertion.id }
-                    if target.selectedID == insertion.id { target.selectedID = nil }
+                    target.selectedNodeIDs.remove(insertion.id)
+                    if target.selectedID == insertion.id { target.selectedID = target.selectedNodeIDs.first }
+                    if target.focusedNodeID == insertion.id { target.focusedNodeID = target.selectedID }
                     target.refreshStyleInspector()
                     target.needsDisplay = true
                 }
@@ -700,8 +1192,8 @@ public final class CanvasView: NSView {
     }
 
     @objc public func duplicateSelection(_ sender: Any? = nil) {
-        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
-              textEditor == nil, connectionEditor == nil,
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
+              connectionEditor == nil,
               let id = selectedID, session.canDuplicateNode(id) else {
             NSSound.beep()
             return
@@ -716,8 +1208,8 @@ public final class CanvasView: NSView {
     }
 
     @objc public func deleteSelection(_ sender: Any? = nil) {
-        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
-              textEditor == nil, connectionEditor == nil else {
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
+              connectionEditor == nil else {
             NSSound.beep()
             return
         }
@@ -771,8 +1263,8 @@ public final class CanvasView: NSView {
     }
 
     @objc public func bringToFront(_ sender: Any? = nil) {
-        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
-              textEditor == nil, connectionEditor == nil,
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
+              connectionEditor == nil,
               let id = selectedID else {
             NSSound.beep()
             return
@@ -787,8 +1279,8 @@ public final class CanvasView: NSView {
     }
 
     @objc public func sendToBack(_ sender: Any? = nil) {
-        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
-              textEditor == nil, connectionEditor == nil,
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
+              connectionEditor == nil,
               let id = selectedID else {
             NSSound.beep()
             return
@@ -817,8 +1309,8 @@ public final class CanvasView: NSView {
     }
 
     @objc public func toggleLock(_ sender: Any? = nil) {
-        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
-              textEditor == nil, connectionEditor == nil,
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
+              connectionEditor == nil,
               let id = selectedID else {
             NSSound.beep()
             return
@@ -843,7 +1335,7 @@ public final class CanvasView: NSView {
     }
 
     @objc public func showStyleInspector(_ sender: Any? = nil) {
-        guard window?.attachedSheet == nil, textEditor == nil, connectionEditor == nil else {
+        guard window?.attachedSheet == nil, inlineTextState == nil, connectionEditor == nil else {
             NSSound.beep()
             return
         }
@@ -863,8 +1355,8 @@ public final class CanvasView: NSView {
     }
 
     public func applyStyle(_ property: CanvasStyleProperty, to value: CanvasStyleValue) throws {
-        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
-              textEditor == nil, connectionEditor == nil else {
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
+              connectionEditor == nil, attachmentPreview == nil else {
             throw CanvasDocumentError("Finish the active edit before changing styles.")
         }
         if let id = selectedID {
@@ -878,7 +1370,9 @@ public final class CanvasView: NSView {
             needsDisplay = true
             registerUndoStyleChange(change)
         } else {
-            throw CanvasDocumentError("Select an object or connection to inspect its style.")
+            guard let change = try session.setDocumentStyle(property: property, to: value) else { return }
+            syncFromSession()
+            registerUndoStyleChange(change)
         }
     }
 
@@ -916,7 +1410,71 @@ public final class CanvasView: NSView {
         )
     }
 
+    private func selectSingleNode(_ id: String) {
+        selectedID = id
+        selectedNodeIDs = [id]
+        focusedNodeID = id
+        selectedEdgeID = nil
+        focusedConnectionID = nil
+        spaceSelectionMode = false
+    }
+
+    private func selectSingleConnection(_ id: String) {
+        selectedID = nil
+        selectedNodeIDs.removeAll()
+        focusedNodeID = nil
+        selectedEdgeID = id
+        focusedConnectionID = id
+        spaceSelectionMode = false
+    }
+
+    private func clearSelection() {
+        selectedID = nil
+        selectedNodeIDs.removeAll()
+        selectedEdgeID = nil
+        focusedNodeID = nil
+        focusedConnectionID = nil
+        spaceSelectionMode = false
+    }
+
+    private func toggleFocusedSelection() {
+        if inlineTextState != nil {
+            guard finishInlineTextBeforeCanvasAction() else { return }
+        }
+        spaceSelectionMode = true
+        if let nodeID = focusedNodeID ?? selectedID {
+            focusedNodeID = nodeID
+            focusedConnectionID = nil
+            if selectedNodeIDs.contains(nodeID) {
+                selectedNodeIDs.remove(nodeID)
+            } else {
+                selectedNodeIDs.insert(nodeID)
+                selectedEdgeID = nil
+            }
+            selectedID = nodes.first(where: { selectedNodeIDs.contains($0.id) })?.id
+            refreshStyleInspector()
+            needsDisplay = true
+        } else if let edgeID = focusedConnectionID ?? selectedEdgeID {
+            focusedConnectionID = edgeID
+            focusedNodeID = nil
+            if selectedEdgeID == edgeID {
+                selectedEdgeID = nil
+            } else {
+                selectedEdgeID = edgeID
+                selectedNodeIDs.removeAll()
+                selectedID = nil
+            }
+            refreshStyleInspector()
+            needsDisplay = true
+        } else {
+            NSSound.beep()
+        }
+    }
+
     private func traverseSelection(backwards: Bool) {
+        if inlineTextState != nil {
+            guard finishInlineTextBeforeCanvasAction() else { return }
+        }
         enum Selectable: Equatable {
             case node(String)
             case edge(String)
@@ -926,7 +1484,11 @@ public final class CanvasView: NSView {
             NSSound.beep()
             return
         }
-        let current: Selectable? = selectedID.map(Selectable.node) ?? selectedEdgeID.map(Selectable.edge)
+        let current: Selectable? =
+            focusedNodeID.map(Selectable.node) ??
+            focusedConnectionID.map(Selectable.edge) ??
+            selectedID.map(Selectable.node) ??
+            selectedEdgeID.map(Selectable.edge)
         let nextIndex: Int
         if let current, let index = items.firstIndex(of: current) {
             nextIndex = (index + (backwards ? -1 : 1) + items.count) % items.count
@@ -935,61 +1497,723 @@ public final class CanvasView: NSView {
         }
         switch items[nextIndex] {
         case .node(let id):
-            selectedID = id
-            selectedEdgeID = nil
+            focusedNodeID = id
+            focusedConnectionID = nil
+            if !spaceSelectionMode {
+                selectedID = id
+                selectedNodeIDs = [id]
+                selectedEdgeID = nil
+            }
         case .edge(let id):
-            selectedID = nil
-            selectedEdgeID = id
+            focusedNodeID = nil
+            focusedConnectionID = id
+            if !spaceSelectionMode {
+                selectedID = nil
+                selectedNodeIDs.removeAll()
+                selectedEdgeID = id
+            }
         }
         refreshStyleInspector()
         needsDisplay = true
     }
 
     private func syncFromSession() {
+        paper = session.root["paper"] as? [String: Any] ?? [:]
+        fontRole = (session.root["appearance"] as? [String: Any])?["font"] as? String ?? "sans"
         nodes = (session.root["nodes"] as? [[String: Any]] ?? []).map { raw in
             Node(id: raw["id"] as? String ?? "", type: raw["type"] as? String ?? "shape",
                  box: CGRect(x: number(raw["x"]), y: number(raw["y"]),
                              width: number(raw["width"]), height: number(raw["height"])),
                  data: raw["data"] as? [String: Any] ?? [:])
         }
+        let validIDs = Set(nodes.map(\.id))
+        selectedNodeIDs = selectedNodeIDs.intersection(validIDs)
+        if let id = selectedID, !validIDs.contains(id) {
+            selectedID = nodes.first(where: { selectedNodeIDs.contains($0.id) })?.id
+        } else if let id = selectedID {
+            selectedNodeIDs.insert(id)
+        }
+        if let fid = focusedNodeID, !validIDs.contains(fid) {
+            focusedNodeID = selectedID
+        }
         rebuildEdges()
         refreshStyleInspector()
         needsDisplay = true
     }
 
-    private func beginTextEditing() {
-        guard textEditor == nil, let window, let id = selectedID,
-              session.canEditText(id) else { NSSound.beep(); return }
-        drag = nil
-        textEditor = ShapeTextEditor(text: session.text(of: id) ?? "", commit: { [weak self] text in
-            guard let self else { return }
-            // Finishing an unchanged empty caption must not materialize a default.
-            guard text != (self.session.text(of: id) ?? "") else { return }
-            try self.changeText(id, to: text)
-        }, completion: { [weak self, weak window] in
-            guard let self else { return }
-            self.textEditor = nil
-            window?.makeFirstResponder(self)
-        })
-        textEditor?.present(on: window)
+    public func activatePrimaryEditor() {
+        if let edgeID = selectedEdgeID, session.hasConnection(edgeID) {
+            beginConnection(focusLabel: true)
+        } else if let id = selectedID, session.attachment(of: id) != nil {
+            beginAttachmentPreview()
+        } else if let id = selectedID, session.canEditText(id) {
+            beginTextEditing()
+        } else {
+            NSSound.beep()
+        }
     }
 
-    private func changeText(_ id: String, to text: String?) throws {
-        let before = session.text(of: id)
-        guard try session.setText(id, to: text) else { return }
-        if let index = nodes.firstIndex(where: { $0.id == id }) {
-            nodes[index].data["text"] = text
+    public func beginAttachmentPreview() {
+        guard let window, window.attachedSheet == nil, inlineTextState == nil,
+              connectionEditor == nil, attachmentPreview == nil,
+              !hasGeometryPreview, drag == nil,
+              let id = selectedID, let attachment = session.attachment(of: id) else {
+            NSSound.beep()
+            return
         }
+        attachmentPreview = AttachmentPreviewSheet(
+            attachment: attachment, pasteboard: attachmentPasteboard,
+            completion: { [weak self, weak window] in
+                guard let self else { return }
+                self.attachmentPreview = nil
+                window?.makeFirstResponder(self)
+            }
+        )
+        attachmentPreview?.present(on: window)
+    }
+
+    public func beginTextEditing() {
+        guard inlineTextState == nil, connectionEditor == nil, attachmentPreview == nil,
+              !hasGeometryPreview, let window, window.attachedSheet == nil,
+              let id = selectedID, session.canEditText(id),
+              let beforeGeometry = session.geometry(of: id),
+              let node = nodes.first(where: { $0.id == id }) else { NSSound.beep(); return }
+        drag = nil
+        let beforeText = session.text(of: id)
+        let initialText = beforeText ?? ""
+        let effectiveRole = node.data["font"] as? String ?? fontRole
+        let effectiveSize = node.data["size"] as? String ?? "m"
+        let effectiveAlign = node.data["align"] as? String ?? (node.kind == "text" ? "left" : "center")
+        let effectiveFill = node.data["fill"] as? String ?? (node.kind == "text" ? "none" : "blue")
+        thoughtInputView.font = font(effectiveRole, effectiveSize, scale: zoomScale)
+        thoughtInputView.alignment = alignment(effectiveAlign)
+        thoughtInputView.textColor = textColor(on: effectiveFill)
+        thoughtInputView.insertionPointColor = textColor(on: effectiveFill)
+        inlineTextState = .shapeCaption(
+            id: id,
+            beforeText: beforeText,
+            beforeGeometry: beforeGeometry,
+            previewGeometry: beforeGeometry,
+            text: initialText,
+            error: nil
+        )
+        thoughtInputView.string = initialText
+        thoughtInputView.alignment = alignment(effectiveAlign)
+        thoughtInputView.resetUndo()
+        thoughtScrollView.isHidden = false
+        revealThoughtGeometry(beforeGeometry)
+        positionInlineTextEditor()
+        window.makeFirstResponder(thoughtInputView)
+        positionInlineTextEditor()
+        needsDisplay = true
+    }
+
+    private func beginNewTextShape(at position: CanvasPosition) {
+        guard let window else { return }
+        let geo = CanvasGeometry(x: position.x, y: position.y, width: 160, height: 48, rotation: nil)
+        thoughtInputView.font = font(fontRole, "m", scale: zoomScale)
+        thoughtInputView.alignment = .left
+        thoughtInputView.textColor = CanvasTheme.primaryText
+        thoughtInputView.insertionPointColor = CanvasTheme.primaryText
+        inlineTextState = .newText(position: position, geometry: geo, text: "", error: nil)
+        thoughtInputView.string = ""
+        thoughtInputView.alignment = .left
+        thoughtInputView.resetUndo()
+        thoughtScrollView.isHidden = false
+        revealThoughtGeometry(geo)
+        positionInlineTextEditor()
+        window.makeFirstResponder(thoughtInputView)
+        needsDisplay = true
+    }
+
+    private func changeTextAndGeometry(_ id: String, to text: String?, geometry: CanvasGeometry?) throws {
+        guard let change = try session.setTextAndGeometry(id, to: text, geometry: geometry) else { return }
+        syncFromSession()
+        registerUndoTextChange(change)
+    }
+
+    private func registerUndoTextChange(_ change: CanvasTextChange) {
         recordUndo("Edit Text") { target in
-            do { try target.changeText(id, to: before) }
-            catch { NSSound.beep() }
+            do {
+                let inverse = change.inverse
+                try target.session.applyTextChange(inverse)
+                target.syncFromSession()
+                target.registerUndoTextChange(inverse)
+            } catch { NSSound.beep() }
         }
+    }
+
+    public func beginAdjacentThought() {
+        guard let window, window.attachedSheet == nil, inlineTextState == nil,
+              connectionEditor == nil, attachmentPreview == nil,
+              !hasGeometryPreview, drag == nil,
+              let sourceID = adjacentThoughtSourceID else {
+            NSSound.beep()
+            return
+        }
+        inlineTextState = .adjacentChoosing(sourceID: sourceID)
+        thoughtScrollView.isHidden = true
+        window.makeFirstResponder(self)
+        needsDisplay = true
+    }
+
+    private func inlineTextKeyDown(_ event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .control, .option])
+        if flags == [.command], event.charactersIgnoringModifiers?.lowercased() == "z" {
+            if case .adjacentChoosing = inlineTextState {
+                cancelInlineText()
+                if event.modifierFlags.contains(.shift) { redoMove(nil) } else { undoMove(nil) }
+                return
+            }
+        }
+        switch inlineTextState {
+        case .adjacentChoosing:
+            if event.keyCode == 53 {
+                cancelInlineText()
+                return
+            }
+            guard flags.isEmpty else {
+                NSSound.beep()
+                return
+            }
+            switch event.keyCode {
+            case 126: startAdjacentThoughtDraft(.up)
+            case 124: startAdjacentThoughtDraft(.right)
+            case 125: startAdjacentThoughtDraft(.down)
+            case 123: startAdjacentThoughtDraft(.left)
+            default: NSSound.beep()
+            }
+        case .adjacentEditing, .newText, .shapeCaption:
+            thoughtInputView.keyDown(with: event)
+        case .none:
+            break
+        }
+    }
+
+    private func startAdjacentThoughtDraft(_ direction: CanvasThoughtDirection) {
+        guard case .adjacentChoosing(let sourceID) = inlineTextState else { return }
+        do {
+            let geo = try session.adjacentThoughtGeometry(from: sourceID, direction: direction, height: 96)
+            thoughtInputView.font = font(fontRole, "m", scale: zoomScale)
+            thoughtInputView.alignment = .center
+            thoughtInputView.textColor = CanvasTheme.primaryText
+            thoughtInputView.insertionPointColor = CanvasTheme.primaryText
+            inlineTextState = .adjacentEditing(sourceID: sourceID, direction: direction, geometry: geo, text: "", error: nil)
+            thoughtInputView.string = ""
+            thoughtInputView.alignment = .center
+            thoughtInputView.resetUndo()
+            thoughtScrollView.isHidden = false
+            revealThoughtGeometry(geo)
+            positionInlineTextEditor()
+            window?.makeFirstResponder(thoughtInputView)
+            positionInlineTextEditor()
+            needsDisplay = true
+        } catch {
+            cancelInlineText()
+            NSSound.beep()
+        }
+    }
+
+    private func updateInlineText(_ text: String) {
+        switch inlineTextState {
+        case .adjacentEditing(let sourceID, let direction, _, _, _):
+            guard session.canInsertAdjacentThought(from: sourceID) else {
+                cancelInlineText()
+                return
+            }
+            let prototype = Node(
+                id: "", type: "shape",
+                box: CGRect(x: 0, y: 0, width: 160, height: 96),
+                data: ["kind": "rect", "fill": "none", "stroke": "ink", "radius": 0]
+            )
+            let measured = Double(Self.measuredBoxHeight(for: prototype, text: text, role: fontRole))
+            let requiredHeight = max(96.0, measured)
+            guard let geo = try? session.adjacentThoughtGeometry(from: sourceID, direction: direction, height: requiredHeight) else {
+                cancelInlineText()
+                return
+            }
+            inlineTextState = .adjacentEditing(sourceID: sourceID, direction: direction, geometry: geo, text: text, error: nil)
+            revealThoughtGeometry(geo)
+            positionInlineTextEditor()
+            needsDisplay = true
+        case .newText(let position, _, _, _):
+            let prototype = Node(
+                id: "", type: "shape",
+                box: CGRect(x: position.x, y: position.y, width: 160, height: 48),
+                data: ["kind": "text", "fill": "none", "stroke": "none", "radius": 0]
+            )
+            let measured = Double(Self.measuredBoxHeight(for: prototype, text: text, role: fontRole))
+            let requiredHeight = max(48.0, measured)
+            let geo = CanvasGeometry(x: position.x, y: position.y, width: 160, height: requiredHeight, rotation: nil)
+            inlineTextState = .newText(position: position, geometry: geo, text: text, error: nil)
+            revealThoughtGeometry(geo)
+            positionInlineTextEditor()
+            needsDisplay = true
+        case .shapeCaption(let id, let beforeText, let beforeGeometry, _, _, _):
+            guard let index = nodes.firstIndex(where: { $0.id == id }) else {
+                cancelInlineText()
+                return
+            }
+            let measured = Double(Self.measuredBoxHeight(for: nodes[index], text: text, role: fontRole))
+            let requiredHeight = max(beforeGeometry.height, measured)
+            let previewGeo = beforeGeometry.resized(
+                handle: .bottom,
+                localDelta: CanvasPosition(x: 0, y: requiredHeight - beforeGeometry.height)
+            )
+            nodes[index].box = CGRect(
+                x: previewGeo.x, y: previewGeo.y, width: previewGeo.width, height: previewGeo.height
+            )
+            nodes[index].data["text"] = text
+            inlineTextState = .shapeCaption(
+                id: id,
+                beforeText: beforeText,
+                beforeGeometry: beforeGeometry,
+                previewGeometry: previewGeo,
+                text: text,
+                error: nil
+            )
+            rebuildEdges()
+            positionInlineTextEditor()
+            needsDisplay = true
+        case .adjacentChoosing, .none:
+            break
+        }
+    }
+
+    private func commitInlineText() {
+        guard !thoughtInputView.hasMarkedText() else { return }
+        let text = thoughtInputView.string
+        switch inlineTextState {
+        case .adjacentEditing(let sourceID, let direction, let geo, _, _):
+            guard session.canInsertAdjacentThought(from: sourceID) else {
+                cancelInlineText()
+                return
+            }
+            if text.count > 2_000 {
+                inlineTextState = .adjacentEditing(
+                    sourceID: sourceID,
+                    direction: direction,
+                    geometry: geo,
+                    text: text,
+                    error: "Text must contain at most 2000 characters."
+                )
+                window?.makeFirstResponder(thoughtInputView)
+                needsDisplay = true
+                NSSound.beep()
+                return
+            }
+            let prototype = Node(
+                id: "", type: "shape",
+                box: CGRect(x: 0, y: 0, width: 160, height: 96),
+                data: ["kind": "rect", "fill": "none", "stroke": "ink", "radius": 0]
+            )
+            let measured = Double(Self.measuredBoxHeight(for: prototype, text: text, role: fontRole))
+            let requiredHeight = max(96.0, measured)
+            do {
+                let insertion = try session.insertAdjacentThought(
+                    from: sourceID,
+                    direction: direction,
+                    text: text,
+                    height: requiredHeight
+                )
+                inlineTextState = nil
+                thoughtScrollView.isHidden = true
+                displayInsertion(insertion.id)
+                window?.makeFirstResponder(self)
+                registerUndoAdjacentThought(insertion, sourceID: sourceID, restoring: false)
+            } catch {
+                inlineTextState = .adjacentEditing(
+                    sourceID: sourceID,
+                    direction: direction,
+                    geometry: geo,
+                    text: text,
+                    error: error.localizedDescription
+                )
+                window?.makeFirstResponder(thoughtInputView)
+                needsDisplay = true
+                NSSound.beep()
+            }
+        case .newText(let position, let geo, _, _):
+            guard !text.isEmpty else {
+                cancelInlineText()
+                return
+            }
+            if text.count > 2_000 {
+                inlineTextState = .newText(
+                    position: position,
+                    geometry: geo,
+                    text: text,
+                    error: "Text must contain at most 2000 characters."
+                )
+                window?.makeFirstResponder(thoughtInputView)
+                needsDisplay = true
+                NSSound.beep()
+                return
+            }
+            let prototype = Node(
+                id: "", type: "shape",
+                box: CGRect(x: position.x, y: position.y, width: 160, height: 48),
+                data: ["kind": "text", "fill": "none", "stroke": "none", "radius": 0]
+            )
+            let measured = Double(Self.measuredBoxHeight(for: prototype, text: text, role: fontRole))
+            do {
+                inlineTextState = nil
+                thoughtScrollView.isHidden = true
+                try createShape(.text, at: position, text: text, height: max(48, measured))
+                window?.makeFirstResponder(self)
+            } catch {
+                inlineTextState = .newText(
+                    position: position,
+                    geometry: geo,
+                    text: text,
+                    error: error.localizedDescription
+                )
+                thoughtScrollView.isHidden = false
+                window?.makeFirstResponder(thoughtInputView)
+                needsDisplay = true
+                NSSound.beep()
+            }
+        case .shapeCaption(let id, let beforeText, let beforeGeometry, let previewGeo, _, _):
+            if text.count > 2_000 {
+                inlineTextState = .shapeCaption(
+                    id: id,
+                    beforeText: beforeText,
+                    beforeGeometry: beforeGeometry,
+                    previewGeometry: previewGeo,
+                    text: text,
+                    error: "Text must contain at most 2000 characters."
+                )
+                window?.makeFirstResponder(thoughtInputView)
+                needsDisplay = true
+                NSSound.beep()
+                return
+            }
+            // Finishing an unchanged empty caption must not materialize a default.
+            guard text != (beforeText ?? "") else {
+                inlineTextState = nil
+                thoughtScrollView.isHidden = true
+                syncFromSession()
+                window?.makeFirstResponder(self)
+                return
+            }
+            guard let index = nodes.firstIndex(where: { $0.id == id }) else {
+                cancelInlineText()
+                return
+            }
+            let measured = Double(Self.measuredBoxHeight(for: nodes[index], text: text, role: fontRole))
+            let requiredHeight = max(beforeGeometry.height, measured)
+            let targetGeo = beforeGeometry.resized(
+                handle: .bottom,
+                localDelta: CanvasPosition(x: 0, y: requiredHeight - beforeGeometry.height)
+            )
+            do {
+                inlineTextState = nil
+                thoughtScrollView.isHidden = true
+                try changeTextAndGeometry(
+                    id, to: text, geometry: targetGeo == beforeGeometry ? nil : targetGeo
+                )
+                window?.makeFirstResponder(self)
+            } catch {
+                inlineTextState = .shapeCaption(
+                    id: id,
+                    beforeText: beforeText,
+                    beforeGeometry: beforeGeometry,
+                    previewGeometry: previewGeo,
+                    text: text,
+                    error: error.localizedDescription
+                )
+                thoughtScrollView.isHidden = false
+                window?.makeFirstResponder(thoughtInputView)
+                needsDisplay = true
+                NSSound.beep()
+            }
+        case .adjacentChoosing, .none:
+            break
+        }
+    }
+
+    @discardableResult
+    private func finishInlineTextBeforeCanvasAction() -> Bool {
+        guard let state = inlineTextState else { return true }
+        if case .adjacentChoosing = state {
+            cancelInlineText()
+            return true
+        }
+        commitInlineText()
+        return inlineTextState == nil
+    }
+
+    public func cancelAdjacentThought() {
+        cancelInlineText()
+    }
+
+    public func cancelInlineText() {
+        guard let state = inlineTextState else { return }
+        inlineTextState = nil
+        thoughtScrollView.isHidden = true
+        if case .shapeCaption = state {
+            syncFromSession()
+        }
+        window?.makeFirstResponder(self)
+        needsDisplay = true
+    }
+
+    private func registerUndoAdjacentThought(
+        _ insertion: CanvasShapeInsertion, sourceID: String, restoring: Bool
+    ) {
+        recordUndo("Insert Adjacent Thought") { target in
+            do {
+                if restoring {
+                    try target.session.restoreInsertion(insertion)
+                    target.displayInsertion(insertion.id)
+                } else {
+                    try target.session.removeInsertion(insertion)
+                    target.nodes.removeAll { $0.id == insertion.id }
+                    if target.nodes.contains(where: { $0.id == sourceID }) {
+                        target.selectSingleNode(sourceID)
+                    } else {
+                        target.clearSelection()
+                    }
+                    target.refreshStyleInspector()
+                    target.needsDisplay = true
+                }
+                target.window?.makeFirstResponder(target)
+                target.registerUndoAdjacentThought(insertion, sourceID: sourceID, restoring: !restoring)
+            } catch { NSSound.beep() }
+        }
+    }
+
+    private func positionInlineTextEditor() {
+        let geo: CanvasGeometry
+        let scaledFont: NSFont
+        switch inlineTextState {
+        case .adjacentEditing(_, _, let g, _, _):
+            geo = g
+            scaledFont = font(fontRole, "m", scale: zoomScale)
+        case .newText(_, let g, _, _):
+            geo = g
+            scaledFont = font(fontRole, "m", scale: zoomScale)
+        case .shapeCaption(let id, _, _, let g, _, _):
+            geo = g
+            if let node = nodes.first(where: { $0.id == id }) {
+                let effectiveRole = node.data["font"] as? String ?? fontRole
+                let effectiveSize = node.data["size"] as? String ?? "m"
+                scaledFont = font(effectiveRole, effectiveSize, scale: zoomScale)
+            } else {
+                scaledFont = font(fontRole, "m", scale: zoomScale)
+            }
+        case .adjacentChoosing, .none:
+            thoughtScrollView.frameRotation = 0
+            thoughtScrollView.isHidden = true
+            return
+        }
+        thoughtInputView.font = scaledFont
+        thoughtInputView.typingAttributes[.font] = scaledFont
+        let viewRect = CGRect(
+            x: (geo.x - origin.x) * zoomScale,
+            y: (geo.y - origin.y) * zoomScale,
+            width: geo.width * zoomScale,
+            height: geo.height * zoomScale
+        )
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        let borderPad = 2 * zoomScale
+        let horizontalInset = max(2, 8 * zoomScale)
+        let minVisualHeight = max(20, 44 * zoomScale)
+        let maxEditorHeight = max(72 * zoomScale, area.height - 96)
+        let unclampedHeight = max(minVisualHeight, viewRect.height - borderPad * 2)
+        let needsScroll = unclampedHeight > maxEditorHeight + 1
+        thoughtScrollView.hasVerticalScroller = needsScroll
+        let frameWidth = max(24, viewRect.width - borderPad * 2)
+        let frameHeight = min(unclampedHeight, maxEditorHeight)
+        thoughtInputView.minSize = .zero
+        thoughtInputView.isVerticallyResizable = needsScroll
+        thoughtScrollView.frameRotation = 0
+        thoughtScrollView.setFrameSize(CGSize(width: frameWidth, height: frameHeight))
+        thoughtInputView.setFrameSize(CGSize(width: frameWidth, height: frameHeight))
+        let usedHeight: CGFloat
+        if let layoutManager = thoughtInputView.layoutManager,
+           let textContainer = thoughtInputView.textContainer {
+            textContainer.containerSize = CGSize(
+                width: max(1, frameWidth - horizontalInset * 2),
+                height: .greatestFiniteMagnitude
+            )
+            layoutManager.ensureLayout(for: textContainer)
+            usedHeight = max(scaledFont.pointSize, ceil(layoutManager.usedRect(for: textContainer).height))
+        } else {
+            usedHeight = ceil(scaledFont.pointSize * 1.4)
+        }
+        let minVerticalInset = max(2, 8 * zoomScale)
+        let verticalInset = needsScroll
+            ? minVerticalInset
+            : max(0, floor((frameHeight - usedHeight - 4) / 2))
+        thoughtInputView.textContainerInset = NSSize(width: horizontalInset, height: verticalInset)
+        let viewCenter = CGPoint(x: viewRect.midX, y: viewRect.midY)
+        let rotationDegrees = CGFloat(geo.rotation ?? 0)
+        if abs(rotationDegrees) > 0.0001 {
+            let angle = rotationDegrees * .pi / 180
+            let dx = -frameWidth / 2
+            let dy = -frameHeight / 2
+            let rotatedOrigin = CGPoint(
+                x: viewCenter.x + dx * cos(angle) - dy * sin(angle),
+                y: viewCenter.y + dx * sin(angle) + dy * cos(angle)
+            )
+            thoughtScrollView.frameRotation = rotationDegrees
+            thoughtScrollView.setFrameOrigin(rotatedOrigin)
+        } else {
+            thoughtScrollView.setFrameOrigin(CGPoint(
+                x: viewCenter.x - frameWidth / 2,
+                y: viewCenter.y - frameHeight / 2
+            ))
+        }
+        thoughtInputView.setFrameOrigin(.zero)
+        thoughtInputView.setFrameSize(CGSize(width: frameWidth, height: frameHeight))
+        if needsScroll {
+            thoughtInputView.sizeToFit()
+        } else {
+            thoughtScrollView.contentView.setBoundsOrigin(.zero)
+            thoughtScrollView.reflectScrolledClipView(thoughtScrollView.contentView)
+        }
+    }
+    private func revealThoughtGeometry(_ geo: CanvasGeometry) {
+        expandDrawingBounds()
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        let availableWidth = max(64, area.width - 48)
+        let availableHeight = max(64, area.height - 96)
+        let minEditHeight: CGFloat = 96
+        let neededScale = min(availableWidth / CGFloat(geo.width), availableHeight / minEditHeight)
+        if neededScale < zoomScale {
+            setZoom(max(0.1, neededScale))
+        }
+        let worldViewport = visibleWorldRect
+        let targetWorld = CGRect(
+            x: geo.x - 24,
+            y: geo.y - 24,
+            width: geo.width + 48,
+            height: min(geo.height, 96) + 72
+        )
+        var newWorldOrigin = worldViewport.origin
+        if targetWorld.minX < worldViewport.minX {
+            newWorldOrigin.x = targetWorld.minX
+        } else if targetWorld.maxX > worldViewport.maxX {
+            newWorldOrigin.x = targetWorld.maxX - worldViewport.width
+        }
+        if targetWorld.minY < worldViewport.minY {
+            newWorldOrigin.y = targetWorld.minY
+        } else if targetWorld.maxY > worldViewport.maxY {
+            newWorldOrigin.y = targetWorld.maxY - worldViewport.height
+        }
+        if newWorldOrigin != worldViewport.origin {
+            setVisibleWorldOrigin(newWorldOrigin)
+        }
+    }
+
+    @objc public func zoomIn(_ sender: Any? = nil) {
+        setZoom(zoomScale * 1.25)
+    }
+
+    @objc public func zoomOut(_ sender: Any? = nil) {
+        setZoom(zoomScale / 1.25)
+    }
+
+    @objc public func resetZoom(_ sender: Any? = nil) {
+        setZoom(1.0)
+    }
+
+    @objc public func zoomToFit(_ sender: Any? = nil) {
+        var content = CGRect.null
+        for node in nodes {
+            let b = node.geometry.rotatedAxisAlignedBounds
+            content = content.union(CGRect(x: b.x, y: b.y, width: b.width, height: b.height))
+        }
+        for edge in edges {
+            content = content.union(edge.path.bounds)
+            if let labelRect = edge.labelRect {
+                content = content.union(labelRect)
+            }
+        }
+        guard !content.isNull, content.width > 0, content.height > 0 else {
+            resetZoom(sender)
+            return
+        }
+        let padded = content.insetBy(dx: -48, dy: -48)
+        let viewport = enclosingScrollView?.contentView.bounds.size
+            ?? (visibleRect.width > 0 ? visibleRect.size : bounds.size)
+        let scaleX = max(1, viewport.width) / padded.width
+        let scaleY = max(1, viewport.height) / padded.height
+        let targetScale = max(0.1, min(4.0, min(scaleX, scaleY)))
+        zoomScale = targetScale
+        let worldViewportWidth = viewport.width / zoomScale
+        let worldViewportHeight = viewport.height / zoomScale
+        setVisibleWorldOrigin(CGPoint(
+            x: padded.midX - worldViewportWidth / 2,
+            y: padded.midY - worldViewportHeight / 2
+        ))
+    }
+
+    public func setZoom(_ newScale: CGFloat, centeredAt viewAnchor: CGPoint? = nil) {
+        let clamped = max(0.1, min(4.0, newScale))
+        guard abs(clamped - zoomScale) > 0.0001 else { return }
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        let anchor = viewAnchor ?? CGPoint(x: area.midX, y: area.midY)
+        let anchorOffset = CGPoint(x: anchor.x - area.minX, y: anchor.y - area.minY)
+        let anchorWorld = CGPoint(x: anchor.x / zoomScale + origin.x, y: anchor.y / zoomScale + origin.y)
+        zoomScale = clamped
+        let targetWorldOrigin = CGPoint(
+            x: anchorWorld.x - anchorOffset.x / zoomScale,
+            y: anchorWorld.y - anchorOffset.y / zoomScale
+        )
+        setVisibleWorldOrigin(targetWorldOrigin)
+    }
+
+    public func setVisibleWorldOrigin(_ targetWorldOrigin: CGPoint) {
+        let viewportSize = enclosingScrollView?.contentView.bounds.size
+            ?? (visibleRect.width > 0 ? visibleRect.size : bounds.size)
+        let targetWorldRect = CGRect(
+            x: targetWorldOrigin.x,
+            y: targetWorldOrigin.y,
+            width: viewportSize.width / zoomScale,
+            height: viewportSize.height / zoomScale
+        )
+        var requiredWorld = CGRect(
+            x: origin.x,
+            y: origin.y,
+            width: frame.width / zoomScale,
+            height: frame.height / zoomScale
+        ).union(targetWorldRect)
+        for node in nodes {
+            let radius = hypot(node.box.width, node.box.height) / 2 + 40
+            requiredWorld = requiredWorld.union(CGRect(
+                x: node.center.x - radius, y: node.center.y - radius,
+                width: radius * 2, height: radius * 2
+            ))
+        }
+        if let clip = enclosingScrollView?.contentView {
+            origin = requiredWorld.origin
+            setFrameSize(CGSize(
+                width: max(viewportSize.width, ceil(requiredWorld.width * zoomScale)),
+                height: max(viewportSize.height, ceil(requiredWorld.height * zoomScale))
+            ))
+            let scrollPoint = CGPoint(
+                x: (targetWorldOrigin.x - origin.x) * zoomScale,
+                y: (targetWorldOrigin.y - origin.y) * zoomScale
+            )
+            clip.scroll(to: scrollPoint)
+            enclosingScrollView?.reflectScrolledClipView(clip)
+        } else {
+            origin = targetWorldOrigin
+        }
+        positionInlineTextEditor()
+        positionStyleInspector()
         needsDisplay = true
     }
 
     private func registerUndoMove(_ id: String, to position: CanvasPosition) {
+        registerUndoMoves([id], to: [id: position])
+    }
+
+    private func registerUndoMoves(_ ids: [String], to positions: [String: CanvasPosition]) {
         recordUndo("Move") { target in
-            target.performHistoryMove(id, to: position)
+            target.performHistoryMoves(ids, to: positions)
         }
     }
 
@@ -1001,13 +2225,22 @@ public final class CanvasView: NSView {
         if needsGroup { history.endUndoGrouping() }
     }
 
-    private func performHistoryMove(_ id: String, to position: CanvasPosition) {
-        guard let inverse = session.position(of: id) else { return }
-        do {
-            try moveWithoutHistory(id, to: position)
-            registerUndoMove(id, to: inverse)
-        } catch {
-            NSSound.beep()
+    private func performHistoryMoves(_ ids: [String], to positions: [String: CanvasPosition]) {
+        var inverse: [String: CanvasPosition] = [:]
+        for id in ids {
+            if let current = session.position(of: id) {
+                inverse[id] = current
+            }
+        }
+        var moved: [String] = []
+        for id in ids {
+            guard let pos = positions[id] else { continue }
+            if (try? moveWithoutHistory(id, to: pos)) != nil {
+                moved.append(id)
+            }
+        }
+        if !moved.isEmpty {
+            registerUndoMoves(moved, to: inverse)
         }
     }
 
@@ -1031,19 +2264,35 @@ public final class CanvasView: NSView {
 
     /// Grow without shrinking on Undo; preserve the visible world position.
     private func expandDrawingBounds() {
-        var required = CGRect(origin: origin, size: frame.size)
+        var required = CGRect(
+            x: origin.x,
+            y: origin.y,
+            width: frame.width / zoomScale,
+            height: frame.height / zoomScale
+        )
         for node in nodes {
             let radius = hypot(node.box.width, node.box.height) / 2 + 40
             required = required.union(CGRect(x: node.center.x - radius, y: node.center.y - radius,
                                              width: radius * 2, height: radius * 2))
         }
-        for edge in edges { required = required.union(edge.path.bounds.insetBy(dx: -40, dy: -40)) }
-        guard required.origin != origin || required.size != frame.size else { return }
-        let shift = CGPoint(x: origin.x - required.minX, y: origin.y - required.minY)
+        for edge in edges {
+            required = required.union(edge.path.bounds.insetBy(dx: -40, dy: -40))
+            if let labelRect = edge.labelRect {
+                required = required.union(labelRect.insetBy(dx: -20, dy: -20))
+            }
+        }
+        if case .adjacentEditing(_, _, let geo, _, _) = inlineTextState {
+            required = required.union(CGRect(x: geo.x, y: geo.y, width: geo.width, height: geo.height).insetBy(dx: -48, dy: -64))
+        } else if case .newText(_, let geo, _, _) = inlineTextState {
+            required = required.union(CGRect(x: geo.x, y: geo.y, width: geo.width, height: geo.height).insetBy(dx: -48, dy: -64))
+        }
+        let targetSize = CGSize(width: ceil(required.width * zoomScale), height: ceil(required.height * zoomScale))
+        guard required.origin != origin || targetSize != frame.size else { return }
+        let shift = CGPoint(x: (origin.x - required.minX) * zoomScale, y: (origin.y - required.minY) * zoomScale)
         let clip = enclosingScrollView?.contentView
         let previous = clip?.bounds.origin
         origin = required.origin
-        setFrameSize(required.size)
+        setFrameSize(targetSize)
         if let clip, let previous {
             clip.scroll(to: CGPoint(x: previous.x + shift.x, y: previous.y + shift.y))
             enclosingScrollView?.reflectScrolledClipView(clip)
@@ -1052,13 +2301,12 @@ public final class CanvasView: NSView {
 
     private func worldPoint(for event: NSEvent) -> CGPoint {
         let point = convert(event.locationInWindow, from: nil)
-        return CGPoint(x: point.x + origin.x, y: point.y + origin.y)
+        return CGPoint(x: point.x / zoomScale + origin.x, y: point.y / zoomScale + origin.y)
     }
 
     public func viewPoint(forWorldPoint point: CGPoint) -> CGPoint {
-        CGPoint(x: point.x - origin.x, y: point.y - origin.y)
+        CGPoint(x: (point.x - origin.x) * zoomScale, y: (point.y - origin.y) * zoomScale)
     }
-
     private func contains(_ location: CGPoint, node: Node) -> Bool {
         let angle = -node.rotation * .pi / 180
         let dx = location.x - node.center.x
@@ -1133,6 +2381,85 @@ public final class CanvasView: NSView {
             CanvasTheme.selectionCobalt.setStroke()
             path.lineWidth = active ? 2 : 1.5
             path.stroke()
+        }
+    }
+
+    private func drawMultiSelectionOutline(_ node: Node, isFocused: Bool) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.translateBy(x: node.center.x, y: node.center.y)
+        context.rotate(by: node.rotation * .pi / 180)
+        context.translateBy(x: -node.center.x, y: -node.center.y)
+        let path = NSBezierPath(rect: node.box.insetBy(dx: -5, dy: -5))
+        CanvasTheme.selectionCobalt.setStroke()
+        path.lineWidth = isFocused ? 2.5 : 2
+        path.setLineDash([5, 3], count: 2, phase: 0)
+        path.stroke()
+        context.restoreGState()
+    }
+
+    private func drawFocusedNodeOutline(_ node: Node) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.translateBy(x: node.center.x, y: node.center.y)
+        context.rotate(by: node.rotation * .pi / 180)
+        context.translateBy(x: -node.center.x, y: -node.center.y)
+        let path = NSBezierPath(rect: node.box.insetBy(dx: -3, dy: -3))
+        CanvasTheme.selectionCobalt.withAlphaComponent(0.75).setStroke()
+        path.lineWidth = 1.5
+        path.setLineDash([2, 2], count: 2, phase: 0)
+        path.stroke()
+        context.restoreGState()
+    }
+
+    private func drawInlineTextPreview(_ state: InlineTextState) {
+        switch state {
+        case .adjacentChoosing(let sourceID):
+            guard let node = nodes.first(where: { $0.id == sourceID }) else { return }
+            let b = node.geometry.rotatedAxisAlignedBounds
+            let rect = CGRect(x: b.x, y: b.y, width: b.width, height: b.height).insetBy(dx: -8, dy: -8)
+            let path = NSBezierPath(rect: rect)
+            CanvasTheme.selectionCobalt.setStroke()
+            path.lineWidth = 2
+            path.setLineDash([4, 4], count: 2, phase: 0)
+            path.stroke()
+        case .adjacentEditing(_, _, let geo, _, _),
+             .newText(_, let geo, _, _):
+            let box = CGRect(x: geo.x, y: geo.y, width: geo.width, height: geo.height)
+            CanvasTheme.canvasBackground.setFill()
+            box.fill()
+            let border = NSBezierPath(rect: box)
+            CanvasTheme.selectionCobalt.setStroke()
+            border.lineWidth = 2
+            border.setLineDash([6, 4], count: 2, phase: 0)
+            border.stroke()
+        case .shapeCaption:
+            break
+        }
+    }
+
+    private func drawInlineTextHelp(_ state: InlineTextState) {
+        switch state {
+        case .adjacentChoosing:
+            drawHelpBanner("Adjacent thought · Choose ↑ → ↓ ← · Escape: cancel · No automatic link")
+        case .adjacentEditing(_, _, _, _, let error):
+            if let error {
+                drawHelpBanner("\(error)\nShorten text or press Escape to cancel; nothing was added.")
+            } else {
+                drawHelpBanner("Thought draft — not added · Return: add · Shift-Return: newline · Escape: cancel")
+            }
+        case .newText(_, _, _, let error):
+            if let error {
+                drawHelpBanner("\(error)\nShorten text or press Escape to cancel; nothing was added.")
+            } else {
+                drawHelpBanner("Text draft — not added · Return: add · Shift-Return: newline · Escape: cancel")
+            }
+        case .shapeCaption(_, _, _, _, _, let error):
+            if let error {
+                drawHelpBanner("\(error)\nShorten text or press Escape to cancel; nothing was changed.")
+            } else {
+                drawHelpBanner("Editing text · Return / ⌘Return: done · Shift-Return: newline · Escape: cancel")
+            }
         }
     }
 
@@ -1252,14 +2579,22 @@ public final class CanvasView: NSView {
             let defaultStroke = node.type == "code" ? "ink" : (kind == "text" ? "none" : "blue")
             palette(data["stroke"] as? String ?? defaultStroke).setStroke()
             configure(path, data); path.stroke()
-            let text = Self.nodeText(node)
-            let role = node.type == "code" ? "mono" : (data["font"] as? String ?? fontRole)
-            let rect = Self.textRect(node, role: fontRole)
-            let style = NSMutableParagraphStyle()
-            style.alignment = node.type == "code" ? .left : alignment(data["align"] as? String ?? (kind == "text" ? "left" : "center"))
-            style.lineBreakMode = .byWordWrapping
-            let attrs: [NSAttributedString.Key: Any] = [.font: font(role, data["size"] as? String ?? "m"), .foregroundColor: textColor(on: fill), .paragraphStyle: style]
-            (text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attrs)
+            let isEditingCaption: Bool
+            if case .shapeCaption(let editingID, _, _, _, _, _) = inlineTextState, editingID == node.id {
+                isEditingCaption = true
+            } else {
+                isEditingCaption = false
+            }
+            if !isEditingCaption {
+                let text = Self.nodeText(node)
+                let role = node.type == "code" ? "mono" : (data["font"] as? String ?? fontRole)
+                let rect = Self.textRect(node, role: fontRole)
+                let style = NSMutableParagraphStyle()
+                style.alignment = node.type == "code" ? .left : alignment(data["align"] as? String ?? (kind == "text" ? "left" : "center"))
+                style.lineBreakMode = .byWordWrapping
+                let attrs: [NSAttributedString.Key: Any] = [.font: font(role, data["size"] as? String ?? "m"), .foregroundColor: textColor(on: fill), .paragraphStyle: style]
+                (text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attrs)
+            }
         }
         context.restoreGState()
     }
@@ -1307,6 +2642,30 @@ public final class CanvasView: NSView {
         let text = node.data["text"] as? String ?? ""
         guard let attachment = node.data["attachment"] as? [String: Any], let name = attachment["filename"] as? String else { return text }
         return text.isEmpty || text == name ? name : text + "\n" + name
+    }
+
+    private static func measuredBoxHeight(for node: Node, text: String, role: String) -> CGFloat {
+        guard node.type == "shape" else { return node.box.height }
+        let inset: CGFloat = 10
+        let width = max(1, node.box.width - inset * 2)
+        var display = text
+        if let attachment = node.data["attachment"] as? [String: Any],
+           let name = attachment["filename"] as? String {
+            display = text.isEmpty || text == name ? name : text + "\n" + name
+        }
+        guard !display.isEmpty else { return node.box.height }
+        let selectedRole = node.data["font"] as? String ?? role
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byWordWrapping
+        let measured = (display as NSString).boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [
+                .font: font(selectedRole, node.data["size"] as? String ?? "m"),
+                .paragraphStyle: paragraph
+            ]
+        )
+        return ceil(measured.height) + 2 + inset * 2
     }
 
     private static func textRect(_ node: Node, role: String) -> CGRect {
@@ -1464,8 +2823,8 @@ private func distance(_ point: CGPoint, toSegmentFrom start: CGPoint, to end: CG
     let nearest = CGPoint(x: start.x + ratio * dx, y: start.y + ratio * dy)
     return hypot(point.x - nearest.x, point.y - nearest.y)
 }
-private func font(_ role: String, _ size: String) -> NSFont {
-    let points: CGFloat = size == "s" ? 12 : size == "l" ? 24 : 16
+private func font(_ role: String, _ size: String, scale: CGFloat = 1.0) -> NSFont {
+    let points: CGFloat = max(4, (size == "s" ? 12 : size == "l" ? 24 : 16) * scale)
     switch role {
     case "mono": return .monospacedSystemFont(ofSize: points, weight: .regular)
     case "heading": return .systemFont(ofSize: points, weight: .heavy)

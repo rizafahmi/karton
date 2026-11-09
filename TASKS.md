@@ -709,14 +709,20 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       Offscreen AppKit bitmap inspection covered both fixtures; direct window
       capture failed, so the actual windows were not visually captured.
       Native contract checks cover shared fixtures and selected refusal/quota cases.
-      The native app uses approximate routes, plain code and attachment cards,
-      with no editable saves, code creation, recovery or
-      export. It supports session-only New, shape/text and standalone line/arrow
-      insertion, connections, object/connection selection and Tab traversal,
-      pointer/arrow movement, resize/rotation and line endpoint editing, duplication,
-      deletion, front/back stacking, lock/unlock, object and connection style
-      inspection/editing (`S` / Edit → Style…), caption editing and Undo/Redo;
-      closing discards changes. Full editable cross-editor proof remains pending.
+      The native app uses approximate routes and plain code, with no editable
+      saves, code creation, recovery or export. It supports session-only New,
+      shape/text and standalone line/arrow insertion, adjacent thoughts (`N` →
+      cardinal direction → inline draft with rotated ray-blocker avoidance and
+      measured growth), connections (creation, labels and endpoint/side
+      reconnection), object/connection selection, selection-preserving Tab
+      traversal, Space tap selection toggle and Space-drag panning, marquee and
+      Shift-click/⌘A multi-selection, pointer/arrow movement, resize/rotation and
+      line endpoint editing, duplication, deletion, front/back stacking,
+      lock/unlock, object/connection/canvas style inspection/editing (`S` /
+      Edit → Style…), caption editing with measured box growth, read-only
+      attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`)
+      and Undo/Redo; closing discards changes. Full editable
+      cross-editor proof remains pending.
       Shared v1/v2 compatibility fixtures cover five shape kinds, free line,
       rotation/locks, all edge paths/markers (`bezier`, `smooth`, `step`, `straight`,
       `arrow`, `dot`, `none`), self-loop and automatic/named handles, `animated`/`dash`
@@ -733,16 +739,19 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       unchanged, connected edges remeasure in memory, and original JSON bytes stay
       identical. A failed nil-target responder-chain Undo check was replaced with
       explicit app-delegate routing to the active window's canvas.
-      Native shape-caption editing uses a separate AppKit sheet: double-click or
-      Return opens it; Command-Return/Done commits, Escape/Cancel discards.
+      Native shape-caption and `T` text editing now use an inline on-canvas
+      `NSTextView`: double-click or Return opens it; Return/Command-Return commits,
+      Shift-Return inserts a newline, and Escape discards.
       Native checks exercise literal multiline Unicode, locked refusal, draft
       isolation, metadata/absent-text restoration, Undo/Redo, no-op redo retention,
       2,000-grapheme acceptance and over-limit refusal with draft intact.
-      Caption changes retain authored geometry; code/edge editing and automatic
-      text growth remain pending. Physical IME and accessibility proof remain open.
+      Caption commits grow shape height along local axes (keeping the top anchor
+      fixed on rotated shapes, measured with current placeholder native font
+      approximations pending final font-role mapping approval) as one atomic
+      transaction; code editing and physical IME/accessibility proof remain open.
       File New now creates separate blank v2 sessions; Insert offers rectangles,
       ellipses, diamonds, triangles and text at the viewport center (canvas-only
-      R/O/D/I/T). New text remains a draft until one insertion commits.
+      R/O/D/I/T). New `T` text remains an inline on-canvas draft until committed.
       Native checks cover scrolled viewport placement, valid authored graphs,
       refused nonfinite placement, cancellation/empty/invalid text without nodes,
       original metadata/source retention, stable IDs/stacking on redo and mixed
@@ -796,13 +805,29 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       capability-specific controls for shapes (`fill`, `stroke`, `width`, `dash`,
       `radius` on rectangles, `font`, `size`, `align`), text (`fill`, `font`,
       `size`, `align`), standalone lines (`stroke`, `width`, `dash`, `arrow`),
-      code blocks (`fill`, `stroke`, `width`, `dash`, `radius`, `size`), and
+      code blocks (`fill`, `stroke`, `width`, `dash`, `radius`, `size`),
       connections (`edge.data.connector_style` `stroke`, `width`, `dash` plus
       top-level `path` and `marker`, with `animated` retention and visible
-      non-object `connector_style` collision refusal). Observation never materializes
+      non-object `connector_style` collision refusal), and the canvas when
+      nothing is selected (`paper.background`, `paper.grid` and `appearance.font`,
+      preserving unknown `paper`/`appearance` metadata). Selected connections also
+      support label editing and endpoint/side reconnection via Return/double-click/C,
+      and attachment cards open a read-only literal UTF-8 source preview sheet with
+      exact BOM-preserving clipboard copy. Observation never materializes
       omitted defaults; same-selection patches preserve native control identity and
       focus, and staged Escape cancels
       geometry previews before closing Style and before clearing selection.
+      Native adjacent thoughts (`N` and **Insert → Adjacent Thought**) and
+      viewport/selection controls now support `N` → cardinal arrow (`↑`/`→`/`↓`/`←`)
+      → inline draft with a dedicated draft `UndoManager`, 160×96-minimum upright
+      rectangle placement 48 world units beyond rotated source bounds, multi-pass
+      rotated ray-blocker skipping (rechecked on live multiline height growth),
+      2,000-grapheme boundary enforcement without truncation, blank/whitespace
+      thought commits, chained `N` from the newly created thought, single-step
+      Undo/Redo restoring source focus, selection-preserving Tab/Shift-Tab
+      traversal with Space tap toggle, Space-hold pointer panning, marquee and
+      Shift-click/`⌘A` multi-selection with grouped movement, and canvas zoom/fit
+      (`+`/`-`, `⇧1`, `⇧0`/`⌘0`, trackpad magnification, and **View** menu commands).
       Final package smoke caught an invalid bundle resource signature: direct
       execution died with signal 9, signature verification failed, and Launch
       Services refused to spawn it. The bundler now ad-hoc signs the assembled

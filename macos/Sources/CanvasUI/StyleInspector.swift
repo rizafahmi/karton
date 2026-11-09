@@ -45,10 +45,10 @@ public final class StyleInspectorView: NSView {
     private var currentTargetKey: String = ""
     private var currentSchema: [CanvasStyleProperty] = []
     private var currentIsConnection: Bool = false
+    private var currentIsDocument: Bool = false
     private var rowViews: [NSView] = []
     private var controlsByProperty: [CanvasStyleProperty: InspectorPopUpButton] = [:]
     private var optionsByProperty: [CanvasStyleProperty: [Option]] = [:]
-
     var onSelectStyle: ((CanvasStyleProperty, CanvasStyleValue) throws -> Void)?
     var onClose: (() -> Void)?
 
@@ -167,6 +167,7 @@ public final class StyleInspectorView: NSView {
         }
 
         let isConnection = selectedNodeID == nil && selectedConnectionID != nil
+        let isDocument = selectedNodeID == nil && selectedConnectionID == nil
         let schema: [CanvasStyleProperty]
         let effective: [CanvasStyleProperty: CanvasStyleValue]
         let title: String
@@ -206,13 +207,11 @@ public final class StyleInspectorView: NSView {
                 blocked = "Finish the active geometry preview to change styles."
             }
         } else {
-            title = "Style"
-            schema = []
-            effective = [:]
+            title = "Canvas"
+            schema = session.availableDocumentStyleProperties()
+            effective = session.effectiveDocumentStyle()
             if hasGeometryPreview {
                 blocked = "Finish the active geometry preview to change styles."
-            } else {
-                blocked = "Select an object or connection to inspect its style."
             }
         }
 
@@ -220,21 +219,22 @@ public final class StyleInspectorView: NSView {
         messageLabel.stringValue = blocked
         messageLabel.isHidden = blocked.isEmpty
 
-        if schema != currentSchema || isConnection != currentIsConnection {
-            rebuildControls(schema: schema, isConnection: isConnection)
+        if schema != currentSchema || isConnection != currentIsConnection || isDocument != currentIsDocument {
+            rebuildControls(schema: schema, isConnection: isConnection, isDocument: isDocument)
         }
         syncControlValues(effective: effective, enabled: blocked.isEmpty, isConnection: isConnection)
         layoutContents()
         needsDisplay = true
     }
 
-    private func rebuildControls(schema: [CanvasStyleProperty], isConnection: Bool) {
+    private func rebuildControls(schema: [CanvasStyleProperty], isConnection: Bool, isDocument: Bool) {
         for view in rowViews { view.removeFromSuperview() }
         rowViews.removeAll()
         controlsByProperty.removeAll()
         optionsByProperty.removeAll()
         currentSchema = schema
         currentIsConnection = isConnection
+        currentIsDocument = isDocument
 
         var addedAppearanceHeader = false
         var addedTextHeader = false
@@ -256,7 +256,8 @@ public final class StyleInspectorView: NSView {
                 rowViews.append(sectionLabel)
             }
 
-            let label = NSTextField(labelWithString: Self.label(for: property))
+            let propLabel = Self.label(for: property, isDocument: isDocument)
+            let label = NSTextField(labelWithString: propLabel)
             label.font = .systemFont(ofSize: 12, weight: .medium)
             label.textColor = CanvasTheme.primaryText
             addSubview(label)
@@ -267,7 +268,7 @@ public final class StyleInspectorView: NSView {
             popup.target = self
             popup.action = #selector(controlChanged(_:))
             popup.font = .systemFont(ofSize: 12)
-            popup.setAccessibilityLabel(Self.label(for: property))
+            popup.setAccessibilityLabel(propLabel)
             popup.onEscape = { [weak self] in self?.onClose?() }
             addSubview(popup)
             rowViews.append(popup)
@@ -283,7 +284,12 @@ public final class StyleInspectorView: NSView {
         for property in currentSchema {
             guard let popup = controlsByProperty[property] else { continue }
             let value = effective[property]
-            let options = Self.options(for: property, isConnection: isConnection, includeOmittedStroke: value == .omitted)
+            let options = Self.options(
+                for: property,
+                isConnection: isConnection,
+                includeOmittedStroke: value == .omitted,
+                currentValue: value
+            )
             let existingTitles = popup.itemTitles
             let desiredTitles = options.map(\.label)
             if existingTitles != desiredTitles {
@@ -297,6 +303,7 @@ public final class StyleInspectorView: NSView {
             popup.isEnabled = enabled
         }
     }
+
 
     private func layoutContents() {
         let width: CGFloat = 268
@@ -359,8 +366,10 @@ public final class StyleInspectorView: NSView {
         onClose?()
     }
 
-    private static func label(for property: CanvasStyleProperty) -> String {
+    private static func label(for property: CanvasStyleProperty, isDocument: Bool = false) -> String {
         switch property {
+        case .paperBackground: return "Paper"
+        case .paperGrid: return "Grid size"
         case .fill: return "Fill"
         case .stroke: return "Stroke"
         case .width: return "Stroke width"
@@ -369,7 +378,7 @@ public final class StyleInspectorView: NSView {
         case .arrow: return "Arrowheads"
         case .path: return "Path"
         case .marker: return "Target marker"
-        case .font: return "Text style"
+        case .font: return isDocument ? "Default text" : "Text style"
         case .size: return "Text size"
         case .align: return "Alignment"
         }
@@ -377,9 +386,24 @@ public final class StyleInspectorView: NSView {
     private static func options(
         for property: CanvasStyleProperty,
         isConnection: Bool,
-        includeOmittedStroke: Bool
+        includeOmittedStroke: Bool,
+        currentValue: CanvasStyleValue? = nil
     ) -> [Option] {
         switch property {
+        case .paperBackground:
+            return [
+                Option(label: "Dots", value: .string("dots")),
+                Option(label: "Lines", value: .string("lines")),
+                Option(label: "Cross", value: .string("cross")),
+                Option(label: "None", value: .string("none"))
+            ]
+        case .paperGrid:
+            var grids = CanvasSession.defaultPaperGridPresets
+            if case .int(let current) = currentValue, !grids.contains(current) {
+                grids.append(current)
+                grids.sort()
+            }
+            return grids.map { Option(label: "\($0) px", value: .int($0)) }
         case .fill, .stroke:
             var list: [Option] = []
             if property == .stroke && isConnection && includeOmittedStroke {

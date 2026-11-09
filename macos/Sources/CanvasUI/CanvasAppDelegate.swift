@@ -147,6 +147,38 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         activeCanvas()?.beginGeometryEditing()
     }
 
+    @objc public func insertAdjacentThought(_ sender: Any?) {
+        activeCanvas()?.beginAdjacentThought()
+    }
+
+    @objc public func zoomIn(_ sender: Any?) {
+        activeCanvas()?.zoomIn(sender)
+    }
+
+    @objc public func zoomOut(_ sender: Any?) {
+        activeCanvas()?.zoomOut(sender)
+    }
+
+    @objc public func resetZoom(_ sender: Any?) {
+        activeCanvas()?.resetZoom(sender)
+    }
+
+    @objc public func zoomToFit(_ sender: Any?) {
+        activeCanvas()?.zoomToFit(sender)
+    }
+
+    @objc public func editText(_ sender: Any?) {
+        activeCanvas()?.beginTextEditing()
+    }
+
+    @objc public func previewAttachment(_ sender: Any?) {
+        activeCanvas()?.beginAttachmentPreview()
+    }
+
+    @objc public func editConnection(_ sender: Any?) {
+        activeCanvas()?.beginConnection(focusLabel: true)
+    }
+
     @objc public func duplicateSelection(_ sender: Any?) {
         activeCanvas()?.duplicateSelection(sender)
     }
@@ -177,7 +209,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
 
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let keyWin = activeKeyWindow()
-        let sheetOpen = keyWin?.attachedSheet != nil || keyWin?.sheetParent != nil
+        let sheetOpen = keyWin?.attachedSheet != nil || keyWin?.sheetParent != nil || (activeCanvas()?.hasActiveInlineTextEditor == true)
         if menuItem.action == #selector(undoMove(_:)) || menuItem.action == #selector(redoMove(_:)) {
             if let editor = keyWin?.firstResponder as? NSTextView {
                 return menuItem.action == #selector(undoMove(_:))
@@ -192,11 +224,15 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         }
         guard let canvas = activeCanvas() else {
             switch menuItem.action {
-            case #selector(editGeometry(_:)), #selector(insertConnection(_:)),
+            case #selector(editGeometry(_:)), #selector(editText(_:)),
+                 #selector(previewAttachment(_:)), #selector(editConnection(_:)),
+                 #selector(insertConnection(_:)), #selector(insertAdjacentThought(_:)),
                  #selector(insertShape(_:)), #selector(insertLine(_:)),
                  #selector(duplicateSelection(_:)), #selector(deleteSelection(_:)),
                  #selector(bringToFront(_:)), #selector(sendToBack(_:)),
-                 #selector(toggleLock(_:)), #selector(showStyleInspector(_:)):
+                 #selector(toggleLock(_:)), #selector(showStyleInspector(_:)),
+                 #selector(zoomIn(_:)), #selector(zoomOut(_:)),
+                 #selector(resetZoom(_:)), #selector(zoomToFit(_:)):
                 return false
             default:
                 return true
@@ -221,8 +257,24 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         if menuItem.action == #selector(editGeometry(_:)) {
             return canvas.canEditGeometry && !canvas.hasGeometryPreview && !sheetOpen
         }
+        if menuItem.action == #selector(editText(_:)) {
+            return canvas.canEditTextSelection && !sheetOpen
+        }
+        if menuItem.action == #selector(previewAttachment(_:)) {
+            return canvas.canPreviewAttachment && !sheetOpen
+        }
+        if menuItem.action == #selector(editConnection(_:)) {
+            return canvas.canEditConnectionSelection && !sheetOpen
+        }
         if menuItem.action == #selector(insertConnection(_:)) {
             return canvas.canInsertConnection && !canvas.hasGeometryPreview && !sheetOpen
+        }
+        if menuItem.action == #selector(insertAdjacentThought(_:)) {
+            return canvas.canInsertAdjacentThought && !sheetOpen
+        }
+        if menuItem.action == #selector(zoomIn(_:)) || menuItem.action == #selector(zoomOut(_:)) ||
+           menuItem.action == #selector(resetZoom(_:)) || menuItem.action == #selector(zoomToFit(_:)) {
+            return !sheetOpen
         }
         if menuItem.action == #selector(insertShape(_:)) || menuItem.action == #selector(insertLine(_:)) ||
            menuItem.action == #selector(showStyleInspector(_:)) {
@@ -342,6 +394,15 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         lock.target = self
         editMenu.addItem(lock)
         editMenu.addItem(.separator())
+        let editTextItem = NSMenuItem(title: "Edit Text…", action: #selector(editText(_:)), keyEquivalent: "")
+        editTextItem.target = self
+        editMenu.addItem(editTextItem)
+        let previewAttachmentItem = NSMenuItem(title: "Preview Attachment…", action: #selector(previewAttachment(_:)), keyEquivalent: "")
+        previewAttachmentItem.target = self
+        editMenu.addItem(previewAttachmentItem)
+        let editConnectionItem = NSMenuItem(title: "Edit Connection…", action: #selector(editConnection(_:)), keyEquivalent: "")
+        editConnectionItem.target = self
+        editMenu.addItem(editConnectionItem)
         let geometry = NSMenuItem(title: "Edit Geometry", action: #selector(editGeometry(_:)), keyEquivalent: "")
         geometry.target = self
         editMenu.addItem(geometry)
@@ -372,6 +433,25 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         let connection = NSMenuItem(title: "Connection…", action: #selector(insertConnection(_:)), keyEquivalent: "")
         connection.target = self
         insertMenu.addItem(connection)
+        let thought = NSMenuItem(title: "Adjacent Thought", action: #selector(insertAdjacentThought(_:)), keyEquivalent: "")
+        thought.target = self
+        insertMenu.addItem(thought)
+        let viewItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
+        main.addItem(viewItem)
+        let viewMenu = NSMenu(title: "View")
+        let zoomInItem = NSMenuItem(title: "Zoom In", action: #selector(zoomIn(_:)), keyEquivalent: "+")
+        zoomInItem.target = self
+        viewMenu.addItem(zoomInItem)
+        let zoomOutItem = NSMenuItem(title: "Zoom Out", action: #selector(zoomOut(_:)), keyEquivalent: "-")
+        zoomOutItem.target = self
+        viewMenu.addItem(zoomOutItem)
+        let resetZoomItem = NSMenuItem(title: "Actual Size", action: #selector(resetZoom(_:)), keyEquivalent: "0")
+        resetZoomItem.target = self
+        viewMenu.addItem(resetZoomItem)
+        let fitItem = NSMenuItem(title: "Zoom to Fit", action: #selector(zoomToFit(_:)), keyEquivalent: "")
+        fitItem.target = self
+        viewMenu.addItem(fitItem)
+        viewItem.submenu = viewMenu
         insertItem.submenu = insertMenu
         app.mainMenu = main
     }

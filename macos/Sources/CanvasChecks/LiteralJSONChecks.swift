@@ -122,6 +122,22 @@ func checkCompatibilityRoundTrips(repository: URL) throws {
     try require(styledDiamond != nil, "v1 diamond fill style edit did not apply")
     let styledEdgeChange = try v1Session.setConnectionStyle("styled", property: .stroke, to: .string("blue"))
     try require(styledEdgeChange != nil, "v1 styled connection stroke edit did not apply")
+    let updatedStepEdge = try v1Session.updateConnection(
+        "step-solid", source: "ellipse", sourceSide: .right,
+        target: "triangle", targetSide: .left, label: "Reconnected"
+    )
+    try require(updatedStepEdge != nil, "v1 step-solid connection update did not apply")
+    let originalCollisionEdge = (v1Doc.root["edges"] as! [[String: Any]])[3]
+    let updatedCollisionEdge = try v1Session.updateConnection(
+        "straight-collision", source: "triangle", sourceSide: .bottom,
+        target: "diamond", targetSide: .bottom, label: nil
+    )
+    try require(updatedCollisionEdge != nil, "v1 straight-collision reconnect did not apply")
+    let updatedDocPaper = try v1Session.setDocumentStyle(property: .paperBackground, to: .string("cross"))
+    let updatedDocGrid = try v1Session.setDocumentStyle(property: .paperGrid, to: .int(32))
+    let updatedDocFont = try v1Session.setDocumentStyle(property: .font, to: .string("heading"))
+    try require(updatedDocPaper != nil && updatedDocGrid != nil && updatedDocFont != nil,
+                "v1 document style edits did not apply")
     let broughtFront = try v1Session.bringToFront("ellipse")
     try require(broughtFront != nil, "v1 ellipse bringToFront did not apply")
     let lockedText = try v1Session.setLocked("text", to: true)
@@ -155,17 +171,37 @@ func checkCompatibilityRoundTrips(repository: URL) throws {
                 reopenedEllipseData["size"] as? String == "l" &&
                 reopenedEllipseData["align"] as? String == "right",
                 "Resizing/reordering v1 ellipse lost empty attachment or typography metadata")
-    let collisionData = v1Edges[2]["data"] as! [String: Any]
-    try require(collisionData["connector_style"] as? String == "legacy-collision" &&
-                collisionData["future"] as? String == "collision-kept",
-                "v1 round-trip lost non-object connector_style collision metadata")
+    var expectedCollisionEdge = originalCollisionEdge
+    expectedCollisionEdge["target"] = "diamond"
+    expectedCollisionEdge["target_handle"] = "bottom"
+    try require(NSDictionary(dictionary: v1Edges[2]).isEqual(to: expectedCollisionEdge) &&
+                v1Edges[2]["label"] is NSNull,
+                "Reconnecting straight-collision altered fields other than target/target_handle or dropped label: null")
     let styledEdgeData = (v1Edges[0]["data"] as! [String: Any])["connector_style"] as! [String: Any]
     try require(styledEdgeData["stroke"] as? String == "blue" &&
                 styledEdgeData["future"] as? String == "kept",
                 "v1 connector style edit lost unknown connector_style metadata")
+    try require(v1Edges[1]["label"] as? String == "Reconnected" &&
+                v1Edges[1]["source_handle"] as? String == "right" &&
+                v1Edges[1]["target_handle"] as? String == "left" &&
+                ((v1Edges[1]["data"] as? [String: Any])?["connector_style"] as? [String: Any])?["unsupported"] as? Int == 99,
+                "v1 connection reconnection/label edit lost edge data or unknown connector_style members")
+    let reopenedPaper = v1Reopened.root["paper"] as? [String: Any]
+    let reopenedAppearance = v1Reopened.root["appearance"] as? [String: Any]
+    try require(reopenedPaper?["background"] as? String == "cross" &&
+                (reopenedPaper?["grid"] as? NSNumber)?.intValue == 32 &&
+                (reopenedPaper?["future"] as? [String: Any])?["note"] as? String == "paper" &&
+                reopenedAppearance?["font"] as? String == "heading" &&
+                reopenedAppearance?["future"] as? String == "keep",
+                "v1 document style round-trip lost paper/appearance edits or unknown metadata")
     try v1Session.restoreInsertion(deletedLoop)
     _ = try v1Session.setLocked("text", to: nil)
     _ = try v1Session.moveNode("ellipse", toIndex: broughtFront!.fromIndex)
+    try v1Session.applyStyleChange(updatedDocFont!.inverse)
+    try v1Session.applyStyleChange(updatedDocGrid!.inverse)
+    try v1Session.applyStyleChange(updatedDocPaper!.inverse)
+    try v1Session.applyConnectionUpdate(updatedCollisionEdge!.inverse)
+    try v1Session.applyConnectionUpdate(updatedStepEdge!.inverse)
     try v1Session.applyStyleChange(styledEdgeChange!.inverse)
     try v1Session.applyStyleChange(styledDiamond!.inverse)
     try v1Session.removeInsertion(insertedEdge)
