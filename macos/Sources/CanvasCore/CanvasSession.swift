@@ -21,6 +21,10 @@ public enum CanvasShapeKind: String, CaseIterable, Sendable {
     case ellipse, diamond, triangle, text
 }
 
+public enum CanvasLineKind: String, CaseIterable, Sendable {
+    case line, arrow
+}
+
 /// Retained insertion identity and stacking position for exact Undo/Redo.
 public struct CanvasShapeInsertion {
     public let id: String
@@ -155,6 +159,49 @@ public final class CanvasSession {
         return true
     }
 
+    public func lineGeometry(of id: String) -> CanvasLineGeometry? {
+        guard let raw = node(id), raw["type"] as? String == "shape-line",
+              let data = raw["data"] as? [String: Any],
+              let x = number(raw["x"]), let y = number(raw["y"]),
+              let width = number(raw["width"]), let height = number(raw["height"]),
+              let from = data["from"] as? [Any], from.count == 2,
+              let fx = number(from[0]), let fy = number(from[1]),
+              let to = data["to"] as? [Any], to.count == 2,
+              let tx = number(to[0]), let ty = number(to[1]) else { return nil }
+        return CanvasLineGeometry(
+            x: x, y: y, width: width, height: height,
+            from: CanvasPosition(x: fx, y: fy),
+            to: CanvasPosition(x: tx, y: ty),
+            rotation: number(data["rotation"])
+        )
+    }
+
+    public func canEditLineEndpoints(_ id: String) -> Bool {
+        node(id)?["type"] as? String == "shape-line" && !isLocked(id)
+    }
+
+    @discardableResult
+    public func setLineGeometry(_ id: String, to geometry: CanvasLineGeometry) throws -> Bool {
+        try geometry.validate()
+        guard canEditLineEndpoints(id),
+              var nodes = root["nodes"] as? [[String: Any]],
+              let index = nodes.firstIndex(where: { $0["id"] as? String == id }),
+              var data = nodes[index]["data"] as? [String: Any] else {
+            throw CanvasDocumentError("Select an unlocked line or arrow to edit its endpoints.")
+        }
+        guard self.lineGeometry(of: id) != geometry else { return false }
+        nodes[index]["x"] = geometry.x
+        nodes[index]["y"] = geometry.y
+        nodes[index]["width"] = geometry.width
+        nodes[index]["height"] = geometry.height
+        data["from"] = [geometry.from.x, geometry.from.y]
+        data["to"] = [geometry.to.x, geometry.to.y]
+        data["rotation"] = geometry.rotation
+        nodes[index]["data"] = data
+        root["nodes"] = nodes
+        return true
+    }
+
     public func text(of id: String) -> String? {
         (node(id)?["data"] as? [String: Any])?["text"] as? String
     }
@@ -201,6 +248,46 @@ public final class CanvasSession {
         let raw: [String: Any] = [
             "id": id, "type": "shape", "x": position.x, "y": position.y,
             "width": 160, "height": kind == .text ? 48 : 96,
+            "data": data
+        ]
+        let insertion = CanvasShapeInsertion(
+            id: id, node: raw, index: (root["nodes"] as? [[String: Any]])?.count ?? 0
+        )
+        try restoreInsertion(insertion)
+        return insertion
+    }
+
+    public func insertLine(
+        _ kind: CanvasLineKind, centeredAt center: CanvasPosition
+    ) throws -> CanvasShapeInsertion {
+        guard center.x.isFinite, center.y.isFinite,
+              abs(center.x) <= 1_000_000, abs(center.y) <= 1_000_000 else {
+            throw CanvasDocumentError("A line needs finite coordinates within 1000000.")
+        }
+        return try insertLine(
+            kind,
+            from: CanvasPosition(x: center.x - 80, y: center.y),
+            to: CanvasPosition(x: center.x + 80, y: center.y)
+        )
+    }
+
+    public func insertLine(
+        _ kind: CanvasLineKind, from start: CanvasPosition, to end: CanvasPosition
+    ) throws -> CanvasShapeInsertion {
+        let geometry = CanvasLineGeometry(start: start, end: end)
+        try geometry.validate()
+        let id = UUID().uuidString
+        let data: [String: Any] = [
+            "from": [geometry.from.x, geometry.from.y],
+            "to": [geometry.to.x, geometry.to.y],
+            "stroke": "ink",
+            "width": 2,
+            "arrow": kind == .arrow ? "end" : "none"
+        ]
+        let raw: [String: Any] = [
+            "id": id, "type": "shape-line",
+            "x": geometry.x, "y": geometry.y,
+            "width": geometry.width, "height": geometry.height,
             "data": data
         ]
         let insertion = CanvasShapeInsertion(
@@ -446,7 +533,9 @@ public final class CanvasSession {
         source: String, sourceSide: CanvasConnectionSide?,
         target: String, targetSide: CanvasConnectionSide?
     ) throws {
-        guard node(source) != nil, node(target) != nil else {
+        guard let sourceNode = node(source), let targetNode = node(target),
+              sourceNode["type"] as? String != "shape-line",
+              targetNode["type"] as? String != "shape-line" else {
             throw CanvasDocumentError("Choose existing source and target objects.")
         }
         if source == target && (sourceSide == nil || targetSide == nil || sourceSide == targetSide) {

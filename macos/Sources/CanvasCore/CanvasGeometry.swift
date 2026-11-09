@@ -83,3 +83,93 @@ public struct CanvasGeometry: Equatable, Sendable {
                               rotation: (rotation ?? 0) + degrees)
     }
 }
+
+public enum CanvasLineEndpoint: Int, CaseIterable, Sendable {
+    case start, end
+}
+
+/// Authored bounding box, relative endpoints, and optional rotation for a standalone line.
+public struct CanvasLineGeometry: Equatable, Sendable {
+    public let x: Double
+    public let y: Double
+    public let width: Double
+    public let height: Double
+    public let from: CanvasPosition
+    public let to: CanvasPosition
+    public let rotation: Double?
+
+    public init(
+        x: Double, y: Double, width: Double, height: Double,
+        from: CanvasPosition, to: CanvasPosition, rotation: Double? = nil
+    ) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.from = from
+        self.to = to
+        self.rotation = rotation
+    }
+
+    /// Creates a canonical 12-unit padded line box from two world endpoints.
+    public init(start: CanvasPosition, end: CanvasPosition) {
+        let minX = min(start.x, end.x) - 12
+        let minY = min(start.y, end.y) - 12
+        self.x = minX
+        self.y = minY
+        self.width = abs(end.x - start.x) + 24
+        self.height = abs(end.y - start.y) + 24
+        self.from = CanvasPosition(x: start.x - minX, y: start.y - minY)
+        self.to = CanvasPosition(x: end.x - minX, y: end.y - minY)
+        self.rotation = nil
+    }
+
+    public func validate() throws {
+        let start = point(for: .start)
+        let end = point(for: .end)
+        guard x.isFinite, y.isFinite, width.isFinite, height.isFinite,
+              from.x.isFinite, from.y.isFinite, to.x.isFinite, to.y.isFinite,
+              start.x.isFinite, start.y.isFinite, end.x.isFinite, end.y.isFinite,
+              abs(x) <= 1_000_000, abs(y) <= 1_000_000,
+              width > 0, height > 0, width <= 1_000_000, height <= 1_000_000,
+              abs(from.x) <= 1_000_000, abs(from.y) <= 1_000_000,
+              abs(to.x) <= 1_000_000, abs(to.y) <= 1_000_000,
+              abs(start.x) <= 1_000_000, abs(start.y) <= 1_000_000,
+              abs(end.x) <= 1_000_000, abs(end.y) <= 1_000_000,
+              rotation == nil || (rotation!.isFinite && abs(rotation!) <= 1_000_000) else {
+            throw CanvasDocumentError("Line geometry needs finite coordinates/endpoints and positive dimensions within 1000000.")
+        }
+    }
+
+    public func point(for endpoint: CanvasLineEndpoint) -> CanvasPosition {
+        let rel = endpoint == .start ? from : to
+        let localX = x + rel.x
+        let localY = y + rel.y
+        guard let rotation, rotation != 0 else {
+            return CanvasPosition(x: localX, y: localY)
+        }
+        let centerX = x + width / 2
+        let centerY = y + height / 2
+        let dx = localX - centerX
+        let dy = localY - centerY
+        let angle = rotation * .pi / 180
+        let cosine = cos(angle), sine = sin(angle)
+        return CanvasPosition(
+            x: centerX + dx * cosine - dy * sine,
+            y: centerY + dx * sine + dy * cosine
+        )
+    }
+
+    public func moving(_ endpoint: CanvasLineEndpoint, by delta: CanvasPosition) -> CanvasLineGeometry {
+        guard delta.x != 0 || delta.y != 0 else { return self }
+        var start = point(for: .start)
+        var end = point(for: .end)
+        switch endpoint {
+        case .start:
+            start = CanvasPosition(x: start.x + delta.x, y: start.y + delta.y)
+        case .end:
+            end = CanvasPosition(x: end.x + delta.x, y: end.y + delta.y)
+        }
+        return CanvasLineGeometry(start: start, end: end)
+    }
+}

@@ -133,6 +133,12 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         activeCanvas()?.insertShape(kind)
     }
 
+    @objc public func insertLine(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String,
+              let kind = CanvasLineKind(rawValue: value) else { return }
+        activeCanvas()?.insertLine(kind)
+    }
+
     @objc public func insertConnection(_ sender: Any?) {
         activeCanvas()?.beginConnection()
     }
@@ -183,9 +189,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         guard let canvas = activeCanvas() else {
             switch menuItem.action {
             case #selector(editGeometry(_:)), #selector(insertConnection(_:)),
-                 #selector(insertShape(_:)), #selector(duplicateSelection(_:)),
-                 #selector(deleteSelection(_:)), #selector(bringToFront(_:)),
-                 #selector(sendToBack(_:)), #selector(toggleLock(_:)):
+                 #selector(insertShape(_:)), #selector(insertLine(_:)),
+                 #selector(duplicateSelection(_:)), #selector(deleteSelection(_:)),
+                 #selector(bringToFront(_:)), #selector(sendToBack(_:)),
+                 #selector(toggleLock(_:)):
                 return false
             default:
                 return true
@@ -213,7 +220,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         if menuItem.action == #selector(insertConnection(_:)) {
             return canvas.canInsertConnection && !canvas.hasGeometryPreview && !sheetOpen
         }
-        if menuItem.action == #selector(insertShape(_:)) {
+        if menuItem.action == #selector(insertShape(_:)) || menuItem.action == #selector(insertLine(_:)) {
             return !canvas.hasGeometryPreview && !sheetOpen
         }
         return true
@@ -342,6 +349,13 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             ("Diamond", .diamond), ("Triangle", .triangle), ("Text…", .text)
         ] {
             let item = NSMenuItem(title: title, action: #selector(insertShape(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = kind.rawValue
+            insertMenu.addItem(item)
+        }
+        insertMenu.addItem(.separator())
+        for (title, kind) in [("Line", CanvasLineKind.line), ("Arrow", .arrow)] {
+            let item = NSMenuItem(title: title, action: #selector(insertLine(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = kind.rawValue
             insertMenu.addItem(item)

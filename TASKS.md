@@ -710,12 +710,12 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       capture failed, so the actual windows were not visually captured.
       Native contract checks cover shared fixtures and selected refusal/quota cases.
       The native app uses approximate routes, plain code and attachment cards,
-      with no editable saves, style editing, line/code creation, recovery or
-      export. It supports session-only New, shape/text insertion, connections,
-      object/connection selection and Tab traversal, pointer/arrow movement,
-      resize/rotation, duplication, deletion, front/back stacking, lock/unlock,
-      caption editing and Undo/Redo; closing discards changes. Full editable cross-editor proof
-      remains pending.
+      with no editable saves, style editing, code creation, recovery or
+      export. It supports session-only New, shape/text and standalone line/arrow
+      insertion, connections, object/connection selection and Tab traversal,
+      pointer/arrow movement, resize/rotation and line endpoint editing, duplication,
+      deletion, front/back stacking, lock/unlock, caption editing and Undo/Redo;
+      closing discards changes. Full editable cross-editor proof remains pending.
       Shared v1/v2 compatibility fixtures cover five shape kinds, free line,
       rotation/locks, all edge paths/markers (`bezier`, `smooth`, `step`, `straight`,
       `arrow`, `dot`, `none`), self-loop and automatic/named handles, `animated`/`dash`
@@ -765,13 +765,18 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       G / Edit Geometry enables Tab/Shift-Tab, local-axis arrow previews,
       Return commit and Escape cancel. Shift steps are 10 units / 15 degrees.
       Opposite anchors remain fixed during rotated resizing; crossing clamps
-      instead of flipping. Lines are excluded until endpoint editing is implemented.
+      instead of flipping. Standalone lines and arrows (`L` / `A` and Insert menu)
+      remain free-standing (refused as bound-connection endpoints) and use
+      two-endpoint editing (`start` / `end`) with 12-unit padded boxes rather than
+      box scaling.
       Native checks cover pointer/keyboard preview isolation, rotated pointer
-      resizing, full-circle rotation, no-op/cancel redo retention, exact metadata
-      and omitted-rotation restoration, locked/line refusal, literal code retention,
-      and bitmap connector redraw/cancel behavior. Actual app-delegate menu and
-      NSApp-dispatched key/pointer smoke passed; a custom-canvas bitmap showed
-      all rotated handles, the active handle and rotation stalk without clipping.
+      resizing, full-circle rotation, standalone line/arrow insertion, pointer and
+      keyboard endpoint editing (including reversed/horizontal segments), no-op/cancel
+      redo retention, exact metadata and omitted-rotation restoration, locked/box-scale
+      refusal, literal code retention, and bitmap connector/segment redraw/cancel
+      behavior. Actual app-delegate menu and NSApp-dispatched key/pointer smoke passed;
+      a custom-canvas bitmap showed all rotated handles, the active handle and rotation
+      stalk without clipping.
       Geometry checks also exposed the SDK's JSONSerialization dropping leading
       U+FEFF inside strings. Native decoding now retains raw token validation,
       decodes strings with JSONDecoder and revalidates restored quotas. Regression

@@ -17,6 +17,17 @@ public final class CanvasView: NSView {
             CanvasGeometry(x: box.minX, y: box.minY, width: box.width, height: box.height,
                            rotation: (data["rotation"] as? NSNumber)?.doubleValue)
         }
+        var lineGeometry: CanvasLineGeometry? {
+            guard type == "shape-line",
+                  let from = data["from"] as? [Any], from.count == 2,
+                  let to = data["to"] as? [Any], to.count == 2 else { return nil }
+            return CanvasLineGeometry(
+                x: box.minX, y: box.minY, width: box.width, height: box.height,
+                from: CanvasPosition(x: Double(number(from[0])), y: Double(number(from[1]))),
+                to: CanvasPosition(x: Double(number(to[0])), y: Double(number(to[1]))),
+                rotation: (data["rotation"] as? NSNumber)?.doubleValue
+            )
+        }
     }
 
     private struct EdgeDrawing {
@@ -49,33 +60,36 @@ public final class CanvasView: NSView {
     private var textEditor: ShapeTextEditor?
     private var connectionEditor: ConnectionEditor?
     private var geometryGesture: GeometryGesture?
+    private var lineEndpointGesture: LineEndpointGesture?
     public var selectedNodeID: String? { selectedID }
     public var selectedConnectionID: String? { selectedEdgeID }
-    public var hasGeometryPreview: Bool { geometryGesture != nil }
+    public var hasGeometryPreview: Bool { geometryGesture != nil || lineEndpointGesture != nil }
     public var canEditGeometry: Bool {
-        selectedID.map { session.canTransform($0) } ?? false
+        selectedID.map { session.canTransform($0) || session.canEditLineEndpoints($0) } ?? false
     }
-    public var canInsertConnection: Bool { !nodes.isEmpty }
+    public var canInsertConnection: Bool {
+        nodes.contains { $0.type != "shape-line" }
+    }
     public var canDeleteSelection: Bool {
-        guard geometryGesture == nil, drag == nil else { return false }
+        guard !hasGeometryPreview, drag == nil else { return false }
         if let id = selectedID { return session.canDeleteNode(id) }
         if let edgeID = selectedEdgeID { return session.hasConnection(edgeID) }
         return false
     }
     public var canDuplicateSelection: Bool {
-        guard geometryGesture == nil, drag == nil, let id = selectedID else { return false }
+        guard !hasGeometryPreview, drag == nil, let id = selectedID else { return false }
         return session.canDuplicateNode(id)
     }
     public var canBringToFront: Bool {
-        guard geometryGesture == nil, drag == nil, let id = selectedID else { return false }
+        guard !hasGeometryPreview, drag == nil, let id = selectedID else { return false }
         return session.canBringToFront(id)
     }
     public var canSendToBack: Bool {
-        guard geometryGesture == nil, drag == nil, let id = selectedID else { return false }
+        guard !hasGeometryPreview, drag == nil, let id = selectedID else { return false }
         return session.canSendToBack(id)
     }
     public var canToggleLock: Bool {
-        geometryGesture == nil && drag == nil && selectedID != nil
+        !hasGeometryPreview && drag == nil && selectedID != nil
     }
     public var isSelectedNodeLocked: Bool {
         selectedID.map { session.isLocked($0) } ?? false
@@ -149,6 +163,7 @@ public final class CanvasView: NSView {
         }
         context.restoreGState()
         if let geometryGesture { drawGeometryHelp(geometryGesture.handle) }
+        if let lineEndpointGesture { drawLineEndpointHelp(lineEndpointGesture.endpoint) }
     }
 
     public override func mouseDown(with event: NSEvent) {
@@ -160,6 +175,17 @@ public final class CanvasView: NSView {
             var gesture = geometryGesture ?? GeometryGesture(id: id, geometry: node.geometry)
             gesture.startPointer(at: CanvasPosition(x: point.x, y: point.y), handle: handle)
             geometryGesture = gesture
+            drag = nil
+            needsDisplay = true
+            return
+        }
+        if let id = selectedID, session.canEditLineEndpoints(id),
+           let node = nodes.first(where: { $0.id == id }),
+           let lineGeometry = node.lineGeometry,
+           let endpoint = lineEndpointHandle(at: point, lineGeometry: lineGeometry) {
+            var gesture = lineEndpointGesture ?? LineEndpointGesture(id: id, geometry: lineGeometry)
+            gesture.startPointer(at: CanvasPosition(x: point.x, y: point.y), endpoint: endpoint)
+            lineEndpointGesture = gesture
             drag = nil
             needsDisplay = true
             return
@@ -197,6 +223,15 @@ public final class CanvasView: NSView {
             } catch { NSSound.beep() }
             return
         }
+        if var gesture = lineEndpointGesture, gesture.pointerStart != nil {
+            let point = worldPoint(for: event)
+            do {
+                try gesture.drag(to: CanvasPosition(x: point.x, y: point.y))
+                lineEndpointGesture = gesture
+                renderLineGeometry(gesture.id, geometry: gesture.current)
+            } catch { NSSound.beep() }
+            return
+        }
         guard let drag else { return }
         let point = worldPoint(for: event)
         let position = CanvasPosition(
@@ -209,6 +244,10 @@ public final class CanvasView: NSView {
     public override func mouseUp(with event: NSEvent) {
         if geometryGesture?.pointerStart != nil {
             commitGeometry()
+            return
+        }
+        if lineEndpointGesture?.pointerStart != nil {
+            commitLineEndpoints()
             return
         }
         guard let drag, let current = session.position(of: drag.id) else {
@@ -224,6 +263,10 @@ public final class CanvasView: NSView {
     public override func keyDown(with event: NSEvent) {
         if geometryGesture != nil {
             geometryKeyDown(event)
+            return
+        }
+        if lineEndpointGesture != nil {
+            lineEndpointKeyDown(event)
             return
         }
         let flags = event.modifierFlags.intersection([.command, .control, .option])
@@ -299,6 +342,16 @@ public final class CanvasView: NSView {
                 insertShape(kind)
                 return
             }
+            let lineKind: CanvasLineKind?
+            switch event.charactersIgnoringModifiers {
+            case "l", "L": lineKind = .line
+            case "a", "A": lineKind = .arrow
+            default: lineKind = nil
+            }
+            if let lineKind {
+                insertLine(lineKind)
+                return
+            }
             if event.keyCode == 36 {
                 beginTextEditing()
                 return
@@ -333,7 +386,7 @@ public final class CanvasView: NSView {
             NSSound.beep()
             return
         }
-        if geometryGesture != nil { cancelGeometry(); return }
+        if hasGeometryPreview { cancelGeometry(); return }
         history.undo()
     }
 
@@ -342,17 +395,24 @@ public final class CanvasView: NSView {
             NSSound.beep()
             return
         }
-        if geometryGesture != nil { cancelGeometry(); return }
+        if hasGeometryPreview { cancelGeometry(); return }
         history.redo()
     }
 
     public func beginGeometryEditing() {
-        guard geometryGesture == nil, drag == nil, let window, window.attachedSheet == nil,
-              let id = selectedID, session.canTransform(id),
-              let geometry = session.geometry(of: id) else { NSSound.beep(); return }
-        geometryGesture = GeometryGesture(id: id, geometry: geometry)
-        window.makeFirstResponder(self)
-        needsDisplay = true
+        guard !hasGeometryPreview, drag == nil, let window, window.attachedSheet == nil,
+              let id = selectedID else { NSSound.beep(); return }
+        if session.canTransform(id), let geometry = session.geometry(of: id) {
+            geometryGesture = GeometryGesture(id: id, geometry: geometry)
+            window.makeFirstResponder(self)
+            needsDisplay = true
+        } else if session.canEditLineEndpoints(id), let lineGeometry = session.lineGeometry(of: id) {
+            lineEndpointGesture = LineEndpointGesture(id: id, geometry: lineGeometry)
+            window.makeFirstResponder(self)
+            needsDisplay = true
+        } else {
+            NSSound.beep()
+        }
     }
 
     private func geometryKeyDown(_ event: NSEvent) {
@@ -395,9 +455,14 @@ public final class CanvasView: NSView {
     }
 
     private func cancelGeometry() {
-        guard let gesture = geometryGesture else { return }
-        geometryGesture = nil
-        renderGeometry(gesture.id, geometry: gesture.before)
+        if let gesture = geometryGesture {
+            geometryGesture = nil
+            renderGeometry(gesture.id, geometry: gesture.before)
+        }
+        if let gesture = lineEndpointGesture {
+            lineEndpointGesture = nil
+            renderLineGeometry(gesture.id, geometry: gesture.before)
+        }
     }
 
     private func changeGeometry(_ id: String, to geometry: CanvasGeometry) throws {
@@ -418,10 +483,69 @@ public final class CanvasView: NSView {
         needsDisplay = true
     }
 
+    private func lineEndpointKeyDown(_ event: NSEvent) {
+        if event.keyCode == 53 { cancelGeometry(); return }
+        let flags = event.modifierFlags.intersection([.command, .control, .option])
+        if flags == [.command], event.charactersIgnoringModifiers?.lowercased() == "z" {
+            cancelGeometry()
+            return
+        }
+        guard flags.isEmpty, var gesture = lineEndpointGesture else {
+            NSSound.beep()
+            return
+        }
+        switch event.keyCode {
+        case 36: commitLineEndpoints()
+        case 48:
+            gesture.cycle(backwards: event.modifierFlags.contains(.shift))
+            lineEndpointGesture = gesture
+            needsDisplay = true
+        case 123, 124, 125, 126:
+            let x = event.keyCode == 123 ? -1.0 : (event.keyCode == 124 ? 1.0 : 0.0)
+            let y = event.keyCode == 126 ? -1.0 : (event.keyCode == 125 ? 1.0 : 0.0)
+            do {
+                try gesture.nudge(x: x, y: y, accelerated: event.modifierFlags.contains(.shift))
+                lineEndpointGesture = gesture
+                renderLineGeometry(gesture.id, geometry: gesture.current)
+            } catch { NSSound.beep() }
+        default: NSSound.beep()
+        }
+    }
+
+    private func commitLineEndpoints() {
+        guard let gesture = lineEndpointGesture else { return }
+        do {
+            try changeLineGeometry(gesture.id, to: gesture.current)
+            lineEndpointGesture = nil
+            needsDisplay = true
+        } catch { NSSound.beep() }
+    }
+
+    private func changeLineGeometry(_ id: String, to geometry: CanvasLineGeometry) throws {
+        guard let before = session.lineGeometry(of: id),
+              try session.setLineGeometry(id, to: geometry) else { return }
+        renderLineGeometry(id, geometry: geometry)
+        recordUndo("Edit Line Endpoints") { target in
+            do { try target.changeLineGeometry(id, to: before) }
+            catch { NSSound.beep() }
+        }
+    }
+
+    private func renderLineGeometry(_ id: String, geometry: CanvasLineGeometry) {
+        guard let index = nodes.firstIndex(where: { $0.id == id }) else { return }
+        nodes[index].box = CGRect(x: geometry.x, y: geometry.y, width: geometry.width, height: geometry.height)
+        nodes[index].data["from"] = [geometry.from.x, geometry.from.y]
+        nodes[index].data["to"] = [geometry.to.x, geometry.to.y]
+        nodes[index].data["rotation"] = geometry.rotation
+        rebuildEdges()
+        needsDisplay = true
+    }
+
     public func beginConnection() {
         guard let window, window.attachedSheet == nil, textEditor == nil,
-              connectionEditor == nil, geometryGesture == nil, drag == nil, canInsertConnection else { NSSound.beep(); return }
-        let options = nodes.enumerated().map { index, node in
+              connectionEditor == nil, !hasGeometryPreview, drag == nil, canInsertConnection else { NSSound.beep(); return }
+        let connectible = nodes.filter { $0.type != "shape-line" }
+        let options = connectible.enumerated().map { index, node in
             var caption = ""
             for character in Self.nodeText(node).prefix(48) {
                 caption.append(character.isNewline ? " " : character)
@@ -472,7 +596,7 @@ public final class CanvasView: NSView {
     /// Inserts at the currently visible center, never at the source file's origin.
     public func insertShape(_ kind: CanvasShapeKind) {
         guard let window, window.attachedSheet == nil, textEditor == nil,
-              geometryGesture == nil, drag == nil else { return }
+              !hasGeometryPreview, drag == nil else { return }
         let center = CGPoint(x: visibleRect.midX + origin.x, y: visibleRect.midY + origin.y)
         let position = CanvasPosition(x: center.x - 80, y: center.y - (kind == .text ? 24 : 48))
         if kind == .text {
@@ -490,6 +614,20 @@ public final class CanvasView: NSView {
             catch { NSSound.beep() }
             window.makeFirstResponder(self)
         }
+    }
+
+    public func insertLine(_ kind: CanvasLineKind) {
+        guard let window, window.attachedSheet == nil, textEditor == nil,
+              !hasGeometryPreview, drag == nil else { return }
+        let center = CanvasPosition(x: visibleRect.midX + origin.x, y: visibleRect.midY + origin.y)
+        do {
+            let insertion = try session.insertLine(kind, centeredAt: center)
+            displayInsertion(insertion.id)
+            registerUndoInsertion(insertion, restoring: false, actionName: kind == .arrow ? "Insert Arrow" : "Insert Line")
+        } catch {
+            NSSound.beep()
+        }
+        window.makeFirstResponder(self)
     }
 
     private func createShape(_ kind: CanvasShapeKind, at position: CanvasPosition, text: String? = nil) throws {
@@ -532,7 +670,7 @@ public final class CanvasView: NSView {
     }
 
     @objc public func duplicateSelection(_ sender: Any? = nil) {
-        guard geometryGesture == nil, drag == nil, window?.attachedSheet == nil,
+        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
               textEditor == nil, connectionEditor == nil,
               let id = selectedID, session.canDuplicateNode(id) else {
             NSSound.beep()
@@ -548,7 +686,7 @@ public final class CanvasView: NSView {
     }
 
     @objc public func deleteSelection(_ sender: Any? = nil) {
-        guard geometryGesture == nil, drag == nil, window?.attachedSheet == nil,
+        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
               textEditor == nil, connectionEditor == nil else {
             NSSound.beep()
             return
@@ -602,7 +740,7 @@ public final class CanvasView: NSView {
     }
 
     @objc public func bringToFront(_ sender: Any? = nil) {
-        guard geometryGesture == nil, drag == nil, window?.attachedSheet == nil,
+        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
               textEditor == nil, connectionEditor == nil,
               let id = selectedID else {
             NSSound.beep()
@@ -618,7 +756,7 @@ public final class CanvasView: NSView {
     }
 
     @objc public func sendToBack(_ sender: Any? = nil) {
-        guard geometryGesture == nil, drag == nil, window?.attachedSheet == nil,
+        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
               textEditor == nil, connectionEditor == nil,
               let id = selectedID else {
             NSSound.beep()
@@ -648,7 +786,7 @@ public final class CanvasView: NSView {
     }
 
     @objc public func toggleLock(_ sender: Any? = nil) {
-        guard geometryGesture == nil, drag == nil, window?.attachedSheet == nil,
+        guard !hasGeometryPreview, drag == nil, window?.attachedSheet == nil,
               textEditor == nil, connectionEditor == nil,
               let id = selectedID else {
             NSSound.beep()
@@ -854,6 +992,20 @@ public final class CanvasView: NSView {
         path.setLineDash([5, 3], count: 2, phase: 0)
         path.stroke()
         context.restoreGState()
+        if session.canEditLineEndpoints(node.id), let lineGeometry = node.lineGeometry {
+            for endpoint in CanvasLineEndpoint.allCases {
+                let point = lineGeometry.point(for: endpoint)
+                let rect = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
+                let path = NSBezierPath(ovalIn: rect)
+                let active = lineEndpointGesture?.endpoint == endpoint
+                (active ? CanvasTheme.selectionCobalt : CanvasTheme.elevatedSurface).setFill()
+                path.fill()
+                CanvasTheme.selectionCobalt.setStroke()
+                path.lineWidth = active ? 2 : 1.5
+                path.stroke()
+            }
+            return
+        }
         guard session.canTransform(node.id) else { return }
         let geometry = node.geometry
         let top = geometry.point(for: .top), rotate = geometry.point(for: .rotation)
@@ -888,6 +1040,17 @@ public final class CanvasView: NSView {
         return closest
     }
 
+    private func lineEndpointHandle(at point: CGPoint, lineGeometry: CanvasLineGeometry) -> CanvasLineEndpoint? {
+        var closest: CanvasLineEndpoint?
+        var distance = 9.0
+        for endpoint in CanvasLineEndpoint.allCases {
+            let location = lineGeometry.point(for: endpoint)
+            let candidate = hypot(point.x - location.x, point.y - location.y)
+            if candidate < distance { distance = candidate; closest = endpoint }
+        }
+        return closest
+    }
+
     private func drawGeometryHelp(_ handle: CanvasGeometryHandle) {
         let name: String
         switch handle {
@@ -901,6 +1064,15 @@ public final class CanvasView: NSView {
         case .left: name = "Left"
         case .rotation: name = "Rotation"
         }
+        drawHelpBanner("\(name) · Tab / Shift-Tab: handles · Arrows: preview\nShift: larger steps · Return: commit · Escape: cancel")
+    }
+
+    private func drawLineEndpointHelp(_ endpoint: CanvasLineEndpoint) {
+        let name = endpoint == .start ? "Start endpoint" : "End endpoint"
+        drawHelpBanner("\(name) · Tab / Shift-Tab: endpoints · Arrows: preview\nShift: 10 units · Return: commit · Escape: cancel")
+    }
+
+    private func drawHelpBanner(_ text: String) {
         let width = max(1, min(560, visibleRect.width - 24))
         let rect = CGRect(x: visibleRect.minX + 12, y: visibleRect.minY + 12, width: width, height: 54)
         let pill = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
@@ -909,7 +1081,6 @@ public final class CanvasView: NSView {
         CanvasTheme.borderSubtle.setStroke()
         pill.lineWidth = 1
         pill.stroke()
-        let text = "\(name) · Tab / Shift-Tab: handles · Arrows: preview\nShift: larger steps · Return: commit · Escape: cancel"
         (text as NSString).draw(in: rect.insetBy(dx: 8, dy: 6),
                                withAttributes: [.font: NSFont.systemFont(ofSize: 12),
                                                 .foregroundColor: CanvasTheme.primaryText])

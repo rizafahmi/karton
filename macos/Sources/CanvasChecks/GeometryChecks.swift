@@ -221,12 +221,161 @@ func checkGeometry(repository: URL) throws {
         throw CheckFailure(description: "Locked object accepted geometry")
     } catch is CanvasDocumentError {}
     select(580, 420)
-    key(5, "g")
-    try require(!view.hasGeometryPreview && !view.canEditGeometry, "Standalone line entered box-resize mode")
     do {
         _ = try model.setGeometry("line", to: initial)
         throw CheckFailure(description: "Standalone endpoints were box-resized")
     } catch is CanvasDocumentError {}
+    try require(view.canEditGeometry && !view.hasGeometryPreview,
+                "Selected unlocked line did not expose endpoint editing")
+    // No-op G -> Return and net-zero G -> Right -> Left -> Return on line must preserve non-padded authored box and redo history.
+    key(5, "g")
+    try require(view.hasGeometryPreview, "G on standalone line did not enter endpoint mode")
+    key(36)
+    try require(!view.hasGeometryPreview && view.undoManager?.canRedo == true &&
+                NSDictionary(dictionary: model.root).isEqual(to: root),
+                "No-op line endpoint commit rewrote authored box or cleared redo")
+    key(5, "g")
+    key(124) // Right (+1)
+    key(123) // Left (-1, returning endpoint to baseline)
+    key(36)
+    try require(!view.hasGeometryPreview && view.undoManager?.canRedo == true &&
+                NSDictionary(dictionary: model.root).isEqual(to: root),
+                "Net-zero G -> Right -> Left -> Return canonicalized the non-padded line box or cleared redo")
+    // Keyboard endpoint editing: nudge start (-10, 0), Tab to end, nudge end (0, +1), Tab back/forth, Return.
+    key(5, "g")
+    key(123, shift: true) // Start: (500, 400) -> (490, 400)
+    key(48) // Tab to End
+    key(125) // End: (660, 440) -> (660, 441)
+    key(48, shift: true) // Shift-Tab to Start
+    key(48) // Tab to End
+    try require(NSDictionary(dictionary: model.root).isEqual(to: root) && view.hasGeometryPreview,
+                "Keyboard line endpoint preview leaked into committed JSON")
+    key(15, "r")
+    key(37, "l")
+    key(0, "a")
+    try require((model.root["nodes"] as! [Any]).count == nodes.count,
+                "Creation shortcuts escaped active line endpoint preview")
+    key(36)
+    let expectedKeyboardLine = CanvasLineGeometry(
+        start: CanvasPosition(x: 490, y: 400),
+        end: CanvasPosition(x: 660, y: 441)
+    )
+    try require(model.lineGeometry(of: "line") == expectedKeyboardLine &&
+                expectedKeyboardLine.x == 478 && expectedKeyboardLine.y == 388 &&
+                expectedKeyboardLine.width == 194 && expectedKeyboardLine.height == 65 &&
+                expectedKeyboardLine.from == CanvasPosition(x: 12, y: 12) &&
+                expectedKeyboardLine.to == CanvasPosition(x: 182, y: 53),
+                "Keyboard endpoint commit did not compute canonical 12-unit padded box and relative endpoints")
+    let editedLineRoot = model.root
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: model.root).isEqual(to: root),
+                "Undo line endpoint edit did not restore exact original box and endpoints")
+    view.redoMove(nil)
+    try require(NSDictionary(dictionary: model.root).isEqual(to: editedLineRoot),
+                "Redo line endpoint edit did not restore committed endpoints")
+    view.undoMove(nil)
+
+    // Pointer endpoint drag: reverse end < start into a horizontal segment (460, 400) <- (500, 400), plus Escape cancel.
+    mouse(.leftMouseDown, CanvasPosition(x: 660, y: 440))
+    mouse(.leftMouseDragged, CanvasPosition(x: 460, y: 400))
+    try require(NSDictionary(dictionary: model.root).isEqual(to: root),
+                "Pointer line endpoint preview committed before mouseUp")
+    try require(difference(sample(CGPoint(x: 480, y: 400)), background) > 0.2 &&
+                difference(sample(CGPoint(x: 620, y: 430)), background) < 0.05,
+                "Pointer line endpoint preview did not redraw the segment at its new position")
+    mouse(.leftMouseUp, CanvasPosition(x: 460, y: 400))
+    let reversedLine = model.lineGeometry(of: "line")!
+    try require(reversedLine.point(for: .start) == CanvasPosition(x: 500, y: 400) &&
+                reversedLine.point(for: .end) == CanvasPosition(x: 460, y: 400) &&
+                reversedLine.width == 64 && reversedLine.height == 24 &&
+                reversedLine.from == CanvasPosition(x: 52, y: 12) &&
+                reversedLine.to == CanvasPosition(x: 12, y: 12),
+                "Reversed horizontal pointer endpoint drag did not preserve positive box and direction")
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: model.root).isEqual(to: root),
+                "Undo pointer endpoint drag did not restore original line")
+    mouse(.leftMouseDown, CanvasPosition(x: 500, y: 400))
+    mouse(.leftMouseDragged, CanvasPosition(x: 500, y: 320))
+    key(53) // Escape cancels pointer endpoint drag
+    mouse(.leftMouseUp, CanvasPosition(x: 500, y: 320))
+    try require(NSDictionary(dictionary: model.root).isEqual(to: root) && view.undoManager?.canRedo == true,
+                "Pointer Escape on line endpoint changed content or cleared redo")
+
+    // Standalone Line (L) and Arrow (A) insertion, free-standing connection refusal, and AppDelegate Insert menu smoke.
+    view.undoManager?.removeAllActions()
+    key(37, "l") // Insert Line at viewport center
+    let insertedLineRaw = (model.root["nodes"] as! [[String: Any]]).last!
+    let insertedLineID = insertedLineRaw["id"] as! String
+    let insertedLineData = insertedLineRaw["data"] as! [String: Any]
+    try require(insertedLineRaw["type"] as? String == "shape-line" &&
+                insertedLineData["arrow"] as? String == "none" &&
+                insertedLineData["font"] == nil &&
+                view.selectedNodeID == insertedLineID,
+                "L shortcut did not insert and select an arrowless standalone line")
+    let lineGeo = model.lineGeometry(of: insertedLineID)!
+    let lineMid = view.viewPoint(forWorldPoint: CGPoint(
+        x: (lineGeo.point(for: .start).x + lineGeo.point(for: .end).x) / 2,
+        y: (lineGeo.point(for: .start).y + lineGeo.point(for: .end).y) / 2
+    ))
+    try require(abs(lineMid.x - view.visibleRect.midX) < 0.01 &&
+                abs(lineMid.y - view.visibleRect.midY) < 0.01 &&
+                lineGeo.width == 184 && lineGeo.height == 24,
+                "Inserted line was not centered in the viewport with 160-unit span and 12-unit padding")
+    do {
+        _ = try model.insertConnection(source: insertedLineID, target: "source")
+        throw CheckFailure(description: "Connected a bound edge from a standalone line")
+    } catch is CanvasDocumentError {}
+    do {
+        _ = try model.insertConnection(source: "source", target: insertedLineID)
+        throw CheckFailure(description: "Connected a bound edge to a standalone line")
+    } catch is CanvasDocumentError {}
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: model.root).isEqual(to: root), "Undo Line insertion did not restore graph")
+    view.redoMove(nil)
+    try require((model.root["nodes"] as! [[String: Any]]).last?["id"] as? String == insertedLineID,
+                "Redo Line insertion lost identity")
+    view.undoMove(nil)
+
+    key(0, "a") // Insert Arrow at viewport center
+    let insertedArrowRaw = (model.root["nodes"] as! [[String: Any]]).last!
+    let insertedArrowID = insertedArrowRaw["id"] as! String
+    try require(insertedArrowRaw["type"] as? String == "shape-line" &&
+                (insertedArrowRaw["data"] as? [String: Any])?["arrow"] as? String == "end",
+                "A shortcut did not insert a standalone arrow")
+    view.undoMove(nil)
+    try require(NSDictionary(dictionary: model.root).isEqual(to: root) && insertedArrowID != insertedLineID,
+                "Undo Arrow insertion did not restore graph")
+
+    // Exercise Insert -> Line and Insert -> Arrow via CanvasAppDelegate menus and Edit -> Edit Geometry on the arrow.
+    let appDelegate = CanvasAppDelegate()
+    appDelegate.installMenu()
+    let appSession = CanvasSession(document: try CanvasDocument(data: bytes))
+    let appCanvas = appDelegate.showSession(appSession, name: "LineMenuSmoke")
+    defer { appDelegate.closeAllWindows() }
+    guard let insertMenu = NSApp.mainMenu?.item(withTitle: "Insert")?.submenu,
+          let editMenu = NSApp.mainMenu?.item(withTitle: "Edit")?.submenu,
+          let lineMenuItem = insertMenu.item(withTitle: "Line"),
+          let arrowMenuItem = insertMenu.item(withTitle: "Arrow"),
+          let editGeoItem = editMenu.item(withTitle: "Edit Geometry") else {
+        throw CheckFailure(description: "Missing Line, Arrow, or Edit Geometry menu item")
+    }
+    try require(appDelegate.validateMenuItem(lineMenuItem) && appDelegate.validateMenuItem(arrowMenuItem),
+                "Insert Line/Arrow menu items were disabled on active canvas")
+    _ = appDelegate.perform(arrowMenuItem.action!, with: arrowMenuItem)
+    let menuArrowID = appCanvas.selectedNodeID!
+    try require(appSession.lineGeometry(of: menuArrowID) != nil &&
+                appDelegate.validateMenuItem(editGeoItem),
+                "Insert -> Arrow did not select an endpoint-editable arrow")
+    _ = appDelegate.perform(editGeoItem.action!, with: editGeoItem)
+    try require(appCanvas.hasGeometryPreview && !appDelegate.validateMenuItem(lineMenuItem) &&
+                !appDelegate.validateMenuItem(arrowMenuItem) && !appDelegate.validateMenuItem(editGeoItem),
+                "Edit -> Edit Geometry on arrow did not enter endpoint preview and disable Insert/Edit Geometry")
+    appDelegate.undoMove(nil) // Cancels endpoint preview first
+    try require(!appCanvas.hasGeometryPreview && appSession.lineGeometry(of: menuArrowID) != nil,
+                "Undo during line endpoint preview deleted the arrow instead of cancelling the preview")
+    appDelegate.undoMove(nil) // Undoes arrow insertion
+    try require(NSDictionary(dictionary: appSession.root).isEqual(to: root),
+                "Second Undo did not remove the menu-inserted arrow")
     select(200, 450)
     key(5, "g")
     key(124, shift: true)

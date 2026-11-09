@@ -1,11 +1,11 @@
 # Native macOS editor
 
 This directory contains an independent native canvas app with session-only
-New, shape/text insertion, connections, object/connection selection and Tab
-traversal, movement, resize/rotation, duplication, deletion, front/back stacking,
-lock/unlock, caption editing and Undo/Redo. The planned editor is not complete: there is no
-saving, style editing, line/code creation, recovery, attachment preview, syntax
-highlighting or PNG export.
+New, shape/text and standalone line/arrow insertion, connections, object/connection
+selection and Tab traversal, movement, resize/rotation and line endpoint editing,
+duplication, deletion, front/back stacking, lock/unlock, caption editing and
+Undo/Redo. The planned editor is not complete: there is no saving, style editing,
+code creation, recovery, attachment preview, syntax highlighting or PNG export.
 
 ## Build and run
 
@@ -26,13 +26,15 @@ Use **File → New** (**⌘N**) or **New Canvas** in the welcome window to start
 blank version-2 canvas. **File → Open…** opens supported v1/v2 JSON files.
 Each New/Open creates a separate session window without replacing existing work.
 
-Use **Insert → Rectangle / Ellipse / Diamond / Triangle / Text…** to add content
-at the current viewport center, including after scrolling. With
-canvas focus, **R / O / D / I / T** perform the same commands; these keys stay
-ordinary text inside the editor. Shapes start unfilled with an ink outline and
-inherit document typography. New text stays in its sheet until committed; Cancel
-or empty Done creates nothing. Each insertion is one undoable action; Redo retains its ID.
-Inserting repeatedly uses the same center; drag each object to arrange it.
+Use **Insert → Rectangle / Ellipse / Diamond / Triangle / Text…** or
+**Insert → Line / Arrow** to add content at the current viewport center, including
+after scrolling. With canvas focus, **R / O / D / I / T** and **L / A** perform the
+same commands; these keys stay ordinary text inside the editor. Shapes start
+unfilled with an ink outline and inherit document typography; standalone lines and
+arrows remain free-standing (`type: "shape-line"`, never bound to objects). New text
+stays in its sheet until committed; Cancel or empty Done creates nothing. Each
+insertion is one undoable action; Redo retains its ID. Inserting repeatedly uses the
+same center; drag each object to arrange it.
 
 Click an object or connection (curve or label pill) to select it, or press
 **Tab / Shift-Tab** to cycle through objects and connections in canvas order;
@@ -59,17 +61,23 @@ changes. Each command is a separate transaction, even when several commands arri
 in one event. Native text editors retain their own text history.
 
 Selected unlocked shapes and code blocks show eight resize handles and a round
-rotation handle. Drag a handle and release to commit; **Escape** cancels.
-Resize follows the object's rotated local axes with the opposite corner/side
+rotation handle; selected unlocked standalone lines and arrows show two round
+endpoint handles (`start` and `end`). Drag a handle and release to commit;
+**Escape** cancels.
+Shape resize follows the object's rotated local axes with the opposite corner/side
 fixed. Crossing the fixed anchor clamps instead of flipping the object. Ordinary
 interactive sizes stop at one world unit; existing smaller authored sides remain
-unchanged unless deliberately resized.
+unchanged unless deliberately resized. Line endpoint drags recompute the canonical
+12-unit padded bounding box and relative `from` / `to` coordinates while preserving
+positive dimensions for horizontal, vertical, and reversed segments.
 
 For keyboard geometry, select an object and press **G**, or use
 **Edit → Edit Geometry**:
 
-- Start on the bottom-right handle; **Tab / Shift-Tab** cycles resize/rotation handles.
-- **Arrows** move the resize handle along local axes by 1 unit; **Shift-Arrows** by 10.
+- Shapes and code blocks start on the bottom-right handle; standalone lines and
+  arrows start on the start endpoint. **Tab / Shift-Tab** cycles handles or endpoints.
+- **Arrows** move the active resize handle along local axes (or the active line
+  endpoint in world coordinates) by 1 unit; **Shift-Arrows** by 10.
 - On the rotation handle, Left/Up subtract 1 degree and Right/Down add 1;
   Shift changes the step to 15 degrees.
 - **Return** commits the whole preview once; **Escape** cancels. Undo/Redo first
@@ -78,8 +86,8 @@ For keyboard geometry, select an object and press **G**, or use
   Insert commands are disabled while geometry is pending.
 
 Geometry previews and rerouted connections stay outside committed JSON until
-commit. Cancellation/no-op preserves Redo, metadata and omitted rotation fields.
-Standalone lines do not use box resize/rotation yet; their endpoint editing is pending.
+commit. Cancellation/no-op preserves Redo, metadata, non-padded line boxes and
+omitted rotation fields.
 
 Select a source object and press **C**, or choose **Insert → Connection…**.
 Choose source/target objects and Automatic or named attachment sides, then

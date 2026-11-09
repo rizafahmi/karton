@@ -7,10 +7,11 @@ and Hakushi. The JSON file is the document, not an export from a database.
 
 A native, **session-only canvas app** is available for macOS 27 through the
 [command-line build](macos/README.md). Without Phoenix, it can start blank v2
-canvases, open supported v1/v2 files, insert shapes/text, connect objects, select
-and Tab-traverse objects/connections, move, resize/rotate, duplicate, delete,
-reorder front/back, lock/unlock, edit captions and Undo/Redo in memory.
-It never saves; style editing, line/code creation, attachment previews, syntax
+canvases, open supported v1/v2 files, insert shapes/text and standalone lines/arrows,
+connect objects, select and Tab-traverse objects/connections, move, resize/rotate
+and edit line endpoints, duplicate, delete, reorder front/back, lock/unlock, edit
+captions and Undo/Redo in memory.
+It never saves; style editing, code creation, attachment previews, syntax
 highlighting, recovery and PNG export are not implemented.
 The independent native editor remains an unfinished milestone; see
 [TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) and

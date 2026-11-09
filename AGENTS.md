@@ -13,9 +13,9 @@ unless requested, not permanently prohibited directions.
 
 An independent native Mac editor is in progress, sharing JSON contracts rather
 than the web runtime. `macos/` currently provides session-only New, shape/text
-insertion, connections, object/connection selection and Tab traversal, movement,
-resize/rotation, duplication, deletion, front/back stacking, lock/unlock, captions
-and Undo/Redo; it never saves.
+and standalone line/arrow insertion, connections, object/connection selection and
+Tab traversal, movement, box resize/rotation and line endpoint editing, duplication,
+deletion, front/back stacking, lock/unlock, captions and Undo/Redo; it never saves.
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.
@@ -68,9 +68,10 @@ silently upgrade/downgrade, or infer native implementation from web support.
   selection, duplication, deletion, front/back stacking, lock/unlock, rendering and
   explicit per-canvas history groups, not AppKit event-based grouping. Geometry/edges
   [CanvasGeometry](macos/Sources/CanvasCore/CanvasGeometry.swift) owns validated
-  authored boxes and rotated-anchor math; [GeometryGesture](macos/Sources/CanvasUI/GeometryGesture.swift)
-  keeps resize/rotation previews outside session JSON until commit. Preserve
-  omitted rotation on cancel/Undo; lines need endpoint semantics, not box scaling.
+  authored boxes, rotated-anchor math, and standalone line endpoint geometry;
+  [GeometryGesture](macos/Sources/CanvasUI/GeometryGesture.swift) keeps resize/rotation
+  and line-endpoint previews outside session JSON until commit. Preserve omitted
+  rotation and non-padded boxes on cancel/Undo/no-op; lines use endpoint semantics, not box scaling.
   [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift) and
   [ConnectionEditor](macos/Sources/CanvasUI/ConnectionEditor.swift) keep native
   sheet drafts separate until valid commit; cancellation leaves history untouched.
