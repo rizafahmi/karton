@@ -712,7 +712,8 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       The native app uses approximate routes, plain code and attachment cards,
       with no editable saves, style editing, line/code creation, recovery or
       export. It supports session-only New, shape/text insertion, connections,
-      selection, pointer/arrow movement, resize/rotation, locked-node protection,
+      object/connection selection and Tab traversal, pointer/arrow movement,
+      resize/rotation, duplication, deletion, front/back stacking, lock/unlock,
       caption editing and Undo/Redo; closing discards changes. Full editable cross-editor proof
       remains pending.
       Shared v1/v2 compatibility fixtures cover five shape kinds, free line,
@@ -776,6 +777,15 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       decodes strings with JSONDecoder and revalidates restored quotas. Regression
       checks prove BOM/line-ending/Unicode bytes, unknown string keys, large integer
       metadata and BOM-inclusive byte/grapheme limits. No format migration or saves.
+      Native object and connection lifecycle commands now support pointer and
+      Tab/Shift-Tab selection of objects and connections (including label pills),
+      Cobalt connection selection highlights, Delete/Forward Delete of connections
+      and unlocked objects (atomically removing and restoring incident connections
+      at their original indices), Duplicate (`⌘D`) at `(+24, +24)` with fresh IDs,
+      preserved `data` and 1 MiB attachment/code quota enforcement, Bring to Front
+      / Send to Back (`⌘⇧]` / `⌘⇧[`) with overlap bitmap proof and no-op redo
+      preservation, and undoable Lock / Unlock (`⌘L`) preserving omitted versus
+      explicit `locked` fields.
       Final package smoke caught an invalid bundle resource signature: direct
       execution died with signal 9, signature verification failed, and Launch
       Services refused to spawn it. The bundler now ad-hoc signs the assembled

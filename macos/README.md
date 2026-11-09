@@ -1,8 +1,9 @@
 # Native macOS editor
 
 This directory contains an independent native canvas app with session-only
-New, shape/text insertion, connections, selection, movement, resize/rotation,
-caption editing and Undo/Redo. The planned editor is not complete: there is no
+New, shape/text insertion, connections, object/connection selection and Tab
+traversal, movement, resize/rotation, duplication, deletion, front/back stacking,
+lock/unlock, caption editing and Undo/Redo. The planned editor is not complete: there is no
 saving, style editing, line/code creation, recovery, attachment preview, syntax
 highlighting or PNG export.
 
@@ -33,12 +34,29 @@ inherit document typography. New text stays in its sheet until committed; Cancel
 or empty Done creates nothing. Each insertion is one undoable action; Redo retains its ID.
 Inserting repeatedly uses the same center; drag each object to arrange it.
 
-Click an object to select it; drag it, or use Arrow keys (Shift-Arrow moves 10
-world units). Locked objects can be selected but not moved or edited.
+Click an object or connection (curve or label pill) to select it, or press
+**Tab / Shift-Tab** to cycle through objects and connections in canvas order;
+**Escape** clears the selection. Drag a selected object, or use Arrow keys
+(Shift-Arrow moves 10 world units).
+
+For the selected unlocked object:
+
+- **Edit → Duplicate** (**⌘D**) adds an unlocked copy offset by `(+24, +24)` with a
+  fresh ID while enforcing the 1 MiB attachment and code source quotas.
+- **Edit → Bring to Front** (**⇧⌘]**) and **Edit → Send to Back** (**⇧⌘[**) reorder
+  overlapping objects without changing positions, styles, metadata or connections.
+- **Edit → Delete** (**Delete** / **Forward Delete**) removes the selected unlocked
+  object (together with any incident connections) or the selected connection in one
+  undoable step.
+- **Edit → Lock / Unlock** (**⌘L**) toggles `locked` on the selected object. Locked
+  objects can be selected and unlocked, and connections attached to them can be
+  deleted, but locked objects cannot be moved, resized, rotated, edited, duplicated,
+  reordered or deleted.
+
 Command-Z and Shift-Command-Z undo/redo insertions, connections, completed moves,
-resize/rotation and caption changes. Each command is a separate transaction, even
-when several commands arrive in one event. Native text editors retain their own
-text history.
+resize/rotation, duplication, deletion, front/back stacking, lock/unlock and caption
+changes. Each command is a separate transaction, even when several commands arrive
+in one event. Native text editors retain their own text history.
 
 Selected unlocked shapes and code blocks show eight resize handles and a round
 rotation handle. Drag a handle and release to commit; **Escape** cancels.
@@ -73,8 +91,8 @@ the sheet with an error. Connecting to a locked object does not modify that obje
 Connections are curved arrows; moving, resizing or rotating either endpoint remeasures
 the route without rewriting its stored sides. Exterior routes expand the scrollable canvas
 without shifting the current view. Undo removes the new connection; Redo restores
-its ID, bindings and order. Connection selection, labels, reconnection, style
-editing and deletion are not implemented yet.
+its ID, bindings and order. Connections can be selected and deleted; connection
+labels, reconnection and style editing are not implemented yet.
 
 Double-click an unlocked shape, or select it and press Return, to edit its caption
 in a native sheet. Return inserts a newline; **⌘Return** or **Done** commits;

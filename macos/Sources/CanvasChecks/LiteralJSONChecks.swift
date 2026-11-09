@@ -113,6 +113,11 @@ func checkCompatibilityRoundTrips(repository: URL) throws {
     let insertedShape = try v1Session.insertShape(.rectangle, at: CanvasPosition(x: 780, y: 40), text: "Added in native")
     let insertedEdge = try v1Session.insertConnection(source: insertedShape.id, sourceSide: .left,
                                                       target: "diamond", targetSide: .right)
+    let broughtFront = try v1Session.bringToFront("ellipse")
+    try require(broughtFront != nil, "v1 ellipse bringToFront did not apply")
+    let lockedText = try v1Session.setLocked("text", to: true)
+    try require(lockedText, "v1 text lock did not apply")
+    let deletedLoop = try v1Session.deleteConnection("loop")
     let v1EditedBytes = try v1Session.encodedData()
     try v1EditedBytes.write(to: v1Temp, options: .atomic)
     let v1Reopened = try CanvasDocument(data: Data(contentsOf: v1Temp))
@@ -121,22 +126,26 @@ func checkCompatibilityRoundTrips(repository: URL) throws {
     try require(v1Reopened.root["version"] as? Int == 1, "Edited v1 round-trip changed format version")
     let v1Nodes = v1Reopened.root["nodes"] as! [[String: Any]]
     let v1Edges = v1Reopened.root["edges"] as! [[String: Any]]
-    try require(v1Nodes.map { $0["id"] as! String } == ["rect", "ellipse", "diamond", "triangle", "text", "line", insertedShape.id],
+    try require(v1Nodes.map { $0["id"] as! String } == ["rect", "diamond", "triangle", "text", "line", insertedShape.id, "ellipse"],
                 "v1 round-trip altered node stacking order or IDs")
-    try require(v1Edges.map { $0["id"] as! String } == ["styled", "loop", "step-solid", "straight-collision", insertedEdge.id],
+    try require(v1Edges.map { $0["id"] as! String } == ["styled", "step-solid", "straight-collision", insertedEdge.id],
                 "v1 round-trip altered edge order or IDs")
-    let reopenedEllipseData = v1Nodes[1]["data"] as! [String: Any]
+    try require(v1Nodes[3]["locked"] as? Bool == true, "v1 round-trip lost newly locked state")
+    let reopenedEllipseData = v1Nodes[6]["data"] as! [String: Any]
     let emptyAttachment = reopenedEllipseData["attachment"] as! [String: Any]
     try require(emptyAttachment["content"] as? String == "" &&
                 emptyAttachment["future"] as? String == "empty-attachment" &&
                 reopenedEllipseData["font"] as? String == "handwritten" &&
                 reopenedEllipseData["size"] as? String == "l" &&
                 reopenedEllipseData["align"] as? String == "right",
-                "Resizing v1 ellipse lost empty attachment or typography metadata")
-    let collisionData = v1Edges[3]["data"] as! [String: Any]
+                "Resizing/reordering v1 ellipse lost empty attachment or typography metadata")
+    let collisionData = v1Edges[2]["data"] as! [String: Any]
     try require(collisionData["connector_style"] as? String == "legacy-collision" &&
                 collisionData["future"] as? String == "collision-kept",
                 "v1 round-trip lost non-object connector_style collision metadata")
+    try v1Session.restoreInsertion(deletedLoop)
+    _ = try v1Session.setLocked("text", to: nil)
+    _ = try v1Session.moveNode("ellipse", toIndex: broughtFront!.fromIndex)
     try v1Session.removeInsertion(insertedEdge)
     try v1Session.removeInsertion(insertedShape)
     _ = try v1Session.setText("triangle", to: triangleTextBefore)

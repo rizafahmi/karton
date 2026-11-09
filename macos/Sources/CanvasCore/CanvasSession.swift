@@ -38,6 +38,20 @@ public struct CanvasConnectionInsertion {
     fileprivate let index: Int
 }
 
+/// Retained node and incident connections for atomic Delete Undo/Redo.
+public struct CanvasNodeDeletion {
+    public let id: String
+    fileprivate let node: [String: Any]
+    fileprivate let index: Int
+    fileprivate let edges: [(index: Int, edge: [String: Any])]
+}
+
+public struct CanvasStackMove: Equatable, Sendable {
+    public let id: String
+    public let fromIndex: Int
+    public let toIndex: Int
+}
+
 /// Mutable in-memory document state. Persistence remains deliberately unavailable.
 public final class CanvasSession {
     public let document: CanvasDocument
@@ -66,8 +80,25 @@ public final class CanvasSession {
         return CanvasPosition(x: x, y: y)
     }
 
+    public func lockedValue(of id: String) -> Bool? {
+        node(id)?["locked"] as? Bool
+    }
+
     public func isLocked(_ id: String) -> Bool {
-        node(id)?["locked"] as? Bool == true
+        lockedValue(of: id) == true
+    }
+
+    @discardableResult
+    public func setLocked(_ id: String, to locked: Bool?) throws -> Bool {
+        guard var nodes = root["nodes"] as? [[String: Any]],
+              let index = nodes.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw CanvasDocumentError("Unknown node ID: \(id).")
+        }
+        let previous = nodes[index]["locked"] as? Bool
+        guard previous != locked else { return false }
+        nodes[index]["locked"] = locked
+        root["nodes"] = nodes
+        return true
     }
 
     @discardableResult
@@ -201,7 +232,154 @@ public final class CanvasSession {
             throw CanvasDocumentError("Cannot restore the inserted shape at its original position.")
         }
         nodes.insert(insertion.node, at: insertion.index)
+        var candidate = root
+        candidate["nodes"] = nodes
+        try CanvasDocument.validate(candidate)
+        root = candidate
+    }
+
+    public func canDuplicateNode(_ id: String) -> Bool {
+        node(id) != nil && !isLocked(id)
+    }
+
+    @discardableResult
+    public func duplicateNode(
+        _ id: String, offset: CanvasPosition = CanvasPosition(x: 24, y: 24)
+    ) throws -> CanvasShapeInsertion {
+        guard let sourceNode = node(id) else {
+            throw CanvasDocumentError("Unknown node ID: \(id).")
+        }
+        guard !isLocked(id) else {
+            throw CanvasDocumentError("Node \(id) is locked.")
+        }
+        guard let x = number(sourceNode["x"]), let y = number(sourceNode["y"]) else {
+            throw CanvasDocumentError("Node \(id) needs finite coordinates.")
+        }
+        let newID = UUID().uuidString
+        var copy: [String: Any] = [
+            "id": newID,
+            "type": sourceNode["type"] as Any,
+            "x": x + offset.x,
+            "y": y + offset.y,
+            "width": sourceNode["width"] as Any,
+            "height": sourceNode["height"] as Any,
+            "data": sourceNode["data"] as Any
+        ]
+        if let parent = sourceNode["parent"] {
+            copy["parent"] = parent
+        }
+        let insertion = CanvasShapeInsertion(
+            id: newID, node: copy, index: (root["nodes"] as? [[String: Any]])?.count ?? 0
+        )
+        try restoreInsertion(insertion)
+        return insertion
+    }
+
+    public func canDeleteNode(_ id: String) -> Bool {
+        node(id) != nil && !isLocked(id)
+    }
+
+    @discardableResult
+    public func deleteNode(_ id: String) throws -> CanvasNodeDeletion {
+        guard var nodes = root["nodes"] as? [[String: Any]],
+              let index = nodes.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw CanvasDocumentError("Unknown node ID: \(id).")
+        }
+        guard !isLocked(id) else {
+            throw CanvasDocumentError("Node \(id) is locked.")
+        }
+        let removedNode = nodes.remove(at: index)
+        let currentEdges = root["edges"] as? [[String: Any]] ?? []
+        var removedEdges: [(index: Int, edge: [String: Any])] = []
+        var remainingEdges: [[String: Any]] = []
+        for (edgeIndex, edge) in currentEdges.enumerated() {
+            if edge["source"] as? String == id || edge["target"] as? String == id {
+                removedEdges.append((index: edgeIndex, edge: edge))
+            } else {
+                remainingEdges.append(edge)
+            }
+        }
         root["nodes"] = nodes
+        root["edges"] = remainingEdges
+        return CanvasNodeDeletion(id: id, node: removedNode, index: index, edges: removedEdges)
+    }
+
+    public func restoreNodeDeletion(_ deletion: CanvasNodeDeletion) throws {
+        guard var nodes = root["nodes"] as? [[String: Any]],
+              deletion.index <= nodes.count, node(deletion.id) == nil else {
+            throw CanvasDocumentError("Cannot restore the deleted object at its original position.")
+        }
+        nodes.insert(deletion.node, at: deletion.index)
+        var edges = root["edges"] as? [[String: Any]] ?? []
+        for item in deletion.edges {
+            guard item.index <= edges.count,
+                  let edgeID = item.edge["id"] as? String,
+                  !edges.contains(where: { $0["id"] as? String == edgeID }) else {
+                throw CanvasDocumentError("Cannot restore a deleted connection at its original position.")
+            }
+            edges.insert(item.edge, at: item.index)
+        }
+        var candidate = root
+        candidate["nodes"] = nodes
+        candidate["edges"] = edges
+        try CanvasDocument.validate(candidate)
+        root = candidate
+    }
+
+    public func nodeIndex(of id: String) -> Int? {
+        (root["nodes"] as? [[String: Any]])?.firstIndex { $0["id"] as? String == id }
+    }
+
+    public func canBringToFront(_ id: String) -> Bool {
+        guard let nodes = root["nodes"] as? [[String: Any]],
+              let index = nodeIndex(of: id), !isLocked(id) else { return false }
+        return index < nodes.count - 1
+    }
+
+    public func canSendToBack(_ id: String) -> Bool {
+        guard let index = nodeIndex(of: id), !isLocked(id) else { return false }
+        return index > 0
+    }
+
+    @discardableResult
+    public func bringToFront(_ id: String) throws -> CanvasStackMove? {
+        guard let nodes = root["nodes"] as? [[String: Any]], node(id) != nil else {
+            throw CanvasDocumentError("Unknown node ID: \(id).")
+        }
+        guard !isLocked(id) else {
+            throw CanvasDocumentError("Node \(id) is locked.")
+        }
+        return try moveNode(id, toIndex: nodes.count - 1)
+    }
+
+    @discardableResult
+    public func sendToBack(_ id: String) throws -> CanvasStackMove? {
+        guard node(id) != nil else {
+            throw CanvasDocumentError("Unknown node ID: \(id).")
+        }
+        guard !isLocked(id) else {
+            throw CanvasDocumentError("Node \(id) is locked.")
+        }
+        return try moveNode(id, toIndex: 0)
+    }
+
+    @discardableResult
+    public func moveNode(_ id: String, toIndex targetIndex: Int) throws -> CanvasStackMove? {
+        guard var nodes = root["nodes"] as? [[String: Any]],
+              let fromIndex = nodes.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw CanvasDocumentError("Unknown node ID: \(id).")
+        }
+        guard !isLocked(id) else {
+            throw CanvasDocumentError("Node \(id) is locked.")
+        }
+        guard (0..<nodes.count).contains(targetIndex) else {
+            throw CanvasDocumentError("Target stacking index is out of bounds.")
+        }
+        guard fromIndex != targetIndex else { return nil }
+        let item = nodes.remove(at: fromIndex)
+        nodes.insert(item, at: targetIndex)
+        root["nodes"] = nodes
+        return CanvasStackMove(id: id, fromIndex: fromIndex, toIndex: targetIndex)
     }
     public func insertConnection(
         source: String, sourceSide: CanvasConnectionSide? = nil,
@@ -230,6 +408,21 @@ public final class CanvasSession {
         }
         edges.remove(at: index)
         root["edges"] = edges
+    }
+
+    public func hasConnection(_ id: String) -> Bool {
+        (root["edges"] as? [[String: Any]])?.contains { $0["id"] as? String == id } == true
+    }
+
+    @discardableResult
+    public func deleteConnection(_ id: String) throws -> CanvasConnectionInsertion {
+        guard var edges = root["edges"] as? [[String: Any]],
+              let index = edges.firstIndex(where: { $0["id"] as? String == id }) else {
+            throw CanvasDocumentError("Unknown connection ID: \(id).")
+        }
+        let removed = edges.remove(at: index)
+        root["edges"] = edges
+        return CanvasConnectionInsertion(id: id, edge: removed, index: index)
     }
 
     public func restoreInsertion(_ insertion: CanvasConnectionInsertion) throws {

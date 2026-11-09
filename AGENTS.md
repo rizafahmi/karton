@@ -13,8 +13,9 @@ unless requested, not permanently prohibited directions.
 
 An independent native Mac editor is in progress, sharing JSON contracts rather
 than the web runtime. `macos/` currently provides session-only New, shape/text
-insertion, connections, selection, movement, resize/rotation, captions and Undo/Redo;
-it never saves.
+insertion, connections, object/connection selection and Tab traversal, movement,
+resize/rotation, duplication, deletion, front/back stacking, lock/unlock, captions
+and Undo/Redo; it never saves.
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.
@@ -56,15 +57,16 @@ silently upgrade/downgrade, or infer native implementation from web support.
   Keep raw numeric-token validation before string-preserving decoding, then
   validate restored content/quotas; parsing happens on open, not geometry edits.
   [CanvasSession](macos/Sources/CanvasCore/CanvasSession.swift) owns mutable in-memory
-  graph state, validated `encodedData()` snapshots, and retained object/connection
-  insertion identity/stacking; connection transactions validate endpoints and self-loop sides.
+  graph state, validated `encodedData()` snapshots, retained object/connection
+  insertion/deletion/duplication identity and stacking, 1 MiB attachment/code duplicate
+  quota checks, and lock/unlock; connection transactions validate endpoints and self-loop sides.
   [CanvasTheme](macos/Sources/CanvasUI/CanvasTheme.swift) defines the light-first
   Neo-Acid canvas palette (`#f7f7f5` Raw Gallery Plaster background, `#ecece6`
   surface, `#0a0b0d` Ebony Ink for strokes and light/highlighter fills, `#ffffff`
   text on `ink` fills, and `#1a3bf5` Cobalt selection). [CanvasView](macos/Sources/CanvasUI/CanvasView.swift)
-  owns AppKit hit-testing, viewport-centered insertion, selection, rendering and
+  owns AppKit object/connection hit-testing, Tab traversal, viewport-centered insertion,
+  selection, duplication, deletion, front/back stacking, lock/unlock, rendering and
   explicit per-canvas history groups, not AppKit event-based grouping. Geometry/edges
-  grow scroll bounds without shifting the visible world position; Undo does not shrink them.
   [CanvasGeometry](macos/Sources/CanvasCore/CanvasGeometry.swift) owns validated
   authored boxes and rotated-anchor math; [GeometryGesture](macos/Sources/CanvasUI/GeometryGesture.swift)
   keeps resize/rotation previews outside session JSON until commit. Preserve

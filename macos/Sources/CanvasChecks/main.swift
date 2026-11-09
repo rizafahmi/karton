@@ -7,8 +7,8 @@ struct CheckFailure: Error, CustomStringConvertible {
     let description: String
 }
 
-func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
-    if !condition() { throw CheckFailure(description: message) }
+func require(_ condition: @autoclosure () throws -> Bool, _ message: String) throws {
+    if !(try condition()) { throw CheckFailure(description: message) }
 }
 
 func encoded(_ value: Any) throws -> Data {
@@ -345,6 +345,7 @@ func runChecks() throws {
     print("PASS blank canvas, all shape insertions, viewport placement, text drafts and mixed history")
     try checkConnections(repository: repository)
     try checkGeometry(repository: repository)
+    try checkLifecycle(repository: repository)
     try checkLiteralJSON()
     try checkCompatibilityRoundTrips(repository: repository)
     try checkTheme(repository: repository)

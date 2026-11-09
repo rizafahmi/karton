@@ -11,6 +11,11 @@ public final class CanvasDocument {
         try CanvasDocument(data: Data(#"{"version":2,"nodes":[],"edges":[]}"#.utf8))
     }
 
+    /// Validates an in-memory canvas root dictionary against all v1/v2 schema and quota rules.
+    public static func validate(_ root: [String: Any]) throws {
+        try Validator.validate(root)
+    }
+
     /// Serializes and re-validates a canvas root object as portable UTF-8 JSON.
     public static func encode(_ root: [String: Any]) throws -> Data {
         try Validator.validate(root)

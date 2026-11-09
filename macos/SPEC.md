@@ -1,8 +1,9 @@
 # Native macOS implementation specification
 
 Status: design specification; the session-only native app supports blank v2 New,
-shape/text insertion, connections, selection, movement, resize/rotation, captions
-and Undo/Redo. Text edits retain geometry; the full editor, persistence and acceptance proof
+shape/text insertion, connections, object/connection selection and Tab traversal,
+movement, resize/rotation, duplication, deletion, front/back stacking, lock/unlock,
+captions and Undo/Redo. Text edits retain geometry; the full editor, persistence and acceptance proof
 remain incomplete.
 
 ## 1. Approval boundary and outcome

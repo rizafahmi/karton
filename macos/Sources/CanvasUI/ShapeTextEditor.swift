@@ -82,8 +82,10 @@ final class ShapeTextEditor: NSObject {
     @objc private func cancelEditing() { dismiss() }
 
     private func dismiss() {
-        panel.sheetParent?.endSheet(panel)
+        let parent = panel.sheetParent
+        parent?.endSheet(panel)
         panel.orderOut(nil)
+        parent?.makeKeyAndOrderFront(nil)
         completion()
     }
 }
