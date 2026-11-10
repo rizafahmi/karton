@@ -20,9 +20,10 @@ selection-preserving Tab traversal, Space tap selection toggle and Space-drag
 viewport panning, marquee and Shift-click/⌘A multi-selection, movement, box
 resize/rotation and line endpoint editing, duplication, deletion, front/back
 stacking, lock/unlock, object/connection/canvas style inspection and editing,
-captions with box growth (measured using current placeholder system font
-approximations), read-only attachment preview/copy, canvas zoom/fit (`+`/`-`,
-`⇧1`, `⇧0`/`⌘0`) and Undo/Redo; it never saves.
+captions with box growth (measured with bundled Neo-Acid and Amatic SC faces
+plus CoreText system cascade fallback), read-only attachment preview/copy,
+canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent Keynote PNG export
+(`File → Export PNG…`, `⇧⌘E`) and Undo/Redo; it never saves JSON documents.
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.
@@ -70,14 +71,22 @@ silently upgrade/downgrade, or infer native implementation from web support.
   [CanvasTheme](macos/Sources/CanvasUI/CanvasTheme.swift) defines the light-first
   Neo-Acid canvas palette (`#f7f7f5` Raw Gallery Plaster background, `#ecece6`
   surface, `#0a0b0d` Ebony Ink for strokes and light/highlighter fills, `#ffffff`
-  text on `ink` fills, and `#1a3bf5` Cobalt selection). [CanvasView](macos/Sources/CanvasUI/CanvasView.swift)
+  text on `ink` fills, and `#1a3bf5` Cobalt selection).
+  [PNGExport](macos/Sources/CanvasUI/PNGExport.swift) (`CanvasTypography`,
+  `CanvasPNGExportSizing`, `CanvasPNGExportPlan`, and `PNGExportSheet`) registers
+  the bundled Neo-Acid (`Mona Sans` 400/700, `Unbounded` 800, `Monaspace Neon`
+  400/700) and `Amatic SC` 700 faces from `macos/Resources/Fonts/` with CoreText
+  system glyph fallback, and renders offscreen transparent sRGB PNG snapshots
+  (2,048px default longest side or exact letterboxed dimensions, 32-unit padding,
+  8,192px/side and 16,777,216px total caps, zoom/DPR invariant, no paper/grid/UI
+  chrome) after flushing valid pending editors/previews.
+  [CanvasView](macos/Sources/CanvasUI/CanvasView.swift)
   owns AppKit object/connection hit-testing, Tab traversal, Space tap/hold-pan,
   marquee and multi-selection, viewport-centered and adjacent-thought (`N`)
   insertion, inline on-canvas shape/text caption editing with live/committed box
-  growth (measured using current placeholder font approximations), zoom/fit
-  (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), duplication, deletion, front/back stacking,
-  lock/unlock, rendering and explicit per-canvas history groups, not AppKit
-  event-based grouping. Geometry/edges
+  growth, zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), duplication, deletion, front/back
+  stacking, lock/unlock, rendering, PNG export snapshot capture, and explicit
+  per-canvas history groups, not AppKit event-based grouping. Geometry/edges
   [CanvasGeometry](macos/Sources/CanvasCore/CanvasGeometry.swift) owns validated
   authored boxes, rotated-anchor math, adjacent-thought ray placement/blocker
   skipping, and standalone line endpoint geometry;

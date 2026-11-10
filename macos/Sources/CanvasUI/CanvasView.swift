@@ -131,6 +131,8 @@ public final class CanvasView: NSView {
     private var connectionEditor: ConnectionEditor?
     private var attachmentPreview: AttachmentPreviewSheet?
     public var attachmentPasteboard: NSPasteboard = .general
+    private var pngExportSheet: PNGExportSheet?
+    public var pngExportDestinationProvider: ((String) -> URL?)?
     private var geometryGesture: GeometryGesture?
     private var lineEndpointGesture: LineEndpointGesture?
     private var inlineTextState: InlineTextState?
@@ -229,6 +231,12 @@ public final class CanvasView: NSView {
         !hasGeometryPreview && inlineTextState == nil && drag == nil && canInsertConnection &&
             (selectedEdgeID.map { session.hasConnection($0) } ?? false)
     }
+    public var canExportPNG: Bool {
+        drag == nil && connectionEditor == nil && attachmentPreview == nil && pngExportSheet == nil &&
+            (!nodes.isEmpty || hasActiveInlineTextEditor)
+    }
+    public var isPNGExportSheetOpen: Bool { pngExportSheet != nil }
+    public var activePNGExportPanel: NSPanel? { pngExportSheet?.panel }
     public var canDeleteSelection: Bool {
         guard !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
         if !selectedNodeIDs.isEmpty {
@@ -380,8 +388,16 @@ public final class CanvasView: NSView {
             height: dirtyRect.height / zoomScale
         )
         drawPaper(worldDirty)
-        for edge in edges { drawEdge(edge) }
-        for node in nodes { drawNode(node) }
+        for edge in edges { Self.drawEdge(edge, role: fontRole, isSelected: edge.id == selectedEdgeID) }
+        for node in nodes {
+            let isEditingCaption: Bool
+            if case .shapeCaption(let editingID, _, _, _, _, _) = inlineTextState, editingID == node.id {
+                isEditingCaption = true
+            } else {
+                isEditingCaption = false
+            }
+            Self.drawNode(node, role: fontRole, hideCaption: isEditingCaption)
+        }
         if selectedNodeIDs.count > 1 {
             for node in nodes where selectedNodeIDs.contains(node.id) {
                 drawMultiSelectionOutline(node, isFocused: node.id == focusedNodeID)
@@ -1572,6 +1588,186 @@ public final class CanvasView: NSView {
         attachmentPreview?.present(on: window)
     }
 
+    public func beginPNGExport(defaultFilename: String = "canvas.png") {
+        guard let window, window.attachedSheet == nil,
+              connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil,
+              drag == nil else {
+            NSSound.beep()
+            return
+        }
+        do {
+            try flushPendingEditsForExport()
+        } catch {
+            NSSound.beep()
+            return
+        }
+        let bounds = contentWorldBounds()
+        guard !bounds.isNull, bounds.width > 0, bounds.height > 0 else {
+            NSSound.beep()
+            return
+        }
+        let chooseDest: (String) -> URL? = { [weak self] suggestedName in
+            if let provider = self?.pngExportDestinationProvider {
+                return provider(suggestedName)
+            }
+            let savePanel = NSSavePanel()
+            savePanel.allowedContentTypes = [.png]
+            savePanel.canCreateDirectories = true
+            savePanel.nameFieldStringValue = suggestedName
+            return savePanel.runModal() == .OK ? savePanel.url : nil
+        }
+        pngExportSheet = PNGExportSheet(
+            contentWorldBounds: bounds,
+            defaultFilename: defaultFilename,
+            chooseDestination: chooseDest,
+            performExport: { [weak self] sizing, url in
+                guard let self else { return }
+                try self.exportPNG(to: url, sizing: sizing)
+            },
+            completion: { [weak self, weak window] in
+                guard let self else { return }
+                self.pngExportSheet = nil
+                window?.makeFirstResponder(self)
+            }
+        )
+        pngExportSheet?.present(on: window)
+    }
+
+    public func flushPendingEditsForExport() throws {
+        guard drag == nil else {
+            throw CanvasDocumentError("Finish the active drag gesture before exporting.")
+        }
+        guard connectionEditor == nil, attachmentPreview == nil else {
+            throw CanvasDocumentError("Close the active sheet before exporting.")
+        }
+        if let state = inlineTextState {
+            if thoughtInputView.hasMarkedText() {
+                throw CanvasDocumentError("Finish active text input before exporting.")
+            }
+            switch state {
+            case .adjacentChoosing:
+                cancelInlineText()
+            case .adjacentEditing, .newText, .shapeCaption:
+                commitInlineText()
+                if inlineTextState != nil {
+                    throw CanvasDocumentError(inlineTextError ?? "Finish valid text editing before exporting.")
+                }
+            }
+        }
+        if geometryGesture != nil {
+            commitGeometry()
+            if geometryGesture != nil {
+                throw CanvasDocumentError("Could not commit pending geometry preview.")
+            }
+        }
+        if lineEndpointGesture != nil {
+            commitLineEndpoints()
+            if lineEndpointGesture != nil {
+                throw CanvasDocumentError("Could not commit pending line endpoint preview.")
+            }
+        }
+        guard !nodes.isEmpty else {
+            throw CanvasDocumentError("Cannot export an empty canvas.")
+        }
+    }
+
+    public func contentWorldBounds() -> CGRect {
+        _ = CanvasTypography.ensureRegistered()
+        return Self.contentWorldBounds(nodes: nodes, edges: edges, role: fontRole)
+    }
+
+    public func exportPNGPlan(
+        sizing: CanvasPNGExportSizing = .longestSide(CanvasPNGExportSizing.defaultLongestSide),
+        padding: Double = CanvasPNGExportSizing.defaultPadding
+    ) throws -> CanvasPNGExportPlan {
+        try flushPendingEditsForExport()
+        _ = CanvasTypography.ensureRegistered()
+        let bounds = Self.contentWorldBounds(nodes: nodes, edges: edges, role: fontRole)
+        return try CanvasPNGExportPlan.resolve(contentWorldBounds: bounds, sizing: sizing, padding: padding)
+    }
+
+    public func exportPNGData(
+        sizing: CanvasPNGExportSizing = .longestSide(CanvasPNGExportSizing.defaultLongestSide),
+        padding: Double = CanvasPNGExportSizing.defaultPadding
+    ) throws -> Data {
+        try flushPendingEditsForExport()
+        _ = CanvasTypography.ensureRegistered()
+        let snapshotRoot = session.root
+        let snapshotRole = (snapshotRoot["appearance"] as? [String: Any])?["font"] as? String ?? "sans"
+        let snapshotNodes = (snapshotRoot["nodes"] as? [[String: Any]] ?? []).map { raw in
+            Node(
+                id: raw["id"] as? String ?? "",
+                type: raw["type"] as? String ?? "shape",
+                box: CGRect(
+                    x: number(raw["x"]),
+                    y: number(raw["y"]),
+                    width: number(raw["width"]),
+                    height: number(raw["height"])
+                ),
+                data: raw["data"] as? [String: Any] ?? [:]
+            )
+        }
+        let index = Dictionary(uniqueKeysWithValues: snapshotNodes.map { ($0.id, $0) })
+        let snapshotEdges = (snapshotRoot["edges"] as? [[String: Any]] ?? []).compactMap { raw -> EdgeDrawing? in
+            guard let source = index[raw["source"] as? String ?? ""],
+                  let target = index[raw["target"] as? String ?? ""] else { return nil }
+            return Self.makeEdge(raw, source, target, role: snapshotRole)
+        }
+        let bounds = Self.contentWorldBounds(nodes: snapshotNodes, edges: snapshotEdges, role: snapshotRole)
+        let plan = try CanvasPNGExportPlan.resolve(contentWorldBounds: bounds, sizing: sizing, padding: padding)
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let cgContext = CGContext(
+                  data: nil,
+                  width: plan.pixelWidth,
+                  height: plan.pixelHeight,
+                  bitsPerComponent: 8,
+                  bytesPerRow: 0,
+                  space: colorSpace,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            throw CanvasDocumentError("Could not allocate sRGB bitmap for PNG export.")
+        }
+        cgContext.clear(CGRect(x: 0, y: 0, width: plan.pixelWidth, height: plan.pixelHeight))
+        cgContext.translateBy(x: 0, y: CGFloat(plan.pixelHeight))
+        cgContext.scaleBy(x: 1, y: -1)
+        let graphicsContext = NSGraphicsContext(cgContext: cgContext, flipped: true)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        cgContext.saveGState()
+        cgContext.translateBy(x: plan.offsetX, y: plan.offsetY)
+        cgContext.scaleBy(x: plan.scale, y: plan.scale)
+        cgContext.translateBy(x: -plan.paddedWorldBounds.minX, y: -plan.paddedWorldBounds.minY)
+        for edge in snapshotEdges {
+            Self.drawEdge(edge, role: snapshotRole, isSelected: false)
+        }
+        for node in snapshotNodes {
+            Self.drawNode(node, role: snapshotRole, hideCaption: false)
+        }
+        cgContext.restoreGState()
+        NSGraphicsContext.restoreGraphicsState()
+        guard let cgImage = cgContext.makeImage() else {
+            throw CanvasDocumentError("Could not finalize PNG image.")
+        }
+        let rep = NSBitmapImageRep(cgImage: cgImage)
+        guard let pngData = rep.representation(using: .png, properties: [:]) else {
+            throw CanvasDocumentError("Could not encode PNG data.")
+        }
+        return pngData
+    }
+
+    public func exportPNG(
+        to url: URL,
+        sizing: CanvasPNGExportSizing = .longestSide(CanvasPNGExportSizing.defaultLongestSide),
+        padding: Double = CanvasPNGExportSizing.defaultPadding
+    ) throws {
+        let data = try exportPNGData(sizing: sizing, padding: padding)
+        do {
+            try data.write(to: url, options: .atomic)
+        } catch {
+            throw CanvasDocumentError("Cannot write PNG to \(url.lastPathComponent): \(error.localizedDescription)")
+        }
+    }
+
     public func beginTextEditing() {
         guard inlineTextState == nil, connectionEditor == nil, attachmentPreview == nil,
               !hasGeometryPreview, let window, window.attachedSheet == nil,
@@ -2553,7 +2749,130 @@ public final class CanvasView: NSView {
         path.lineWidth = 0.5; path.stroke()
     }
 
-    private func drawNode(_ node: Node) {
+    private static func contentWorldBounds(nodes: [Node], edges: [EdgeDrawing], role: String) -> CGRect {
+        guard !nodes.isEmpty else { return .null }
+        var bounds = CGRect.null
+        for node in nodes {
+            let angle = node.rotation * .pi / 180
+            let cosA = cos(angle)
+            let sinA = sin(angle)
+            func rotatePoint(_ p: CGPoint) -> CGPoint {
+                let dx = p.x - node.center.x
+                let dy = p.y - node.center.y
+                return CGPoint(
+                    x: node.center.x + dx * cosA - dy * sinA,
+                    y: node.center.y + dx * sinA + dy * cosA
+                )
+            }
+            if node.type == "shape-line" {
+                let from = point(node.data["from"], in: node.box)
+                let to = point(node.data["to"], in: node.box)
+                let strokePad = max(1, number(node.data["width"], 2)) / 2
+                var pts: [CGPoint] = [from, to]
+                let arrow = node.data["arrow"] as? String ?? "end"
+                if arrow == "end" || arrow == "both" {
+                    let a = atan2(to.y - from.y, to.x - from.x)
+                    pts.append(CGPoint(x: to.x - 10 * cos(a - 0.48), y: to.y - 10 * sin(a - 0.48)))
+                    pts.append(CGPoint(x: to.x - 10 * cos(a + 0.48), y: to.y - 10 * sin(a + 0.48)))
+                }
+                if arrow == "both" {
+                    let a = atan2(from.y - to.y, from.x - to.x)
+                    pts.append(CGPoint(x: from.x - 10 * cos(a - 0.48), y: from.y - 10 * sin(a - 0.48)))
+                    pts.append(CGPoint(x: from.x - 10 * cos(a + 0.48), y: from.y - 10 * sin(a + 0.48)))
+                }
+                for p in pts.map(rotatePoint) {
+                    bounds = bounds.union(
+                        CGRect(x: p.x - strokePad, y: p.y - strokePad, width: strokePad * 2, height: strokePad * 2)
+                    )
+                }
+            } else {
+                let kind = node.type == "code" ? "rect" : node.kind
+                let defaultStroke = node.type == "code" ? "ink" : (kind == "text" ? "none" : "blue")
+                let strokeName = node.data["stroke"] as? String ?? defaultStroke
+                let strokeWidth: CGFloat = strokeName == "none" ? 0 : max(0, number(node.data["width"], 2))
+                let strokePad = strokeWidth / 2
+                let defaultRadius: CGFloat = (node.type == "code" || kind == "text") ? 0 : 8
+                let shapePath = outline(kind, node.box, number(node.data["radius"], defaultRadius))
+                var transform = CGAffineTransform(translationX: node.center.x, y: node.center.y)
+                    .rotated(by: angle)
+                    .translatedBy(x: -node.center.x, y: -node.center.y)
+                if let rotatedPath = shapePath.cgPath.copy(using: &transform) {
+                    let pathBox = rotatedPath.boundingBoxOfPath
+                    if !pathBox.isNull {
+                        bounds = bounds.union(pathBox.insetBy(dx: -strokePad, dy: -strokePad))
+                    }
+                    if strokeWidth > 0 {
+                        let stroked = rotatedPath.copy(
+                            strokingWithWidth: strokeWidth,
+                            lineCap: .butt,
+                            lineJoin: .miter,
+                            miterLimit: shapePath.miterLimit
+                        )
+                        let strokedBox = stroked.boundingBoxOfPath
+                        if !strokedBox.isNull && !strokedBox.isEmpty {
+                            bounds = bounds.union(strokedBox)
+                        }
+                    }
+                }
+                var local = node.box.insetBy(dx: -strokePad, dy: -strokePad)
+                if !nodeText(node).isEmpty {
+                    local = local.union(textRect(node, role: role))
+                }
+                let corners = [
+                    CGPoint(x: local.minX, y: local.minY),
+                    CGPoint(x: local.maxX, y: local.minY),
+                    CGPoint(x: local.maxX, y: local.maxY),
+                    CGPoint(x: local.minX, y: local.maxY),
+                ].map(rotatePoint)
+                for c in corners {
+                    bounds = bounds.union(CGRect(x: c.x, y: c.y, width: 0, height: 0))
+                }
+            }
+        }
+        for edge in edges {
+            let width = edge.style["width"] as? NSNumber
+            let validWidth = width != nil && CFGetTypeID(width!) != CFBooleanGetTypeID() &&
+                !["f", "d"].contains(String(cString: width!.objCType)) && [1, 2, 4].contains(width!.intValue)
+            let strokeWidth = validWidth ? CGFloat(width!.intValue) : 2.0
+            let strokePad = strokeWidth / 2.0
+            let cgPath = edge.path.cgPath
+            let exactCurveBox = cgPath.boundingBoxOfPath
+            if !exactCurveBox.isNull {
+                bounds = bounds.union(exactCurveBox.insetBy(dx: -strokePad, dy: -strokePad))
+            }
+            let strokedEdge = cgPath.copy(
+                strokingWithWidth: strokeWidth,
+                lineCap: .butt,
+                lineJoin: .miter,
+                miterLimit: edge.path.miterLimit
+            )
+            let strokedEdgeBox = strokedEdge.boundingBoxOfPath
+            if !strokedEdgeBox.isNull && !strokedEdgeBox.isEmpty {
+                bounds = bounds.union(strokedEdgeBox)
+            }
+            for sample in edge.samples {
+                bounds = bounds.union(
+                    CGRect(x: sample.x - strokePad, y: sample.y - strokePad, width: strokePad * 2, height: strokePad * 2)
+                )
+            }
+            if edge.marker == "arrow" {
+                let a = atan2(edge.end.y - edge.previous.y, edge.end.x - edge.previous.x)
+                let p1 = CGPoint(x: edge.end.x - 10 * cos(a - 0.48), y: edge.end.y - 10 * sin(a - 0.48))
+                let p2 = CGPoint(x: edge.end.x - 10 * cos(a + 0.48), y: edge.end.y - 10 * sin(a + 0.48))
+                for p in [edge.end, p1, p2] {
+                    bounds = bounds.union(CGRect(x: p.x, y: p.y, width: 0, height: 0))
+                }
+            } else if edge.marker == "dot" {
+                bounds = bounds.union(CGRect(x: edge.end.x - 4, y: edge.end.y - 4, width: 8, height: 8))
+            }
+            if let labelRect = edge.labelRect {
+                bounds = bounds.union(labelRect.insetBy(dx: -1, dy: -1))
+            }
+        }
+        return bounds
+    }
+
+    private static func drawNode(_ node: Node, role fontRole: String, hideCaption: Bool) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
         context.translateBy(x: node.center.x, y: node.center.y)
@@ -2579,16 +2898,10 @@ public final class CanvasView: NSView {
             let defaultStroke = node.type == "code" ? "ink" : (kind == "text" ? "none" : "blue")
             palette(data["stroke"] as? String ?? defaultStroke).setStroke()
             configure(path, data); path.stroke()
-            let isEditingCaption: Bool
-            if case .shapeCaption(let editingID, _, _, _, _, _) = inlineTextState, editingID == node.id {
-                isEditingCaption = true
-            } else {
-                isEditingCaption = false
-            }
-            if !isEditingCaption {
-                let text = Self.nodeText(node)
+            if !hideCaption {
+                let text = nodeText(node)
                 let role = node.type == "code" ? "mono" : (data["font"] as? String ?? fontRole)
-                let rect = Self.textRect(node, role: fontRole)
+                let rect = textRect(node, role: fontRole)
                 let style = NSMutableParagraphStyle()
                 style.alignment = node.type == "code" ? .left : alignment(data["align"] as? String ?? (kind == "text" ? "left" : "center"))
                 style.lineBreakMode = .byWordWrapping
@@ -2599,21 +2912,21 @@ public final class CanvasView: NSView {
         context.restoreGState()
     }
 
-    private func drawEdge(_ edge: EdgeDrawing) {
-        let isSelected = edge.id == selectedEdgeID
+    private static func drawEdge(_ edge: EdgeDrawing, role fontRole: String, isSelected: Bool) {
         let color = isSelected ? CanvasTheme.selectionCobalt : palette(edge.style["stroke"] as? String ?? "ink")
         let width = edge.style["width"] as? NSNumber
         let validWidth = width != nil && CFGetTypeID(width!) != CFBooleanGetTypeID() &&
             !["f", "d"].contains(String(cString: width!.objCType)) && [1, 2, 4].contains(width!.intValue)
-        color.setStroke(); edge.path.lineWidth = validWidth ? CGFloat(width!.intValue) : 2
+        let pathCopy = edge.path.copy() as! NSBezierPath
+        color.setStroke(); pathCopy.lineWidth = validWidth ? CGFloat(width!.intValue) : 2
         let dash = edge.style["dash"] as? NSNumber
         let dashed = dash != nil && CFGetTypeID(dash!) == CFBooleanGetTypeID() ? dash!.boolValue : edge.animated
-        if dashed { edge.path.setLineDash([6, 4], count: 2, phase: 0) }
-        edge.path.stroke()
+        if dashed { pathCopy.setLineDash([6, 4], count: 2, phase: 0) }
+        pathCopy.stroke()
         if edge.marker == "arrow" { drawArrow(at: edge.end, from: edge.previous, color: color) }
         if edge.marker == "dot" { color.setFill(); NSBezierPath(ovalIn: CGRect(x: edge.end.x - 4, y: edge.end.y - 4, width: 8, height: 8)).fill() }
         if !edge.label.isEmpty {
-            let size = Self.labelSize(edge.label, role: fontRole)
+            let size = labelSize(edge.label, role: fontRole)
             let rect = CGRect(x: edge.labelPoint.x - size.width / 2, y: edge.labelPoint.y - size.height / 2, width: size.width, height: size.height)
             let pill = rect.insetBy(dx: -5, dy: -2)
             CanvasTheme.elevatedSurface.setFill()
@@ -2824,13 +3137,7 @@ private func distance(_ point: CGPoint, toSegmentFrom start: CGPoint, to end: CG
     return hypot(point.x - nearest.x, point.y - nearest.y)
 }
 private func font(_ role: String, _ size: String, scale: CGFloat = 1.0) -> NSFont {
-    let points: CGFloat = max(4, (size == "s" ? 12 : size == "l" ? 24 : 16) * scale)
-    switch role {
-    case "mono": return .monospacedSystemFont(ofSize: points, weight: .regular)
-    case "heading": return .systemFont(ofSize: points, weight: .heavy)
-    case "handwritten": return NSFont(name: "Bradley Hand", size: points) ?? .systemFont(ofSize: points)
-    default: return .systemFont(ofSize: points)
-    }
+    CanvasTypography.font(role, size, scale: scale)
 }
 private func alignment(_ value: String) -> NSTextAlignment { value == "right" ? .right : value == "center" ? .center : .left }
 private func palette(_ name: String) -> NSColor {

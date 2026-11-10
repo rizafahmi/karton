@@ -207,6 +207,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         activeCanvas()?.showStyleInspector(sender)
     }
 
+    @objc public func exportPNG(_ sender: Any?) {
+        activeCanvas()?.beginPNGExport()
+    }
+
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         let keyWin = activeKeyWindow()
         let sheetOpen = keyWin?.attachedSheet != nil || keyWin?.sheetParent != nil || (activeCanvas()?.hasActiveInlineTextEditor == true)
@@ -232,7 +236,8 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
                  #selector(bringToFront(_:)), #selector(sendToBack(_:)),
                  #selector(toggleLock(_:)), #selector(showStyleInspector(_:)),
                  #selector(zoomIn(_:)), #selector(zoomOut(_:)),
-                 #selector(resetZoom(_:)), #selector(zoomToFit(_:)):
+                 #selector(resetZoom(_:)), #selector(zoomToFit(_:)),
+                 #selector(exportPNG(_:)):
                 return false
             default:
                 return true
@@ -275,6 +280,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         if menuItem.action == #selector(zoomIn(_:)) || menuItem.action == #selector(zoomOut(_:)) ||
            menuItem.action == #selector(resetZoom(_:)) || menuItem.action == #selector(zoomToFit(_:)) {
             return !sheetOpen
+        }
+        if menuItem.action == #selector(exportPNG(_:)) {
+            let modalSheetOpen = keyWin?.attachedSheet != nil || keyWin?.sheetParent != nil
+            return !modalSheetOpen && canvas.canExportPNG
         }
         if menuItem.action == #selector(insertShape(_:)) || menuItem.action == #selector(insertLine(_:)) ||
            menuItem.action == #selector(showStyleInspector(_:)) {
@@ -358,6 +367,11 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         let open = NSMenuItem(title: "Open…", action: #selector(chooseDocument(_:)), keyEquivalent: "o")
         open.target = self
         fileMenu.addItem(open)
+        let exportPNGItem = NSMenuItem(title: "Export PNG…", action: #selector(exportPNG(_:)), keyEquivalent: "e")
+        exportPNGItem.target = self
+        exportPNGItem.keyEquivalentModifierMask = [.command, .shift]
+        fileMenu.addItem(exportPNGItem)
+        fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileItem.submenu = fileMenu
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")

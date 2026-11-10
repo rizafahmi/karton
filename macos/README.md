@@ -7,10 +7,11 @@ selection, selection-preserving Tab traversal, Space tap selection toggle and
 Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
 resize/rotation and line endpoint editing, duplication, deletion, front/back
 stacking, lock/unlock, object/connection/canvas style editing, caption editing
-with automatic box growth, read-only attachment source preview/copy, canvas
-zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`) and Undo/Redo. The planned editor is not
-complete: there is no saving, code creation, recovery, syntax highlighting or
-PNG export.
+with automatic box growth (using bundled Neo-Acid and Amatic SC typography with
+CoreText system glyph fallback), read-only attachment source preview/copy, canvas
+zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent PNG export (**File → Export PNG…**,
+**⇧⌘E**) and Undo/Redo. The planned editor is not complete: there is no JSON
+saving, code creation, recovery or syntax highlighting.
 
 ## Build and run
 
@@ -142,23 +143,33 @@ the canvas. **Shift-Return** inserts a newline; **Return** or **⌘Return** comm
 **Escape** discards the draft. Text is limited to 2,000 graphemes; an invalid draft stays open
 without truncation. As multiline text exceeds the initial box height, the shape
 previews and commits the grown height in a single undoable transaction (keeping the
-top anchor fixed on rotated shapes, measured with the current placeholder native
-font approximations); cancelling restores the original text and height.
+top anchor fixed on rotated shapes, measured with the bundled Neo-Acid and Amatic SC
+faces plus CoreText system cascade fallback); cancelling restores the original text and height.
 Double-click or press **Return** on a shape with an embedded text attachment (or
 choose **Edit → Preview Attachment…**), including locked cards, to open a read-only
 literal UTF-8 source preview sheet with **Copy Source**; previewing and copying
 never modify the document or undo history. Code and standalone-line text editing
 are not implemented.
 
-The app never saves or changes source files. Closing the window discards session
+Use **File → Export PNG…** (**⇧⌘E**) to export the canvas as a transparent sRGB
+PNG suitable for Keynote. Choose **Longest side (proportional)** (default `2048` px)
+or **Exact dimensions (letterboxed)** (up to `8,192` px per side and `16,777,216` px
+total) with `32` world units of padding around all rotated shapes, text, standalone
+lines/arrows, self-loops, markers and connection labels. Exporting flushes valid
+pending inline text drafts or geometry previews once (cancelling an unplaced `N`
+direction chooser without history and refusing invalid drafts with text intact),
+excludes paper background, grid, selection outlines, handles and inspector chrome,
+and produces identical output regardless of viewport zoom, scroll position or display
+scale.
+
+The app never saves or changes JSON source files. Closing the window discards session
 changes without a confirmation prompt. It validates versions, graph references,
 content limits and supported rendering semantics before opening; unsupported
 documents are refused with a message. Some valid web canvases may be refused,
 including self-loops without two distinct named side handles and geometry outside
-the native app's bounds. The canvas uses the light-first Neo-Acid color palette while
-fonts and connector routes remain native approximations;
-code is plain text. No PNG export yet.
-
+the native app's bounds. The canvas uses the light-first Neo-Acid color palette and
+bundled Neo-Acid/Amatic SC fonts while connector routes remain native approximations;
+code is plain text.
 Run the standalone native contract and round-trip checks from the repository root:
 
 ```sh
@@ -231,9 +242,10 @@ native scope, unresolved decisions, and acceptance requirements. Approved on
 2026-11-05: macOS 27, Swift/AppKit canvas, inspectors and document lifecycle,
 Core Graphics/native text rendering, Swift Package and command-line `.app` bundling.
 PNG defaults to a 2,048-pixel longest side with configurable dimensions, 32-unit
-padding and caps of 8,192 pixels per side / 16,777,216 pixels total. HighlighterSwift
+padding and caps of 8,192 pixels per side / 16,777,216 pixels total (implemented
+and verified with bundled Neo-Acid typography and Keynote slides). HighlighterSwift
 is the approved highlighting candidate; it is not yet added or proven in the app.
-Recovery details, native file UX, font mappings and shortcuts remain decisions.
+Recovery details and native file persistence UX remain decisions.
 The current app does not establish editable web/native compatibility. Web verification
 still runs with `mix check` from the repository root; it does not build or verify
 the native app.

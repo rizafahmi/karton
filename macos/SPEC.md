@@ -8,9 +8,11 @@ selection, selection-preserving Tab traversal, Space tap selection toggle and
 Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
 resize/rotation and line endpoint editing, duplication, deletion, front/back
 stacking, lock/unlock, object/connection/canvas style editing, captions with
-measured box growth (using current placeholder font approximations), read-only
-attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`) and
-Undo/Redo. The full editor, persistence and acceptance proof remain incomplete.
+measured box growth (using bundled Neo-Acid and Amatic SC faces with CoreText
+system cascade fallback), read-only attachment source preview/copy, canvas
+zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent Keynote PNG export
+(`File → Export PNG…`, `⇧⌘E`) and Undo/Redo. The full editor, persistence and
+overall milestone acceptance proof remain incomplete.
 
 ## 1. Approval boundary and outcome
 
@@ -53,7 +55,7 @@ open the same file in the web editor → export a transparent PNG for Keynote.
 | Editable content | Existing v1 shapes/lines/connections plus v2 code; preserve/preview/export/duplicate/remove existing attachments, no new attachment import | Approved 2026-11-05; section 5 coverage requires native proof |
 | Autosave | Coalesced completed transactions; request after 5 seconds quiet or within 30 seconds of continuous committed edits while active | Approved 2026-11-05; not a disk-durability deadline |
 | Recovery | Native untitled recovery plus private app-owned storage for uncovered committed work and active text drafts; retain until saved elsewhere or explicitly discarded | Scope, request timing, restore/conflict/close choices approved 2026-11-05; storage details need proof |
-| PNG | Default 2,048-pixel longest side, proportional other dimension, 32 world-unit padding; configurable size, at most 8,192 pixels per side and 16,777,216 pixels total | Approved 2026-11-05; native/Keynote proof pending |
+| PNG | Default 2,048-pixel longest side, proportional other dimension, 32 world-unit padding; configurable size, at most 8,192 pixels per side and 16,777,216 pixels total | Approved 2026-11-05; implemented and verified with Keynote light/dark slides 2026-11-10 |
 
 A basic canvas is not the complete milestone: approved code snippets, agreed
 compatibility coverage, persistence failure proof, and actual Keynote proof must
@@ -467,11 +469,14 @@ responder, document lifecycle, OS dialogs, recovery, and rendering behavior.
 
 Foundation, deployment target, initial content and PNG defaults were approved on
 2026-11-05. Session-only native authoring exists; editable file compatibility proof is incomplete.
-Establish fixture coverage and round-trip proof before editable saves. Before
-corresponding feature implementation, settle detailed recovery storage/cleanup,
-other native file operation UX, native font-role mappings and shortcut map. Prove
-the approved highlighter candidate before use. New attachment import is outside
-the initial scope.
+Establish fixture coverage and round-trip proof before editable saves. Native
+font-role mappings (`Mona Sans` 400/700, `Unbounded` 800, `Monaspace Neon` 400/700,
+and `Amatic SC` 700 bundled in `macos/Resources/Fonts/` with CoreText system
+cascade fallback) and transparent PNG export (`File → Export PNG…`, `⇧⌘E`) are
+implemented and verified. Before corresponding feature implementation, settle
+detailed recovery storage/cleanup, other native file operation UX, and any
+remaining shortcut additions. Prove the approved highlighter candidate before use.
+New attachment import is outside the initial scope.
 The shared v2 schema, new-v2/existing-v1 policy, explicit version-copy semantics,
 language inventory, and web dependencies are settled, not remaining native design
 questions. New native dependency/build-tool choices require separate approval.

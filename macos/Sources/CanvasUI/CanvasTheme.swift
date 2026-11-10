@@ -146,7 +146,7 @@ public final class WelcomeContentView: NSView {
         kicker.draw(
             at: CGPoint(x: 96, y: 39),
             withAttributes: [
-                .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .bold),
+                .font: CanvasTypography.font("mono", "l", scale: 11.0 / 24.0),
                 .foregroundColor: CanvasTheme.mutedText,
             ]
         )
@@ -154,7 +154,7 @@ public final class WelcomeContentView: NSView {
         let headline = NSMutableAttributedString(
             string: "Elixir Canvas ",
             attributes: [
-                .font: NSFont.systemFont(ofSize: 22, weight: .heavy),
+                .font: CanvasTypography.font("heading", "m", scale: 22.0 / 16.0),
                 .foregroundColor: CanvasTheme.primaryText,
             ]
         )
@@ -162,7 +162,7 @@ public final class WelcomeContentView: NSView {
             NSAttributedString(
                 string: "Local spatial thinking.",
                 attributes: [
-                    .font: NSFont.systemFont(ofSize: 22, weight: .heavy),
+                    .font: CanvasTypography.font("heading", "m", scale: 22.0 / 16.0),
                     .foregroundColor: CanvasTheme.mutedText,
                 ]
             )
@@ -175,7 +175,7 @@ public final class WelcomeContentView: NSView {
         summary.draw(
             in: CGRect(x: 32, y: 122, width: bounds.width - 64, height: 52),
             withAttributes: [
-                .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+                .font: CanvasTypography.font("sans", "m", scale: 13.0 / 16.0),
                 .foregroundColor: CanvasTheme.secondaryText,
             ]
         )

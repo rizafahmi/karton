@@ -368,6 +368,7 @@ func runChecks() throws {
     try checkLiteralJSON()
     try checkCompatibilityRoundTrips(repository: repository)
     try checkTheme(repository: repository)
+    try checkPNGExport(repository: repository)
 }
 
 @MainActor
@@ -514,6 +515,13 @@ do {
         try exportCrossEditorRoundTrip(in: URL(fileURLWithPath: args[1]))
     } else if args.count == 2 && args[0] == "--verify-roundtrip" {
         try verifyCrossEditorRoundTrip(in: URL(fileURLWithPath: args[1]))
+    } else if args.count == 3 && args[0] == "--export-png" {
+        let doc = try CanvasDocument(data: Data(contentsOf: URL(fileURLWithPath: args[1])))
+        let session = CanvasSession(document: doc)
+        try MainActor.assumeIsolated {
+            let view = CanvasView(session: session)
+            try view.exportPNG(to: URL(fileURLWithPath: args[2]))
+        }
     } else {
         try runChecks()
         print("All native document checks passed.")

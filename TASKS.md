@@ -628,7 +628,7 @@ approved. A read-only viewer exists; the editor milestone is not complete.
 - [ ] Agree compatibility fixtures and prove round-trips before editable saves.
 - [ ] Deliver the agreed native creation/editing workflow, keyboard and pointer
       interactions, history, autosave, and failure/conflict proof.
-- [ ] Meet the PNG/Keynote gate using actual exported files.
+- [x] Meet the PNG/Keynote gate using actual exported files.
 - [ ] Supply audience-appropriate setup/launch/check instructions and prove
       runtime independence; decide install/distribution needs before release
       infrastructure.
@@ -710,7 +710,7 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       capture failed, so the actual windows were not visually captured.
       Native contract checks cover shared fixtures and selected refusal/quota cases.
       The native app uses approximate routes and plain code, with no editable
-      saves, code creation, recovery or export. It supports session-only New,
+      JSON saves, code creation or recovery. It supports session-only New,
       shape/text and standalone line/arrow insertion, adjacent thoughts (`N` →
       cardinal direction → inline draft with rotated ray-blocker avoidance and
       measured growth), connections (creation, labels and endpoint/side
@@ -720,8 +720,9 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       line endpoint editing, duplication, deletion, front/back stacking,
       lock/unlock, object/connection/canvas style inspection/editing (`S` /
       Edit → Style…), caption editing with measured box growth, read-only
-      attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`)
-      and Undo/Redo; closing discards changes. Full editable
+      attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`),
+      transparent PNG export (`File → Export PNG…`, `⇧⌘E`) and Undo/Redo; closing
+      discards changes. Full editable
       cross-editor proof remains pending.
       Shared v1/v2 compatibility fixtures cover five shape kinds, free line,
       rotation/locks, all edge paths/markers (`bezier`, `smooth`, `step`, `straight`,
@@ -746,9 +747,9 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       isolation, metadata/absent-text restoration, Undo/Redo, no-op redo retention,
       2,000-grapheme acceptance and over-limit refusal with draft intact.
       Caption commits grow shape height along local axes (keeping the top anchor
-      fixed on rotated shapes, measured with current placeholder native font
-      approximations pending final font-role mapping approval) as one atomic
-      transaction; code editing and physical IME/accessibility proof remain open.
+      fixed on rotated shapes, measured with bundled Neo-Acid and Amatic SC faces
+      plus CoreText system cascade fallback) as one atomic transaction; code
+      editing and physical IME/accessibility proof remain open.
       File New now creates separate blank v2 sessions; Insert offers rectangles,
       ellipses, diamonds, triangles and text at the viewport center (canvas-only
       R/O/D/I/T). New `T` text remains an inline on-canvas draft until committed.
@@ -834,10 +835,23 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       app and strictly verifies it. Both direct execution and `open -n` then
       produced an observed on-screen window. This is local signing/launch proof,
       not Developer ID signing, notarization or distribution certification.
-- [x] **PNG output defaults (2026-11-05):** 2,048-pixel longest side, proportional
-      other dimension, configurable output, 32 world-unit padding; caps of 8,192
-      pixels per side and 16,777,216 pixels total. Retain transparency, font
-      readiness, clipping, zoom/DPR and actual Keynote acceptance requirements.
+- [x] **PNG output defaults and native/Keynote proof (2026-11-05, verified 2026-11-10):**
+      2,048-pixel longest side, proportional other dimension, configurable output
+      (longest side or exact dimensions with transparent letterboxing), 32 world-unit
+      padding; caps of 8,192 pixels per side and 16,777,216 pixels total. Bundled
+      Neo-Acid (`Mona Sans` 400/700, `Unbounded` 800, `Monaspace Neon` 400/700) and
+      `Amatic SC` 700 font faces in `macos/Resources/Fonts/` register via CoreText
+      with system cascade fallback for CJK/emoji and share layout/rendering between
+      `CanvasView` and offscreen sRGB PNG export. `CanvasChecks` verifies font
+      resolution/fallback, empty-canvas and cap refusals, 32-unit padded bounds
+      around rotated shapes/self-loops/labels/markers, true alpha without paper/grid/
+      selection/inspector chrome, byte-identical output across zoom/pan/selection,
+      exact-dimension letterboxing, valid draft/preview flushing, invalid 2,001-grapheme
+      draft refusal, and the interactive **File → Export PNG…** (`⇧⌘E`) sheet.
+      Actual exported PNGs placed onto `/Applications/Keynote.app` `Basic White` and
+      `Basic Black` slides and exported via Keynote as slide images confirmed
+      intact `(1.00, 1.00, 1.00)` and `(0.00, 0.00, 0.00)` slide backgrounds with
+      unclipped diagram content.
 
 ## Done
 
