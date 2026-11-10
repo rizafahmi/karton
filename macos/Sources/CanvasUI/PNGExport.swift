@@ -24,6 +24,8 @@ public enum CanvasTypography {
         "AmaticSC-Bold.ttf",
     ]
 
+    public nonisolated(unsafe) static var customFontDirectoryURL: URL?
+    public nonisolated(unsafe) static private(set) var registeredFontDirectoryURL: URL?
     private nonisolated(unsafe) static var didAttemptRegistration = false
     private nonisolated(unsafe) static var allFacesAvailable = false
     private static let lock = NSLock()
@@ -40,10 +42,15 @@ public enum CanvasTypography {
         didAttemptRegistration = true
 
         for directory in candidateFontDirectories() {
+            var registeredCount = 0
             for filename in fontFilenames {
                 let url = directory.appendingPathComponent(filename)
                 guard FileManager.default.fileExists(atPath: url.path) else { continue }
                 CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
+                registeredCount += 1
+            }
+            if registeredCount == fontFilenames.count && registeredFontDirectoryURL == nil {
+                registeredFontDirectoryURL = directory
             }
         }
 
@@ -66,13 +73,9 @@ public enum CanvasTypography {
             .deletingLastPathComponent()
             .appendingPathComponent("Resources/Fonts", isDirectory: true)
         directories.append(appBundleFonts)
-
-        let sourceFonts = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Resources/Fonts", isDirectory: true)
-        directories.append(sourceFonts)
+        if let customFontDirectoryURL {
+            directories.append(customFontDirectoryURL)
+        }
         return directories
     }
 

@@ -922,7 +922,7 @@ func checkPersistenceAndRecovery(repository: URL) throws {
 
     let writerProc = Process()
     writerProc.executableURL = executableURL
-    writerProc.arguments = ["--child-crash-writer", readyFlagURL.path]
+    writerProc.arguments = ["--child-crash-writer", multiProcRecoveryDir.path, readyFlagURL.path]
     var env = ProcessInfo.processInfo.environment
     env["ELIXIR_CANVAS_RECOVERY_DIR"] = multiProcRecoveryDir.path
     writerProc.environment = env
@@ -954,7 +954,7 @@ func checkPersistenceAndRecovery(repository: URL) throws {
     // Spawn Child Process 2 (fresh OS process) to restore from multiProcRecoveryDir, commit the recovered inline draft, and save:
     let restorerProc = Process()
     restorerProc.executableURL = executableURL
-    restorerProc.arguments = ["--child-crash-restorer", recoveredSavedURL.path]
+    restorerProc.arguments = ["--child-crash-restorer", multiProcRecoveryDir.path, recoveredSavedURL.path]
     restorerProc.environment = env
     try restorerProc.run()
     restorerProc.waitUntilExit()
@@ -974,9 +974,10 @@ func checkPersistenceAndRecovery(repository: URL) throws {
 }
 
 @MainActor
-func runChildCrashWriter(readyFlagPath: String) throws {
+func runChildCrashWriter(recoveryDirPath: String, readyFlagPath: String) throws {
     _ = NSApplication.shared
-    let appDelegate = CanvasAppDelegate()
+    let store = CanvasRecoveryStore(directoryURL: URL(fileURLWithPath: recoveryDirPath, isDirectory: true))
+    let appDelegate = CanvasAppDelegate(recoveryStore: store)
     appDelegate.installMenu()
     appDelegate.newDocument(nil)
     guard let doc = appDelegate.activeNativeDocument(),
@@ -993,16 +994,16 @@ func runChildCrashWriter(readyFlagPath: String) throws {
     doc.canvasView.inlineTextEditorView?.string = "Cross-process draft"
     try doc.writeRecoverySnapshotNow(requireAcknowledgement: true)
     try Data("ready".utf8).write(to: URL(fileURLWithPath: readyFlagPath))
-    // Wait to be killed by parent with SIGKILL:
     while true {
         Thread.sleep(forTimeInterval: 1.0)
     }
 }
 
 @MainActor
-func runChildCrashRestorer(outputPath: String) throws {
+func runChildCrashRestorer(recoveryDirPath: String, outputPath: String) throws {
     _ = NSApplication.shared
-    let appDelegate = CanvasAppDelegate()
+    let store = CanvasRecoveryStore(directoryURL: URL(fileURLWithPath: recoveryDirPath, isDirectory: true))
+    let appDelegate = CanvasAppDelegate(recoveryStore: store)
     appDelegate.installMenu()
     appDelegate.recoveryLaunchDecisionProvider = { _ in .restore }
     let restored = appDelegate.processPendingRecoveriesOnLaunch()
@@ -1015,4 +1016,177 @@ func runChildCrashRestorer(outputPath: String) throws {
         "Child restorer did not restore active inline adjacent-thought draft"
     )
     _ = try doc.saveDocumentAs(to: URL(fileURLWithPath: outputPath))
+}
+
+@MainActor
+func runStandaloneWorkflowVerification(in workspaceURL: URL) throws {
+    _ = NSApplication.shared
+    let fm = FileManager.default
+    try fm.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
+    let recoveryDir = workspaceURL.appendingPathComponent("Recovery", isDirectory: true)
+    let appDelegate = CanvasAppDelegate(recoveryStore: CanvasRecoveryStore(directoryURL: recoveryDir))
+    appDelegate.installMenu()
+    defer { appDelegate.closeAllWindows() }
+
+    try require(
+        CanvasTypography.customFontDirectoryURL == nil && CanvasTypography.ensureRegistered(),
+        "Bundled Neo-Acid and Amatic SC fonts failed to register from .app bundle without customFontDirectoryURL"
+    )
+    guard let registeredFontDir = CanvasTypography.registeredFontDirectoryURL?.canonicalFileURL else {
+        throw CheckFailure(description: "CanvasTypography did not record registeredFontDirectoryURL")
+    }
+    try require(
+        registeredFontDir.path.contains(".app/Contents/Resources/Fonts"),
+        "Fonts were not loaded from inside the .app bundle (got \(registeredFontDir.path))"
+    )
+
+    appDelegate.newDocument(nil)
+    guard let doc = appDelegate.activeNativeDocument(),
+          let win = doc.canvasView.window else {
+        throw CheckFailure(description: "File -> New did not create an active CanvasNativeDocument window")
+    }
+    let canvas = doc.canvasView
+    func key(_ code: UInt16, modifiers: NSEvent.ModifierFlags = [], chars: String = "") -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: win.windowNumber,
+            context: nil,
+            characters: chars,
+            charactersIgnoringModifiers: chars,
+            isARepeat: false,
+            keyCode: code
+        )!
+    }
+
+    canvas.insertShape(.rectangle)
+    guard let rectID = canvas.selectedNodeID else {
+        throw CheckFailure(description: "Insert Rectangle did not select the new shape")
+    }
+    canvas.beginTextEditing()
+    canvas.inlineTextEditorView?.string = "Native Architecture"
+    canvas.inlineTextEditorView?.keyDown(with: key(36))
+
+    canvas.selectNode(rectID)
+    canvas.beginAdjacentThought()
+    canvas.keyDown(with: key(124))
+    canvas.inlineTextEditorView?.string = "Local JSON Store"
+    canvas.inlineTextEditorView?.keyDown(with: key(36))
+    guard let thoughtID = canvas.selectedNodeID, thoughtID != rectID else {
+        throw CheckFailure(description: "Adjacent thought commit did not create and select a second node")
+    }
+
+    canvas.insertShape(.text)
+    canvas.inlineTextEditorView?.string = "Zero Web Runtime"
+    canvas.inlineTextEditorView?.keyDown(with: key(36))
+    guard let textID = canvas.selectedNodeID, textID != thoughtID else {
+        throw CheckFailure(description: "Insert Text did not create and select a third node")
+    }
+
+    let conn = try doc.session.insertConnection(
+        source: rectID,
+        sourceSide: .right,
+        target: thoughtID,
+        targetSide: .left,
+        label: "autosaves to"
+    )
+    canvas.reloadFromSession(clearingUndoHistory: false)
+
+    canvas.selectNode(thoughtID)
+    let initialThoughtPos = doc.session.position(of: thoughtID)!
+    let startPt = canvas.viewPoint(forWorldPoint: CGPoint(x: initialThoughtPos.x + 20, y: initialThoughtPos.y + 20))
+    let endPt = CGPoint(x: startPt.x + 40, y: startPt.y + 30)
+    func mouse(_ type: NSEvent.EventType, _ pt: CGPoint) -> NSEvent {
+        NSEvent.mouseEvent(
+            with: type,
+            location: canvas.convert(pt, to: nil),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: win.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        )!
+    }
+    canvas.mouseDown(with: mouse(.leftMouseDown, startPt))
+    canvas.mouseDragged(with: mouse(.leftMouseDragged, endPt))
+    canvas.mouseUp(with: mouse(.leftMouseUp, endPt))
+    let movedThoughtPos = doc.session.position(of: thoughtID)!
+    try require(movedThoughtPos != initialThoughtPos, "Pointer drag did not rearrange thought node")
+    appDelegate.undoMove(nil)
+    try require(doc.session.position(of: thoughtID) == initialThoughtPos, "Undo did not restore pre-drag position")
+    appDelegate.redoMove(nil)
+    try require(doc.session.position(of: thoughtID) == movedThoughtPos, "Redo did not restore dragged position")
+
+    let jsonURL = workspaceURL.appendingPathComponent("standalone-diagram.json")
+    doc.saveDestinationProvider = { _ in jsonURL }
+    appDelegate.saveDocument(nil)
+    try require(
+        doc.fileURL?.canonicalFileURL == jsonURL.canonicalFileURL &&
+            doc.persistenceState == .saved(hasPendingDraft: false),
+        "First Save did not promote untitled document to standalone-diagram.json"
+    )
+
+    doc.quietAutosaveInterval = 0.03
+    doc.maxContinuousAutosaveInterval = 0.15
+    canvas.selectNode(rectID)
+    try canvas.applyStyle(.fill, to: .string("yellow"))
+    try require(
+        doc.persistenceState == .changesPending(hasPendingDraft: false) && doc.isAutosaveScheduled,
+        "Style edit did not schedule coalesced autosave"
+    )
+    let autosaveDeadline = Date().addingTimeInterval(2.0)
+    while doc.persistenceState != .saved(hasPendingDraft: false) && Date() < autosaveDeadline {
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+    }
+    try require(
+        doc.persistenceState == .saved(hasPendingDraft: false) && canvas.undoManager?.canUndo == true,
+        "Coalesced autosave did not complete or cleared undo history"
+    )
+
+    try require(
+        appDelegate.windowShouldClose(win),
+        "Clean saved window shouldClose returned false"
+    )
+    appDelegate.closeAllWindows()
+    try require(appDelegate.openNativeDocuments.isEmpty, "closeAllWindows did not clear openNativeDocuments")
+    guard let reopenedDoc = appDelegate.openDocument(jsonURL) else {
+        throw CheckFailure(description: "Failed to reopen standalone-diagram.json")
+    }
+    let reopenedNodes = (reopenedDoc.session.root["nodes"] as? [[String: Any]]) ?? []
+    let reopenedIDs = reopenedNodes.compactMap { $0["id"] as? String }
+    try require(
+        reopenedIDs == [rectID, thoughtID, textID] &&
+            reopenedDoc.session.position(of: thoughtID) == movedThoughtPos &&
+            reopenedDoc.session.effectiveNodeStyle(of: rectID)?[.fill] == .string("yellow") &&
+            reopenedDoc.session.connectionState(of: conn.id)?.label == "autosaves to",
+        "Reopened document did not preserve IDs, order, geometry, style, or connection"
+    )
+
+    let pngURL = workspaceURL.appendingPathComponent("standalone-diagram.png")
+    try reopenedDoc.canvasView.exportPNG(to: pngURL)
+    let pngData = try Data(contentsOf: pngURL)
+    guard let rep = NSBitmapImageRep(data: pngData),
+          max(rep.pixelsWide, rep.pixelsHigh) == 2048,
+          (rep.colorAt(x: 0, y: 0)?.alphaComponent ?? 1.0) == 0.0 else {
+        throw CheckFailure(description: "Exported PNG did not match 2048px longest side with transparent background")
+    }
+
+    let savedJSONBytes = try Data(contentsOf: jsonURL)
+    let fp = CanvasFileFingerprint(data: savedJSONBytes)
+    let receipt: [String: Any] = [
+        "registeredFontDirectory": registeredFontDir.path,
+        "pid": Int(ProcessInfo.processInfo.processIdentifier),
+        "jsonSHA256": fp.sha256Hex,
+        "jsonByteCount": fp.byteCount,
+        "nodeIDs": reopenedIDs,
+        "connectionID": conn.id,
+        "pngWidth": rep.pixelsWide,
+        "pngHeight": rep.pixelsHigh
+    ]
+    let receiptData = try JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys])
+    try receiptData.write(to: workspaceURL.appendingPathComponent("standalone-receipt.json"), options: .atomic)
 }

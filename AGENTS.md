@@ -30,7 +30,10 @@ captions with box growth (measured with bundled Neo-Acid and Amatic SC faces
 plus CoreText system cascade fallback), read-only attachment preview/copy,
 canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent Keynote PNG export
 (`File → Export PNG…`, `⇧⌘E`) and Undo/Redo; native v2 code-snippet authoring
-and syntax highlighting remain pending.
+and syntax highlighting are deferred to the next phase of development (existing
+v2 `code` nodes are preserved, rendered as plain text in `Monaspace Neon`,
+transformed/styled/connected/duplicated with 1 MiB quota enforcement, and
+exported to PNG).
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.

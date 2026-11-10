@@ -16,8 +16,10 @@ object/connection/canvas style editing, captions with measured box growth (using
 bundled Neo-Acid and Amatic SC faces with CoreText system cascade fallback),
 read-only attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`),
 transparent Keynote PNG export (`File → Export PNG…`, `⇧⌘E`) and Undo/Redo.
-Native v2 code-snippet authoring/highlighting and overall milestone acceptance
-proof remain incomplete.
+On 2026-11-10, native v2 code-snippet authoring/highlighting was deferred to the
+next phase of development (existing v2 `code` nodes are preserved, rendered as
+plain text in `Monaspace Neon`, transformed/styled/connected/duplicated with
+quota enforcement, and exported to PNG).
 
 ## 1. Approval boundary and outcome
 
@@ -34,14 +36,15 @@ Approved product direction:
 - Autosave connected JSON documents; recover untitled work before choosing a source.
 - Independent native UI following Apple Human Interface Guidelines, no webview,
   Phoenix server, BEAM, or bundled web runtime.
-- Share JSON contracts/fixtures, not runtime code; preserve v1 files and implement
-  the delivered web/shared v2 code-node contract for snippets. Retain metadata,
-  authored geometry, semantic font roles, and named colors.
+- Share JSON contracts/fixtures, not runtime code; preserve v1 and v2 files
+  (including existing v2 `type: "code"` nodes; native code-snippet authoring and
+  syntax highlighting are deferred to the next phase of development). Retain
+  metadata, authored geometry, semantic font roles, and named colors.
 - Transparent high-resolution PNG export for Keynote; no full web parity implied.
 
-Everything labeled proposed below is a recommendation awaiting adoption. The
-existing code-snippet requirement remains in the final native milestone; neither
-this document nor a working basic canvas removes that requirement. Public
+Everything labeled proposed below is a recommendation awaiting adoption. Native
+code-snippet authoring and syntax highlighting were deferred to the next phase
+of development on 2026-11-10. Public
 packaging, signing/notarization, an update service, accounts, cloud storage,
 multiplayer, and a database are not requirements of the first personal release.
 
@@ -57,7 +60,7 @@ open the same file in the web editor → export a transparent PNG for Keynote.
 | Drawing/export | Core Graphics drawing and native text layout shared between canvas and PNG, not screenshots | Approved 2026-11-05 |
 | Deployment | macOS 27 for the first personal build; older OS/Intel support requires an explicit target and proof | Approved 2026-11-05 |
 | Project | Swift Package plus command-line `.app` bundling under `macos/`; no root build orchestrator or new third-party dependency | Approved 2026-11-05, replacing Xcode-project choice |
-| Editable content | Existing v1 shapes/lines/connections plus v2 code; preserve/preview/export/duplicate/remove existing attachments, no new attachment import | Approved 2026-11-05; section 5 coverage requires native proof |
+| Editable content | Existing v1 shapes/lines/connections plus v2 `code` preservation/plain-text rendering (native code authoring/highlighting deferred to next phase 2026-11-10); preserve/preview/export/duplicate/remove existing attachments, no new attachment import | Approved 2026-11-05; updated 2026-11-10 |
 | Autosave | Coalesced completed transactions; request after 5 seconds quiet or within 30 seconds of continuous committed edits while active | Approved 2026-11-05; implemented and verified via `CanvasNativeDocument` (`NSDocument`) 2026-11-10 |
 | Recovery | Native untitled recovery (`NSDocument.autosavedContentsFileURL`) plus private app-owned storage for uncovered metadata and active text drafts; retain until saved elsewhere or explicitly discarded | Approved 2026-11-05; implemented and verified 2026-11-10 |
 | PNG | Default 2,048-pixel longest side, proportional other dimension, 32 world-unit padding; configurable size, at most 8,192 pixels per side and 16,777,216 pixels total | Approved 2026-11-05; implemented and verified with Keynote light/dark slides 2026-11-10 |
@@ -331,10 +334,15 @@ retention but refuses connector-style editing visibly and atomically for a mixed
 selection; it is not replaced with a fresh object. Preserve `animated` when the
 user changes dash. Do not introduce new persisted routing or native UI fields.
 
-### Code snippets: shared contract delivered, native implementation pending
+### Code snippets: shared contract delivered, native authoring/highlighting deferred to next phase
 
-Native snippets remain required by [TASKS: Code snippets](../TASKS.md#later).
-They are dedicated blocks, not simply a mono-font shape or attachment preview:
+On 2026-11-10, native code-snippet creation, source editing, and syntax
+highlighting were deferred to the next phase of development ([TASKS: Code snippets](../TASKS.md#later)).
+The current native editor validates, preserves, renders (as plain text in
+`Monaspace Neon`), transforms, styles, connects, duplicates/deletes (with 256 KiB /
+1 MiB quota enforcement), and exports existing v2 `type: "code"` nodes.
+When native snippet authoring is scheduled in the next phase, blocks remain
+dedicated `type: "code"` nodes, not simply a mono-font shape or attachment preview:
 syntax highlighting, automatic language detection plus manual override, literal
 Copy code, Enter newline, Tab/Shift-Tab indent/unindent, Escape finishes editing,
 and canvas-shortcut isolation. Paste plain source only into an open snippet
@@ -479,8 +487,8 @@ private recovery envelopes, launch restoration, close/quit guards, compatibility
 fixture round-trips (`Native → Web → Native`), bundled Neo-Acid / Amatic SC
 font-role mappings, and transparent Keynote PNG export (`File → Export PNG…`,
 `⇧⌘E`) are implemented and verified (2026-11-10). Native v2 code-snippet
-authoring/editing and `HighlighterSwift` integration remain to be delivered
-within the native milestone; new attachment import is outside the initial scope.
+authoring/editing and `HighlighterSwift` integration are deferred to the next
+phase of development (2026-11-10); new attachment import is outside the initial scope.
 The shared v2 schema, new-v2/existing-v1 policy, explicit version-copy semantics,
 language inventory, and web dependencies are settled, not remaining native design
 questions. New native dependency/build-tool choices require separate approval.
@@ -499,6 +507,11 @@ inspector handled an injected native mouse event and a model-to-control update.
 External automation lacked Accessibility permission; physical-pointer and
 accessibility interaction remain unproven.
 The native app's actual build and check commands are in [README.md](README.md).
-Local ad-hoc bundle signing, strict verification and Launch Services opening have
-been exercised. Persistent editing, Developer ID signing, notarization,
-distribution and the complete native workflow remain unproven.
+Local ad-hoc bundle signing, strict verification, Launch Services opening, and
+bundle-isolated runtime independence (with Phoenix stopped, minimal `PATH`, and
+repository font assets hidden on disk: `CanvasApp` launched/closed cleanly on a
+temporary canvas, and `CanvasChecks --verify-standalone-workflow` inside the
+copied `.app` bundle drove `New → edit → Save → coalesced autosave → close/reopen →
+Export PNG` using the bundle's `Contents/Resources/Fonts`) have been exercised.
+Physical OS Save-panel button acceptance (blocked by denied Accessibility
+automation), Developer ID signing, notarization, and distribution remain unproven.

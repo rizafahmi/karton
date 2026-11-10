@@ -15,8 +15,10 @@ stacking, lock/unlock, object/connection/canvas style editing, caption editing
 with automatic box growth (using bundled Neo-Acid and Amatic SC typography with
 CoreText system glyph fallback), read-only attachment source preview/copy, canvas
 zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent PNG export (**File → Export PNG…**,
-**⇧⌘E**) and Undo/Redo. Native v2 code-snippet creation/editing and syntax
-highlighting remain pending.
+**⇧⌘E**) and Undo/Redo. Existing v2 `code` blocks are preserved, rendered as plain
+text in `Monaspace Neon`, transformed, styled, connected, duplicated/deleted (with
+1 MiB quota enforcement) and exported to PNG; native code-snippet authoring and
+syntax highlighting are deferred to the next phase of development.
 
 ## Build and run
 
@@ -200,6 +202,36 @@ Run the standalone native contract and round-trip checks from the repository roo
 swift run --package-path macos -Xswiftc -target -Xswiftc "$(uname -m)-apple-macosx27.0" CanvasChecks
 ```
 
+
+To verify bundle-isolated runtime independence (confirming `Elixir Canvas.app`
+links only system frameworks/libraries, embeds no repository font path, launches
+`CanvasApp` outside the repository with `macos/Resources/Fonts` hidden and a
+minimal `PATH`, and runs the `CanvasChecks --verify-standalone-workflow` driver
+against the copied `.app` bundle's `Contents/Resources/Fonts` before validating
+the saved JSON with `ElixirCanvas.Document.open/1`):
+
+```sh
+sh macos/build.sh
+sh -c '
+  set -eu
+  REPO_ROOT=$(pwd)
+  TMP_PROOF=$(mktemp -d)
+  trap "if [ -d \"$REPO_ROOT/macos/Resources/Fonts.hidden\" ]; then mv \"$REPO_ROOT/macos/Resources/Fonts.hidden\" \"$REPO_ROOT/macos/Resources/Fonts\"; fi; rm -rf \"$TMP_PROOF\"" EXIT
+  otool -L "macos/.build/Elixir Canvas.app/Contents/MacOS/CanvasApp"
+  ! strings "macos/.build/Elixir Canvas.app/Contents/MacOS/CanvasApp" | grep -F "Sources/CanvasUI/PNGExport.swift"
+  cp -R "macos/.build/Elixir Canvas.app" "$TMP_PROOF/Elixir Canvas.app"
+  cp "macos/.build/release/CanvasChecks" "$TMP_PROOF/Elixir Canvas.app/Contents/MacOS/CanvasChecks"
+  codesign --force --sign - "$TMP_PROOF/Elixir Canvas.app"
+  codesign --verify --strict "$TMP_PROOF/Elixir Canvas.app"
+  mv "$REPO_ROOT/macos/Resources/Fonts" "$REPO_ROOT/macos/Resources/Fonts.hidden"
+  cp "$REPO_ROOT/shared/fixtures/v1/compatibility.json" "$TMP_PROOF/open-smoke.json"
+  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" ELIXIR_CANVAS_RECOVERY_DIR="$TMP_PROOF/AppRecovery" "$TMP_PROOF/Elixir Canvas.app/Contents/MacOS/CanvasApp" "$TMP_PROOF/open-smoke.json") & PID=$!; sleep 1; kill -0 "$PID"; kill -TERM "$PID"; wait "$PID"
+  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$TMP_PROOF/Elixir Canvas.app/Contents/MacOS/CanvasChecks" --verify-standalone-workflow "$TMP_PROOF/workspace")
+  grep -F "Elixir Canvas.app" "$TMP_PROOF/workspace/standalone-receipt.json"
+  mv "$REPO_ROOT/macos/Resources/Fonts.hidden" "$REPO_ROOT/macos/Resources/Fonts"
+  mix run -e "{:ok, doc} = ElixirCanvas.Document.open(\"$TMP_PROOF/workspace/standalone-diagram.json\"); true = ElixirCanvas.Document.format_version(doc) == 2"
+'
+```
 The Command Line Tools on the development machine lack XCTest and Swift Testing;
 the check executable does not require either. Build artifacts stay in
 `macos/.build/`. The current linker reports missing Command Line Tools search-path
@@ -269,8 +301,8 @@ padding and caps of 8,192 pixels per side / 16,777,216 pixels total (implemented
 and verified with bundled Neo-Acid typography and Keynote slides), and
 `NSDocument`-backed JSON persistence, coalesced autosave, external conflict
 handling, recovery, and editable `Native → Web → Native` round-trips are
-implemented and verified. HighlighterSwift is the approved highlighting
-candidate; native v2 code-snippet authoring and highlighting are not yet added.
+implemented and verified. Native v2 code-snippet authoring and `HighlighterSwift`
+syntax highlighting are deferred to the next phase of development (2026-11-10).
 Web verification
 still runs with `mix check` from the repository root; it does not build or verify
 the native app.

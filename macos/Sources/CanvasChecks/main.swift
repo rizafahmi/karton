@@ -43,6 +43,7 @@ func rejects(_ object: Any, mentioning expected: String) throws {
 func runChecks() throws {
     let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    CanvasTypography.customFontDirectoryURL = repository.appendingPathComponent("macos/Resources/Fonts", isDirectory: true)
     for path in ["v1/document.json", "v1/compatibility.json", "v2/document.json", "v2/code-compatibility.json"] {
         let bytes = try Data(contentsOf: repository.appendingPathComponent("shared/fixtures/\(path)"))
         let document = try CanvasDocument(data: bytes)
@@ -512,24 +513,39 @@ func checkTheme(repository: URL) throws {
 
 do {
     let args = Array(CommandLine.arguments.dropFirst())
+    let repoFonts = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Resources/Fonts", isDirectory: true)
     if args.count == 2 && args[0] == "--export-roundtrip" {
+        CanvasTypography.customFontDirectoryURL = repoFonts
         try exportCrossEditorRoundTrip(in: URL(fileURLWithPath: args[1]))
     } else if args.count == 2 && args[0] == "--verify-roundtrip" {
+        CanvasTypography.customFontDirectoryURL = repoFonts
         try verifyCrossEditorRoundTrip(in: URL(fileURLWithPath: args[1]))
     } else if args.count == 3 && args[0] == "--export-png" {
+        CanvasTypography.customFontDirectoryURL = repoFonts
         let doc = try CanvasDocument(data: Data(contentsOf: URL(fileURLWithPath: args[1])))
         let session = CanvasSession(document: doc)
         try MainActor.assumeIsolated {
             let view = CanvasView(session: session)
             try view.exportPNG(to: URL(fileURLWithPath: args[2]))
         }
-    } else if args.count == 2 && args[0] == "--child-crash-writer" {
+    } else if args.count == 3 && args[0] == "--child-crash-writer" {
+        CanvasTypography.customFontDirectoryURL = repoFonts
         try MainActor.assumeIsolated {
-            try runChildCrashWriter(readyFlagPath: args[1])
+            try runChildCrashWriter(recoveryDirPath: args[1], readyFlagPath: args[2])
         }
-    } else if args.count == 2 && args[0] == "--child-crash-restorer" {
+    } else if args.count == 3 && args[0] == "--child-crash-restorer" {
+        CanvasTypography.customFontDirectoryURL = repoFonts
         try MainActor.assumeIsolated {
-            try runChildCrashRestorer(outputPath: args[1])
+            try runChildCrashRestorer(recoveryDirPath: args[1], outputPath: args[2])
+        }
+    } else if args.count == 2 && args[0] == "--verify-standalone-workflow" {
+        // Do NOT set customFontDirectoryURL: must resolve fonts strictly from inside the .app bundle!
+        try MainActor.assumeIsolated {
+            try runStandaloneWorkflowVerification(in: URL(fileURLWithPath: args[1], isDirectory: true))
         }
     } else {
         try runChecks()

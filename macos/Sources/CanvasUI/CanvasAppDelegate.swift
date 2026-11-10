@@ -841,4 +841,5 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         insertItem.submenu = insertMenu
         app.mainMenu = main
     }
+
 }

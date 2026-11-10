@@ -3,8 +3,9 @@
 Unchecked work is not implemented behavior. Current web editing and the native
 macOS canvas editor (including `NSDocument` JSON persistence, coalesced autosave,
 conflict handling, crash/draft recovery, and Keynote PNG export) are implemented;
-native v2 code-snippet authoring/highlighting and overall milestone acceptance
-remain in the final native milestone after any adopted remaining non-native work.
+on 2026-11-10, native v2 code-snippet authoring/highlighting was explicitly
+deferred to the next phase of development (existing v2 `code` nodes remain
+preserved, rendered as plain text, and round-tripped losslessly).
 The separately approved adjacent-thought task is implemented. Connected-arrow
 styling's additive v1 metadata scope is now approved (details below); the native
 editor remains last. Save a copy preservation is separately approved and
@@ -446,13 +447,17 @@ approval. Any adopted non-native additions precede the final native milestone.
       and overflow-y). Improve compactness, keyboard access, and short-window
       reachability; do not merely hide the scrollbar. Promotion into readiness
       is not yet approved.
-- [ ] **Code snippets — web implemented; native pending:** dedicated code blocks,
-      not only shape Mono typography. The web editor now implements the
-      [shared v2 contract](shared/CODE_SNIPPETS.md), dedicated source editor,
-      literal Copy code, language control, highlighting, Fit, keyboard isolation,
-      clipboard/history, and save integration. This delivers the web code
-      prerequisite; the unchecked combined milestone still requires native code
-      support within the final native milestone, not before it starts.
+- [ ] **Code snippets — web implemented; native authoring/highlighting deferred to next phase (2026-11-10):**
+      dedicated code blocks, not only shape Mono typography. The web editor now
+      implements the [shared v2 contract](shared/CODE_SNIPPETS.md), dedicated source
+      editor, literal Copy code, language control, highlighting, Fit, keyboard
+      isolation, clipboard/history, and save integration. On 2026-11-10, native
+      code-snippet authoring/source editing and `HighlighterSwift` syntax
+      highlighting were deferred to the next phase of development; the current
+      native editor preserves existing v2 `type: "code"` nodes losslessly,
+      renders them in `Monaspace Neon`, enforces the 256 KiB / 1 MiB quotas, and
+      supports selection, movement, resize/rotation, style inspection,
+      connections, duplication, deletion, and PNG export.
       Enter inserts a newline; Tab/Shift-Tab indent/unindent; Escape finishes.
       Plain-source paste creates no block outside an open snippet editor.
       Code is neither an attachment nor a caption and is never executed.
@@ -557,9 +562,10 @@ friction.
 The web code-snippet prerequisite is implemented. The native macOS editor now
 implements shape/text/line/connection/adjacent-thought authoring, style inspection,
 transparent Keynote PNG export, and `NSDocument`-backed JSON persistence, coalesced
-autosave, external-change conflict handling, and draft/crash recovery; native
-code-snippet authoring/highlighting and overall milestone acceptance remain unfinished.
-Adopted readiness work and remaining decisions still apply.
+autosave, external-change conflict handling, and draft/crash recovery. On
+2026-11-10, native code-snippet authoring/highlighting was deferred to the next
+phase of development; overall milestone acceptance and any adopted readiness
+gates remain below.
 
 The [native implementation specification](macos/SPEC.md) was drafted on
 2026-11-04 as requested. It details interactions, autosave/recovery, compatibility,
@@ -628,7 +634,7 @@ recovery were implemented and verified on 2026-11-10.
 - [x] Write the native implementation specification, separating approved direction
       from proposed behavior and executable acceptance requirements.
 - [ ] Resolve native decisions before project creation/implementation as
-      applicable.
+      applicable (native code-snippet authoring/highlighting deferred to next phase 2026-11-10).
 - [x] Agree compatibility fixtures and prove round-trips before editable saves.
 - [ ] Deliver the agreed native creation/editing workflow, keyboard and pointer
       interactions, history, autosave, and failure/conflict proof.
@@ -870,10 +876,18 @@ recovery were implemented and verified on 2026-11-10.
       same-file/hardlink overwrite while preserving v1 in-place saves; real `NSSavePanel`
       modal invocation and cancellation; multi-process `SIGKILL` crash → fresh OS process
       relaunch recovery restoring both committed nodes and active inline text drafts;
-      actual assembled `Elixir Canvas.app` launch and clean `SIGTERM` close without source
-      mutation; and `Native → Web → Native` cross-editor round-trips on temporary v1/v2
-      compatibility copies. External Accessibility automation permission is denied on this
-      machine, so physical OS Save-panel button clicking remains uncertified.
+      bundle-isolated runtime independence proof (`otool -L` confirming only macOS system
+      frameworks/libs, `strings` confirming no `#filePath` `Sources/CanvasUI/PNGExport.swift`
+      source-tree fallback in `CanvasApp`, Phoenix stopped, minimal `PATH="/usr/bin:/bin:/usr/sbin:/sbin"`,
+      `macos/Resources/Fonts` hidden on disk, the copied `Elixir Canvas.app/Contents/MacOS/CanvasApp`
+      launching and closing cleanly on a temporary document in `/tmp`, and `CanvasChecks --verify-standalone-workflow`
+      placed inside that copied `.app` bundle registering all 6 fonts from
+      `.app/Contents/Resources/Fonts/` and driving `New → shapes/text/adjacent thought/connection →
+      pointer rearrange + Undo/Redo → Save → coalesced autosave → close/reopen → 2048×830
+      transparent PNG export`, then validated by `ElixirCanvas.Document.open/1`); and
+      `Native → Web → Native` cross-editor round-trips on temporary v1/v2 compatibility
+      copies. External Accessibility automation permission is denied on this machine, so
+      physical OS Save-panel button clicking and install/distribution decisions remain open.
 - [x] **PNG output defaults and native/Keynote proof (2026-11-05, verified 2026-11-10):**
       2,048-pixel longest side, proportional other dimension, configurable output
       (longest side or exact dimensions with transparent letterboxing), 32 world-unit
