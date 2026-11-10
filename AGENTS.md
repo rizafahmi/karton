@@ -19,6 +19,10 @@ SHA-256 byte-fingerprint conflict detection inside `NSDocument`'s coordinated
 safe-save path, `NSDocument` draft autosaving (`autosavedContentsFileURL`) paired
 with private app-owned recovery envelopes for uncovered state and active inline
 text drafts, launch recovery restoration, multi-window close/quit guards,
+toggleable bottom-center Neo-Acid floating icon tool dock with armed pointer
+click-or-drag shape/line creation, `Open Recent`, `About`/`Window`/`Help` menus,
+`?` keyboard reference sheet, actionable in-window Conflict/Read-Only/Save-Error
+status banner, `NSAccessibilityElement` canvas object/connection exposure,
 shape/text and standalone line/arrow insertion, adjacent thoughts (`N` → cardinal
 direction → inline draft with rotated ray-blocker avoidance and live measured growth),
 connections (with pointer drag-and-drop creation/reconnection, `bezier`, rounded
@@ -123,14 +127,21 @@ silently upgrade/downgrade, or infer native implementation from web support.
   endpoint semantics, not box scaling.
   [ShapeTextEditor](macos/Sources/CanvasUI/ShapeTextEditor.swift) (`AttachmentPreviewSheet`),
   [ConnectionEditor](macos/Sources/CanvasUI/ConnectionEditor.swift) (connection
-  creation, label editing, and endpoint/side reconnection), and
+  creation, label editing, and endpoint/side reconnection),
   [StyleInspectorView](macos/Sources/CanvasUI/StyleInspector.swift) (object,
-  connection, and empty-selection canvas `paper`/`appearance.font` controls) keep
-  native sheets and the floating upper-right AppKit Style inspector synchronized
-  with `CanvasSession` without materializing omitted defaults on observation;
+  connection, and empty-selection canvas `paper`/`appearance.font` controls),
+  [CanvasChrome](macos/Sources/CanvasUI/CanvasChrome.swift) (`CanvasCreationTool`,
+  `CanvasDockIconGlyph`, `CanvasToolDockView`, `CanvasStatusBannerView`,
+  `CanvasShortcutsSheet`, and `CanvasRecentDocumentsStore`), and
+  [CanvasAccessibility](macos/Sources/CanvasUI/CanvasAccessibility.swift)
+  (`CanvasAccessibilityElement` exposing nodes, connections, and selection to
+  `NSAccessibility`) keep native sheets, toolbars/docks, conflict/status banners,
+  and the floating upper-right AppKit Style inspector synchronized with
+  `CanvasSession` without materializing omitted defaults on observation;
   cancellation and no-ops leave history untouched.
-  Pointer drags, geometry gestures, and inline text drafts stay outside committed
-  `CanvasSession` JSON until commit so background autosave never serializes unconfirmed previews.
+  Pointer drags, armed creation drags, geometry gestures, and inline text drafts stay
+  outside committed `CanvasSession` JSON until commit so background autosave never
+  serializes unconfirmed previews.
 - [Document](lib/elixir_canvas/document.ex) owns v1/v2 JSON validation,
   metadata retention, source identity, version-copy preparation and server-file persistence.
 - [Attachment](lib/elixir_canvas/attachment.ex) validates embedded UTF-8 snapshots

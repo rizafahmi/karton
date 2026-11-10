@@ -55,15 +55,49 @@ public final class CanvasNativeDocument: NSDocument {
     public private(set) var acknowledgedFingerprint: CanvasFileFingerprint?
     public private(set) var acknowledgedRevision: UInt64 = 0
     public private(set) var acknowledgedCanonicalData: Data
-    public private(set) var conflictReason: CanvasConflictReason?
-    public private(set) var lastSaveError: String?
-    public private(set) var lastRecoveryError: String?
-    public private(set) var readOnlyReason: String?
+    public private(set) var conflictReason: CanvasConflictReason? {
+        didSet {
+            if conflictReason == nil {
+                acknowledgedConflictReason = nil
+            }
+        }
+    }
+    public private(set) var lastSaveError: String? {
+        didSet {
+            if lastSaveError != nil {
+                saveErrorSeq &+= 1
+            } else {
+                acknowledgedSaveErrorSeq = saveErrorSeq
+            }
+        }
+    }
+    public private(set) var lastRecoveryError: String? {
+        didSet {
+            if lastRecoveryError != nil {
+                recoveryErrorSeq &+= 1
+            } else {
+                acknowledgedRecoveryErrorSeq = recoveryErrorSeq
+            }
+        }
+    }
+    public private(set) var readOnlyReason: String? {
+        didSet {
+            if readOnlyReason == nil {
+                acknowledgedReadOnlyReason = nil
+            }
+        }
+    }
     public private(set) var isSavingInFlight = false
     public private(set) var isRecoveryWriteInFlight = false
     public private(set) var isClosed = false
     public private(set) var lastPreReloadRecoverySessionID: UUID?
     private var pendingRecoveryAfterSourceSave = false
+    private var acknowledgedConflictReason: CanvasConflictReason?
+    private var saveErrorSeq: UInt64 = 0
+    private var acknowledgedSaveErrorSeq: UInt64 = 0
+    private var recoveryErrorSeq: UInt64 = 0
+    private var acknowledgedRecoveryErrorSeq: UInt64 = 0
+    private var acknowledgedReadOnlyReason: String?
 
     private nonisolated(unsafe) var activeWriteContext: ActiveWriteContext?
     private nonisolated(unsafe) var activeWriteCaughtError: Error?
@@ -145,6 +179,7 @@ public final class CanvasNativeDocument: NSDocument {
             self.sourceGeneration = 1
         }
         wireCallbacks()
+        syncStatusBanner()
     }
 
     public convenience init(
@@ -363,7 +398,53 @@ public final class CanvasNativeDocument: NSDocument {
     }
 
     private func notifyStateDidChange() {
+        syncStatusBanner()
         onStateDidChange?(persistenceState)
+    }
+
+    private var nextUnacknowledgedBannerKind: CanvasStatusBannerView.BannerKind? {
+        if let conflict = conflictReason, acknowledgedConflictReason != conflict {
+            return .conflict(conflict)
+        }
+        if let saveErr = lastSaveError, acknowledgedSaveErrorSeq != saveErrorSeq {
+            let canRetry = fileURL != nil && conflictReason == nil && readOnlyReason == nil
+            return .saveError(saveErr, canRetry: canRetry)
+        }
+        if let recErr = lastRecoveryError, acknowledgedRecoveryErrorSeq != recoveryErrorSeq {
+            return .recoveryError(recErr)
+        }
+        if let readOnly = readOnlyReason, acknowledgedReadOnlyReason != readOnly {
+            return .readOnly(readOnly)
+        }
+        return nil
+    }
+
+    public var isStatusBannerDismissed: Bool {
+        nextUnacknowledgedBannerKind == nil &&
+            (conflictReason != nil || lastSaveError != nil || lastRecoveryError != nil || readOnlyReason != nil)
+    }
+
+    public func syncStatusBanner() {
+        canvasView.statusBanner.configure(kind: nextUnacknowledgedBannerKind)
+        canvasView.positionStatusBanner()
+        canvasView.needsDisplay = true
+    }
+
+    public func dismissStatusBanner() {
+        switch canvasView.statusBanner.activeKind ?? nextUnacknowledgedBannerKind {
+        case .conflict(let reason):
+            acknowledgedConflictReason = reason
+            _ = try? applyConflictDecision(.keepEditing)
+        case .saveError:
+            acknowledgedSaveErrorSeq = saveErrorSeq
+        case .recoveryError:
+            acknowledgedRecoveryErrorSeq = recoveryErrorSeq
+        case .readOnly(let reason):
+            acknowledgedReadOnlyReason = reason
+        case nil:
+            break
+        }
+        notifyStateDidChange()
     }
 
     // MARK: - Coalesced 5s quiet / 30s continuous scheduling
@@ -591,6 +672,11 @@ public final class CanvasNativeDocument: NSDocument {
     }
 
     /// Evaluates external changes on the connected file (`NSFilePresenter` or explicit check) without reloading underneath the user.
+    public nonisolated override func presentedItemDidChange() {
+        Task { @MainActor [weak self] in
+            _ = self?.checkExternalSourceStatus()
+        }
+    }
     @discardableResult
     public func checkExternalSourceStatus() -> Bool {
         guard let url = fileURL,
@@ -613,6 +699,9 @@ public final class CanvasNativeDocument: NSDocument {
 
     private func enterConflictState(_ reason: CanvasConflictReason) {
         cancelScheduledTimers()
+        if conflictReason == reason {
+            acknowledgedConflictReason = nil
+        }
         conflictReason = reason
         try? writeRecoverySnapshotNow()
         notifyStateDidChange()
@@ -626,6 +715,17 @@ public final class CanvasNativeDocument: NSDocument {
         to url: URL,
         for saveOperation: NSDocument.SaveOperationType
     ) throws -> Bool {
+        if isRecoveryWriteInFlight {
+            let waitLimit = Date().addingTimeInterval(max(0.001, synchronousWaitTimeout))
+            while isRecoveryWriteInFlight && Date() < waitLimit {
+                RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.005))
+            }
+            if isRecoveryWriteInFlight {
+                throw CanvasPersistenceError.writeFailed(
+                    "Cannot save while a recovery operation is still in progress."
+                )
+            }
+        }
         let previousURL = self.fileURL
         let previousDisplayName = self.displayNameTitle
         let previousGen = self.sourceGeneration
@@ -978,6 +1078,7 @@ public final class CanvasNativeDocument: NSDocument {
                 )
             }
         }
+        var reportedInCallback = false
         do {
             try recoveryStore.ensureDirectories()
             let effectiveSessionID = targetSessionID ?? sessionID
@@ -993,12 +1094,13 @@ public final class CanvasNativeDocument: NSDocument {
             let capturedBaseFP = forceUntitledBackup ? nil : acknowledgedFingerprint
             let capturedDisplayName = displayNameOverride ?? displayNameTitle
             let capturedTextDraft = canvasView.recoverableTextDraft
+            let capturedGeneration = sourceGeneration
 
             isRecoveryWriteInFlight = true
             activeWriteContext = ActiveWriteContext(
                 data: snapshotData,
                 revision: capturedRevision,
-                generation: sourceGeneration,
+                generation: capturedGeneration,
                 expectedFingerprint: nil,
                 readOnlyReason: nil,
                 isDraftWrite: true
@@ -1008,54 +1110,74 @@ public final class CanvasNativeDocument: NSDocument {
             var draftFinished = false
             var draftCompletionError: Error?
 
-            self.invokeSuperSave(to: draftURL, for: .autosaveElsewhereOperation) { [weak self] nsDocErr in
-                let finishDraft: () -> Void = { [weak self] in
-                    guard let self else { return }
-                    let caught = self.activeWriteCaughtError ?? nsDocErr
-                    self.activeWriteContext = nil
-                    self.activeWriteCaughtError = nil
-                    self.isRecoveryWriteInFlight = false
-                    draftFinished = true
+            let writeErr: (any Error)?
+            do {
+                try self.writeSafely(
+                    to: draftURL,
+                    ofType: "public.json",
+                    for: .autosaveElsewhereOperation
+                )
+                writeErr = nil
+            } catch {
+                writeErr = self.activeWriteCaughtError ?? error
+            }
 
-                    if let caught {
-                        if isIndependentBackup {
-                            self.autosavedContentsFileURL = previousAutosavedURL
-                        }
-                        draftCompletionError = caught
-                        self.lastRecoveryError = caught.localizedDescription
-                        self.notifyStateDidChange()
-                        return
-                    }
+            let finishDraft: () -> Void = { [weak self] in
+                guard let self else { return }
+                let caught = self.activeWriteCaughtError ?? writeErr
+                self.activeWriteContext = nil
+                self.activeWriteCaughtError = nil
+                self.isRecoveryWriteInFlight = false
+                draftFinished = true
+
+                if self.isClosed || (!isIndependentBackup && self.sourceGeneration != capturedGeneration) {
+                    return
+                }
+
+                if let caught {
                     if isIndependentBackup {
                         self.autosavedContentsFileURL = previousAutosavedURL
-                    } else {
-                        self.autosavedContentsFileURL = draftURL
                     }
-                    let envelope = CanvasRecoveryEnvelope(
-                        sessionID: effectiveSessionID,
-                        updatedAt: Date(),
-                        displayName: capturedDisplayName,
-                        sourcePath: capturedSourcePath,
-                        baseFingerprint: capturedBaseFP,
-                        autosavedDraftPath: draftURL.path,
-                        committedRevision: capturedRevision,
-                        acknowledgedRevision: capturedAckRevision,
-                        pendingTextDraft: capturedTextDraft
-                    )
-                    do {
-                        try self.recoveryStore.write(envelope)
-                        self.lastRecoveryError = nil
-                    } catch {
-                        draftCompletionError = error
-                        self.lastRecoveryError = error.localizedDescription
+                    draftCompletionError = caught
+                    reportedInCallback = true
+                    self.lastRecoveryError = caught.localizedDescription
+                    self.notifyStateDidChange()
+                    return
+                }
+                if isIndependentBackup {
+                    self.autosavedContentsFileURL = previousAutosavedURL
+                } else {
+                    self.autosavedContentsFileURL = draftURL
+                }
+                let envelope = CanvasRecoveryEnvelope(
+                    sessionID: effectiveSessionID,
+                    updatedAt: Date(),
+                    displayName: capturedDisplayName,
+                    sourcePath: capturedSourcePath,
+                    baseFingerprint: capturedBaseFP,
+                    autosavedDraftPath: draftURL.path,
+                    committedRevision: capturedRevision,
+                    acknowledgedRevision: capturedAckRevision,
+                    pendingTextDraft: capturedTextDraft
+                )
+                do {
+                    let hadRecoveryError = (self.lastRecoveryError != nil)
+                    try self.recoveryStore.write(envelope)
+                    self.lastRecoveryError = nil
+                    if hadRecoveryError {
                         self.notifyStateDidChange()
                     }
+                } catch {
+                    draftCompletionError = error
+                    reportedInCallback = true
+                    self.lastRecoveryError = error.localizedDescription
+                    self.notifyStateDidChange()
                 }
-                if let delayHook = self?.saveCompletionDelayHook {
-                    delayHook(finishDraft)
-                } else {
-                    finishDraft()
-                }
+            }
+            if let delayHook = self.saveCompletionDelayHook {
+                delayHook(finishDraft)
+            } else {
+                finishDraft()
             }
 
             let deadline = Date().addingTimeInterval(max(0.001, synchronousWaitTimeout))
@@ -1071,7 +1193,7 @@ public final class CanvasNativeDocument: NSDocument {
                 throw draftCompletionError
             }
         } catch {
-            if !isRecoveryWriteInFlight {
+            if !reportedInCallback && !isRecoveryWriteInFlight {
                 lastRecoveryError = error.localizedDescription
                 notifyStateDidChange()
             }

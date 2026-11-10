@@ -68,11 +68,14 @@ open the same file in the web editor → export a transparent PNG for Keynote.
 | Recovery | Native untitled recovery (`NSDocument.autosavedContentsFileURL`) plus private app-owned storage for uncovered metadata and active text drafts; retain until saved elsewhere or explicitly discarded | Approved 2026-11-05; implemented and verified 2026-11-10 |
 | PNG | Default 2,048-pixel longest side, proportional other dimension, 32 world-unit padding; configurable size, at most 8,192 pixels per side and 16,777,216 pixels total | Approved 2026-11-05; implemented and verified with Keynote light/dark slides 2026-11-10 |
 
-A basic canvas is not the complete milestone: approved code snippets, agreed
-compatibility coverage, persistence failure proof, and actual Keynote proof must
-also be delivered. Resolve the decision register in section 9 before the
-corresponding implementation work; do not silently treat recommendations as approvals.
-
+For the `v1.0` personal Mac release (approved and verified 2026-11-10), all four
+pre-release slices are implemented and covered by `CanvasChecks`: (1) bottom-center Neo-Acid
+floating icon tool dock, armed pointer click-or-drag creation, `Open Recent`,
+`About`/`Window`/`Help` menus, and `?` (`⌘/`) shortcuts sheet; (2) in-window actionable
+Conflict / Read-Only / Save-Error banner; (3) `NSAccessibilityElement` exposure for
+canvas objects, connections, and selection; and (4) `v1.0` bundle metadata and
+standalone release verification (`~/Applications/Canvas.app`). Native `type: "code"`
+authoring and `HighlighterSwift` syntax highlighting are deferred to `v0.2`.
 ## 3. Proposed canvas interaction contract
 
 ### Window and command surface

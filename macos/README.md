@@ -1,12 +1,16 @@
 # Native macOS editor
 
-This directory contains an independent native canvas editor with `NSDocument`-backed
-blank v2 New and v1/v2 Open, explicit Save (**⌘S**), Save As (**⇧⌘S**), explicit
-v1→v2 copy export (**File → Save Version 2 Copy…**), confirmed Reload from Disk,
-coalesced 5s-quiet / 30s-continuous autosave with byte-fingerprint conflict
-detection, `NSDocument` draft autosaving paired with private recovery envelopes
+This directory contains an independent native canvas editor (`Canvas.app` v1.0) with
+`NSDocument`-backed blank v2 New, v1/v2 Open, and **Open Recent**, explicit Save (**⌘S**),
+Save As (**⇧⌘S**), explicit v1→v2 copy export (**File → Save Version 2 Copy…**),
+confirmed Reload from Disk, coalesced 5s-quiet / 30s-continuous autosave with
+byte-fingerprint conflict detection and an actionable in-window Conflict/Read-Only/Error
+banner, `NSDocument` draft autosaving paired with private recovery envelopes
 (including active inline text drafts), launch recovery restoration, close/quit
-guards, shape/text and standalone line/arrow insertion, adjacent thoughts (`N`),
+guards, toggleable bottom-center Neo-Acid floating icon tool dock
+with armed pointer click-or-drag shape/line placement, **?** (**⌘/**) keyboard
+shortcuts reference sheet, `NSAccessibilityElement` canvas object/connection exposure,
+shape/text and standalone line/arrow insertion, adjacent thoughts (`N`),
 connections (with `bezier`, rounded `smooth`, orthogonal `step`, `straight`, and
 rounded exterior self-loop routes, labels and endpoint/side reconnection),
 object/connection selection, selection-preserving Tab traversal, Space tap selection

@@ -646,6 +646,38 @@ recovery were implemented and verified on 2026-11-10.
       `~/Applications/Canvas.app` for personal use; Developer ID/notarization/App
       Store deferred until wider release).
 
+### Native v1.0 personal release slices (approved 2026-11-10)
+
+Target distribution: personal/local release (`sh macos/build.sh` and `sh macos/install.sh`
+to `~/Applications/Canvas.app` with strict ad-hoc signing; Developer ID and notarization
+remain deferred). Native `type: "code"` authoring, inline source editing, `HighlighterSwift`
+highlighting, language selector, Copy code, and Fit are explicitly deferred to `v0.2`
+(existing v2 `code` nodes remain preserved, rendered in `Monaspace Neon`, transformed,
+styled, connected, duplicated with 1 MiB quota enforcement, and exported to PNG).
+
+- [x] **Slice 1 — Floating Neo-Acid icon tool dock, click-drag tools & menus (verified 2026-11-10):**
+      add a toggleable bottom-center Neo-Acid floating icon tool dock
+      (`Select`, `Rectangle`, `Ellipse`, `Diamond`, `Triangle`, `Text`, `Line`, `Arrow`,
+      `Connect`, `Adjacent Thought`, `Style`, `Export PNG`, `Shortcuts ?`), pointer
+      click-or-drag creation when a shape/line tool is armed (while preserving single-key
+      viewport-center insertion in Select mode), **Open Recent** in `File` menu and
+      Welcome window, standard **About Canvas**, **Window**, and **Help** menus, and an
+      in-app **Keyboard Shortcuts (`?` / `⌘/`)** reference sheet.
+- [x] **Slice 2 — Actionable in-window conflict & status banner (verified 2026-11-10):**
+      display a non-modal top banner inside the document window whenever a connected file
+      enters external-change **Conflict**, **Read-Only**, or **Save/Recovery Error** state,
+      providing direct **Save As…**, **Reload from Disk…**, **Retry Save**, and
+      **Keep Editing** / **Dismiss** actions without waiting for `⌘S`.
+- [x] **Slice 3 — Native canvas accessibility (`NSAccessibility`, verified 2026-11-10):**
+      expose canvas objects, connections, and selection state as `NSAccessibilityElement`
+      children of `CanvasView` (`macos/SPEC.md §3`) with accurate screen-space frames,
+      roles, labels, values, and press/selection actions so the canvas is not a single
+      opaque bitmap.
+- [x] **Slice 4 — v1.0 bundle identity, dogfood proof & release prep (verified 2026-11-10):**
+      bump `Info.plist` version to `1.0`, verify full `CanvasChecks` regression coverage
+      across all four slices plus standalone bundle-isolated workflow proof, and install
+      the signed `Canvas.app` v1.0 bundle to `~/Applications/Canvas.app`.
+
 ### Native decisions
 
 - [x] **Native authoring (2026-11-04):** create and edit canvases, not only edit

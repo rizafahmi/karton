@@ -5,12 +5,14 @@ and Hakushi. The JSON file is the document, not an export from a database.
 
 ## Native macOS
 
-An independent native macOS editor (`Canvas.app`) is available for macOS 27 through
+An independent native macOS editor (`Canvas.app` v1.0) is available for macOS 27 through
 the [command-line build](macos/README.md). Without Phoenix, it supports `NSDocument`-backed
-blank v2 canvases, v1/v2 Open, explicit Save (`⌘S`), Save As (`⇧⌘S`), v1→v2 copy
+blank v2 canvases, v1/v2 Open and `Open Recent`, explicit Save (`⌘S`), Save As (`⇧⌘S`), v1→v2 copy
 export (`File → Save Version 2 Copy…`), confirmed Reload from Disk, coalesced 5s/30s
-autosave with byte-fingerprint conflict detection, `NSDocument` draft autosaving plus
-private recovery envelopes, launch recovery restoration, shape/text and standalone
+autosave with byte-fingerprint conflict detection and an actionable in-window Conflict/Read-Only/Error
+banner, `NSDocument` draft autosaving plus private recovery envelopes, launch recovery restoration,
+toggleable bottom-center Neo-Acid floating icon tool dock with armed click-or-drag
+placement, `?` keyboard reference sheet, `NSAccessibility` element exposure, shape/text and standalone
 line/arrow insertion, adjacent thoughts (`N`), connections (`bezier`, `smooth`,
 `step`, `straight`, and exterior self-loops with labels and reconnection), selection
 and Tab traversal, Space tap/drag pan, marquee and `⌘A` multi-selection, movement,

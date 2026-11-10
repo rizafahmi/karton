@@ -9,19 +9,24 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     private weak var currentWindow: NSWindow?
     private var welcome: NSWindowController?
     private var untitledCount = 0
+    private let openRecentMenu = NSMenu(title: "Open Recent")
 
     private var sigtermSource: DispatchSourceSignal?
     public var recoveryStore: CanvasRecoveryStore
+    public var recentDocumentsStore: CanvasRecentDocumentsStore
     public var recoveryLaunchDecisionProvider: ((CanvasRecoveryInspection) -> CanvasRecoveryLaunchDecision)?
     public var openErrorHandler: ((URL, Error) -> Void)?
     public var saveErrorHandler: ((CanvasNativeDocument, Error) -> Void)?
     public private(set) var corruptRecoveryNotices: [String] = []
 
-    public init(recoveryStore: CanvasRecoveryStore = CanvasRecoveryStore()) {
+    public init(
+        recoveryStore: CanvasRecoveryStore = CanvasRecoveryStore(),
+        recentDocumentsStore: CanvasRecentDocumentsStore = CanvasRecentDocumentsStore()
+    ) {
         self.recoveryStore = recoveryStore
+        self.recentDocumentsStore = recentDocumentsStore
         super.init()
     }
-
     public override convenience init() {
         self.init(recoveryStore: CanvasRecoveryStore())
     }
@@ -85,8 +90,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     }
 
     public func showWelcome() {
+        let recents = Array(recentDocumentsStore.recentURLs.prefix(3))
+        let windowHeight: CGFloat = recents.isEmpty ? 264 : 308
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 264),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: windowHeight),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -95,12 +102,35 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         window.title = "Canvas"
         window.backgroundColor = CanvasTheme.canvasBackground
         window.center()
-        let content = WelcomeContentView(frame: NSRect(x: 0, y: 0, width: 520, height: 264))
+        let content = WelcomeContentView(frame: NSRect(x: 0, y: 0, width: 520, height: windowHeight))
+        if !recents.isEmpty {
+            let recentLabel = NSTextField(labelWithString: "RECENT:")
+            recentLabel.font = CanvasTypography.font("mono", "s", scale: 10.5 / 14.0)
+            recentLabel.textColor = CanvasTheme.mutedText
+            recentLabel.frame = NSRect(x: 32, y: 178, width: 64, height: 18)
+            content.addSubview(recentLabel)
+            var rx: CGFloat = 98
+            for (idx, url) in recents.enumerated() {
+                let btn = NSButton(title: url.lastPathComponent, target: self, action: #selector(openRecentFromWelcome(_:)))
+                btn.identifier = NSUserInterfaceItemIdentifier("welcome-recent-\(idx)")
+                btn.toolTip = url.path
+                let w = min(130, max(76, ceil((url.lastPathComponent as NSString).size(withAttributes: [
+                    .font: NSFont.systemFont(ofSize: 12)
+                ]).width) + 20))
+                btn.frame = NSRect(x: rx, y: 173, width: w, height: 24)
+                content.addSubview(btn)
+                rx += w + 8
+                if rx > 460 { break }
+            }
+        }
+        let buttonY = windowHeight - 50
         let new = NSButton(title: "New Canvas", target: self, action: #selector(newDocument(_:)))
-        new.frame = NSRect(x: 32, y: 214, width: 140, height: 32)
+        new.identifier = NSUserInterfaceItemIdentifier("welcome-new-canvas")
+        new.frame = NSRect(x: 32, y: buttonY, width: 140, height: 32)
         new.keyEquivalent = "\r"
         let button = NSButton(title: "Open Canvas…", target: self, action: #selector(chooseDocument(_:)))
-        button.frame = NSRect(x: 184, y: 214, width: 140, height: 32)
+        button.identifier = NSUserInterfaceItemIdentifier("welcome-open-canvas")
+        button.frame = NSRect(x: 184, y: buttonY, width: 140, height: 32)
         content.addSubview(new)
         content.addSubview(button)
         window.contentView = content
@@ -120,6 +150,8 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         }), let existingWindow = existingController.window,
            let existingDoc = documentsByWindow[ObjectIdentifier(existingWindow)] {
             currentWindow = existingWindow
+            recentDocumentsStore.record(standardized)
+            rebuildOpenRecentMenu()
             existingController.showWindow(nil)
             existingWindow.makeKeyAndOrderFront(nil)
             existingWindow.makeFirstResponder(existingDoc.canvasView)
@@ -127,6 +159,8 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         }
         do {
             let nativeDoc = try CanvasNativeDocument(opening: url, recoveryStore: recoveryStore)
+            recentDocumentsStore.record(standardized)
+            rebuildOpenRecentMenu()
             _ = showNativeDocument(nativeDoc)
             return nativeDoc
         } catch {
@@ -160,6 +194,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     @discardableResult
     public func showNativeDocument(_ nativeDocument: CanvasNativeDocument) -> CanvasView {
         let canvas = nativeDocument.canvasView
+        canvas.isToolDockVisible = true
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
@@ -184,6 +219,28 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         windows.append(controller)
         documentsByWindow[ObjectIdentifier(window)] = nativeDocument
 
+        canvas.statusBanner.onSaveAs = { [weak self, weak window] in
+            guard let self, let window else { return }
+            self.currentWindow = window
+            self.saveDocumentAs(nil)
+        }
+        canvas.statusBanner.onReloadFromDisk = { [weak self, weak window] in
+            guard let self, let window else { return }
+            self.currentWindow = window
+            self.reloadDocumentFromDisk(nil)
+        }
+        canvas.statusBanner.onKeepEditing = { [weak nativeDocument] in
+            nativeDocument?.dismissStatusBanner()
+        }
+        canvas.statusBanner.onRetrySave = { [weak self, weak window] in
+            guard let self, let window else { return }
+            self.currentWindow = window
+            self.saveDocument(nil)
+        }
+        canvas.statusBanner.onDismiss = { [weak nativeDocument] in
+            nativeDocument?.dismissStatusBanner()
+        }
+
         let syncWindowChrome: (CanvasPersistenceState) -> Void = { [weak window, weak nativeDocument] state in
             guard let window, let nativeDocument else { return }
             window.title = nativeDocument.windowTitle
@@ -191,8 +248,8 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             window.isDocumentEdited = state.hasUnresolvedWork
         }
         nativeDocument.onStateDidChange = syncWindowChrome
+        nativeDocument.syncStatusBanner()
         syncWindowChrome(nativeDocument.persistenceState)
-
         currentWindow = window
         welcome?.close()
         welcome = nil
@@ -276,6 +333,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     @discardableResult
     public func showSession(_ session: CanvasSession, name: String) -> CanvasView {
         let canvas = CanvasView(session: session)
+        canvas.isToolDockVisible = true
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
@@ -437,7 +495,11 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             return
         }
         do {
-            _ = try doc.saveDocumentExplicitly()
+            let saved = try doc.saveDocumentExplicitly()
+            if saved, let url = doc.fileURL {
+                recentDocumentsStore.record(url)
+                rebuildOpenRecentMenu()
+            }
         } catch let error as CanvasPersistenceError {
             if case .externalConflict(let reason) = error {
                 handleConflictPrompt(for: doc, reason: reason)
@@ -464,7 +526,11 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             return
         }
         do {
-            _ = try doc.saveDocumentAs(to: destinationURL)
+            let saved = try doc.saveDocumentAs(to: destinationURL)
+            if saved, let url = doc.fileURL {
+                recentDocumentsStore.record(url)
+                rebuildOpenRecentMenu()
+            }
         } catch {
             presentSaveError(for: doc, error: error)
         }
@@ -609,6 +675,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
                  #selector(toggleLock(_:)), #selector(showStyleInspector(_:)),
                  #selector(zoomIn(_:)), #selector(zoomOut(_:)),
                  #selector(resetZoom(_:)), #selector(zoomToFit(_:)),
+                 #selector(toggleToolDock(_:)), #selector(showShortcutsHelp(_:)),
                  #selector(exportPNG(_:)), #selector(saveDocument(_:)),
                  #selector(saveDocumentAs(_:)), #selector(saveVersion2Copy(_:)),
                  #selector(reloadDocumentFromDisk(_:)):
@@ -669,6 +736,13 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         if menuItem.action == #selector(zoomIn(_:)) || menuItem.action == #selector(zoomOut(_:)) ||
            menuItem.action == #selector(resetZoom(_:)) || menuItem.action == #selector(zoomToFit(_:)) {
             return !sheetOpen
+        }
+        if menuItem.action == #selector(toggleToolDock(_:)) {
+            menuItem.title = canvas.isToolDockVisible ? "Hide Tool Dock" : "Show Tool Dock"
+            return !sheetOpen
+        }
+        if menuItem.action == #selector(showShortcutsHelp(_:)) {
+            return !modalSheetOpen
         }
         if menuItem.action == #selector(exportPNG(_:)) {
             let modalSheetOpen = keyWin?.attachedSheet != nil || keyWin?.sheetParent != nil
@@ -783,14 +857,86 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         welcome = nil
     }
 
+    @objc public func toggleToolDock(_ sender: Any?) {
+        guard let canvas = activeCanvas() else { return }
+        canvas.isToolDockVisible.toggle()
+    }
+
+    @objc public func showShortcutsHelp(_ sender: Any?) {
+        activeCanvas()?.beginShortcutsHelp(sender)
+    }
+
+    @objc public func showAboutPanel(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Canvas 1.0"
+        alert.informativeText = "Local-first spatial thinking canvas for macOS.\nSupports portable v1 and v2 JSON canvases, coalesced safe autosave with crash recovery, and transparent Keynote PNG export."
+        if let icon = NSApplication.shared.applicationIconImage {
+            alert.icon = icon
+        }
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    @objc public func openRecentDocument(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        openDocument(URL(fileURLWithPath: path))
+    }
+
+    @objc public func openRecentFromWelcome(_ sender: NSButton) {
+        guard let path = sender.toolTip, !path.isEmpty else { return }
+        openDocument(URL(fileURLWithPath: path))
+    }
+
+    @objc public func clearRecentDocuments(_ sender: Any?) {
+        recentDocumentsStore.clear()
+        rebuildOpenRecentMenu()
+    }
+
+    public func rebuildOpenRecentMenu() {
+        openRecentMenu.removeAllItems()
+        let urls = recentDocumentsStore.recentURLs
+        if urls.isEmpty {
+            let emptyItem = NSMenuItem(title: "No Recent Documents", action: nil, keyEquivalent: "")
+            emptyItem.isEnabled = false
+            openRecentMenu.addItem(emptyItem)
+        } else {
+            for url in urls {
+                let item = NSMenuItem(
+                    title: url.lastPathComponent,
+                    action: #selector(openRecentDocument(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = url.path
+                item.toolTip = url.path
+                openRecentMenu.addItem(item)
+            }
+        }
+        openRecentMenu.addItem(.separator())
+        let clearItem = NSMenuItem(
+            title: "Clear Menu",
+            action: #selector(clearRecentDocuments(_:)),
+            keyEquivalent: ""
+        )
+        clearItem.target = self
+        clearItem.isEnabled = !urls.isEmpty
+        openRecentMenu.addItem(clearItem)
+    }
+
     public func installMenu() {
         let app = NSApplication.shared
         let main = NSMenu()
         let appItem = NSMenuItem(title: "Canvas", action: nil, keyEquivalent: "")
         main.addItem(appItem)
         let appMenu = NSMenu()
+        let aboutItem = NSMenuItem(title: "About Canvas", action: #selector(showAboutPanel(_:)), keyEquivalent: "")
+        aboutItem.target = self
+        appMenu.addItem(aboutItem)
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Canvas", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
+
         let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         main.addItem(fileItem)
         let fileMenu = NSMenu(title: "File")
@@ -800,6 +946,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         let open = NSMenuItem(title: "Open…", action: #selector(chooseDocument(_:)), keyEquivalent: "o")
         open.target = self
         fileMenu.addItem(open)
+        let openRecentItem = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+        openRecentItem.submenu = openRecentMenu
+        rebuildOpenRecentMenu()
+        fileMenu.addItem(openRecentItem)
         fileMenu.addItem(.separator())
         let save = NSMenuItem(title: "Save", action: #selector(saveDocument(_:)), keyEquivalent: "s")
         save.target = self
@@ -822,6 +972,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         fileMenu.addItem(.separator())
         fileMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         fileItem.submenu = fileMenu
+
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         main.addItem(editItem)
         let editMenu = NSMenu(title: "Edit")
@@ -880,6 +1031,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         style.target = self
         editMenu.addItem(style)
         editItem.submenu = editMenu
+
         let insertItem = NSMenuItem(title: "Insert", action: nil, keyEquivalent: "")
         main.addItem(insertItem)
         let insertMenu = NSMenu(title: "Insert")
@@ -906,6 +1058,8 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         let thought = NSMenuItem(title: "Adjacent Thought", action: #selector(insertAdjacentThought(_:)), keyEquivalent: "")
         thought.target = self
         insertMenu.addItem(thought)
+        insertItem.submenu = insertMenu
+
         let viewItem = NSMenuItem(title: "View", action: nil, keyEquivalent: "")
         main.addItem(viewItem)
         let viewMenu = NSMenu(title: "View")
@@ -921,9 +1075,36 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         let fitItem = NSMenuItem(title: "Zoom to Fit", action: #selector(zoomToFit(_:)), keyEquivalent: "")
         fitItem.target = self
         viewMenu.addItem(fitItem)
+        viewMenu.addItem(.separator())
+        let toggleDockItem = NSMenuItem(title: "Hide Tool Dock", action: #selector(toggleToolDock(_:)), keyEquivalent: "")
+        toggleDockItem.target = self
+        viewMenu.addItem(toggleDockItem)
         viewItem.submenu = viewMenu
-        insertItem.submenu = insertMenu
+
+        let windowItem = NSMenuItem(title: "Window", action: nil, keyEquivalent: "")
+        main.addItem(windowItem)
+        let windowMenu = NSMenu(title: "Window")
+        windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
+        windowItem.submenu = windowMenu
+        app.windowsMenu = windowMenu
+
+        let helpItem = NSMenuItem(title: "Help", action: nil, keyEquivalent: "")
+        main.addItem(helpItem)
+        let helpMenu = NSMenu(title: "Help")
+        let shortcutsItem = NSMenuItem(
+            title: "Keyboard & Pointer Shortcuts…",
+            action: #selector(showShortcutsHelp(_:)),
+            keyEquivalent: "/"
+        )
+        shortcutsItem.target = self
+        shortcutsItem.keyEquivalentModifierMask = [.command]
+        helpMenu.addItem(shortcutsItem)
+        helpItem.submenu = helpMenu
+        app.helpMenu = helpMenu
+
         app.mainMenu = main
     }
-
 }

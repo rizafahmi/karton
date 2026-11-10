@@ -471,7 +471,11 @@ public final class CanvasSession {
     }
 
     public func insertShape(
-        _ kind: CanvasShapeKind, at position: CanvasPosition, text: String? = nil, height: Double? = nil
+        _ kind: CanvasShapeKind,
+        at position: CanvasPosition,
+        text: String? = nil,
+        width: Double = 160,
+        height: Double? = nil
     ) throws -> CanvasShapeInsertion {
         guard position.x.isFinite, position.y.isFinite,
               abs(position.x) <= 1_000_000, abs(position.y) <= 1_000_000 else {
@@ -482,7 +486,8 @@ public final class CanvasSession {
         }
         let defaultHeight: Double = kind == .text ? 48 : 96
         let resolvedHeight = height ?? defaultHeight
-        guard resolvedHeight.isFinite, resolvedHeight > 0, resolvedHeight <= 1_000_000 else {
+        guard width.isFinite, width > 0, width <= 1_000_000,
+              resolvedHeight.isFinite, resolvedHeight > 0, resolvedHeight <= 1_000_000 else {
             throw CanvasDocumentError("A shape needs positive dimensions within 1000000.")
         }
         let id = UUID().uuidString
@@ -493,7 +498,7 @@ public final class CanvasSession {
         data["text"] = text
         let raw: [String: Any] = [
             "id": id, "type": "shape", "x": position.x, "y": position.y,
-            "width": 160, "height": resolvedHeight,
+            "width": width, "height": resolvedHeight,
             "data": data
         ]
         let insertion = CanvasShapeInsertion(

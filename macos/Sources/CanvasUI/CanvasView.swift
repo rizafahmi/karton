@@ -126,6 +126,13 @@ public final class CanvasView: NSView {
         var target: ConnectionDropTarget?
     }
 
+    private struct CreationDragGesture {
+        let tool: CanvasCreationTool
+        let startPoint: CGPoint
+        var currentPoint: CGPoint
+        var hasDragged: Bool = false
+    }
+
     private var nodes: [Node]
     private var edges: [EdgeDrawing]
     private var paper: [String: Any]
@@ -177,6 +184,28 @@ public final class CanvasView: NSView {
     private let thoughtInputView = ThoughtDraftTextView(frame: NSRect(x: 0, y: 0, width: 160, height: 96))
     public let styleInspector = StyleInspectorView()
     public private(set) var isStyleInspectorOpen = false
+    public let toolDock = CanvasToolDockView()
+    public var isToolDockVisible: Bool = false {
+        didSet {
+            toolDock.isHidden = !isToolDockVisible
+            refreshToolDock()
+            positionToolDock()
+            needsDisplay = true
+        }
+    }
+    public let statusBanner = CanvasStatusBannerView()
+    public private(set) var activeCreationTool: CanvasCreationTool = .select {
+        didSet {
+            refreshToolDock()
+            needsDisplay = true
+        }
+    }
+    private var creationDrag: CreationDragGesture? {
+        didSet { onDraftStateDidChange?() }
+    }
+    private var shortcutsSheet: CanvasShortcutsSheet?
+    public var isShortcutsSheetOpen: Bool { shortcutsSheet != nil }
+    public var activeShortcutsPanel: NSPanel? { shortcutsSheet?.panel }
     public var selectedNodeID: String? { selectedID }
     public var isReadOnly: Bool { session.isReadOnly }
     public var selectedConnectionID: String? { selectedEdgeID }
@@ -192,8 +221,9 @@ public final class CanvasView: NSView {
         return drag.currentPositions != drag.positions
     }
     public var hasActiveConnectionDrag: Bool { connectionDrag != nil }
+    public var hasActiveCreationDrag: Bool { creationDrag != nil }
     public var hasPendingDraftOrPreview: Bool {
-        hasActiveInlineTextEditor || isChoosingAdjacentThoughtDirection || hasGeometryPreview || hasActivePointerDrag || hasActiveConnectionDrag
+        hasActiveInlineTextEditor || isChoosingAdjacentThoughtDirection || hasGeometryPreview || hasActivePointerDrag || hasActiveConnectionDrag || hasActiveCreationDrag
     }
     public var recoverableTextDraft: CanvasRecoverableTextDraft? {
         guard !thoughtInputView.hasMarkedText() else { return nil }
@@ -297,7 +327,8 @@ public final class CanvasView: NSView {
             (selectedEdgeID.map { session.hasConnection($0) } ?? false)
     }
     public var canExportPNG: Bool {
-        drag == nil && connectionEditor == nil && attachmentPreview == nil && pngExportSheet == nil &&
+        drag == nil && connectionDrag == nil && creationDrag == nil &&
+            connectionEditor == nil && attachmentPreview == nil && pngExportSheet == nil && shortcutsSheet == nil &&
             (!nodes.isEmpty || hasActiveInlineTextEditor)
     }
     public var isPNGExportSheetOpen: Bool { pngExportSheet != nil }
@@ -465,6 +496,28 @@ public final class CanvasView: NSView {
             self?.closeStyleInspector(nil)
         }
         addSubview(styleInspector)
+        toolDock.isHidden = true
+        toolDock.onSelectTool = { [weak self] tool in
+            self?.activateToolFromDock(tool)
+        }
+        toolDock.onConnect = { [weak self] in
+            self?.beginConnection()
+        }
+        toolDock.onAdjacentThought = { [weak self] in
+            self?.beginAdjacentThought()
+        }
+        toolDock.onToggleStyle = { [weak self] in
+            self?.toggleStyleInspector(nil)
+        }
+        toolDock.onExportPNG = { [weak self] in
+            self?.beginPNGExport()
+        }
+        toolDock.onShowShortcuts = { [weak self] in
+            self?.beginShortcutsHelp()
+        }
+        addSubview(toolDock)
+        statusBanner.isHidden = true
+        addSubview(statusBanner)
     }
 
     public required init?(coder: NSCoder) { fatalError("CanvasView requires a document") }
@@ -531,6 +584,9 @@ public final class CanvasView: NSView {
         if let activeConnDrag = connectionDrag {
             drawConnectionDragPreview(activeConnDrag)
         }
+        if let activeCreation = creationDrag {
+            drawCreationDragPreview(activeCreation)
+        }
         if let inlineTextState {
             drawInlineTextPreview(inlineTextState)
         }
@@ -539,10 +595,14 @@ public final class CanvasView: NSView {
         if let lineEndpointGesture { drawLineEndpointHelp(lineEndpointGesture.endpoint) }
         if connectionDrag != nil {
             drawHelpBanner("Drag to an object or side port to connect · Release to commit · Escape: cancel")
+        } else if activeCreationTool != .select {
+            drawHelpBanner(activeCreationTool.helpBannerText)
         }
         if let inlineTextState { drawInlineTextHelp(inlineTextState) }
         positionInlineTextEditor()
         positionStyleInspector()
+        positionToolDock()
+        positionStatusBanner()
     }
 
     public override func updateTrackingAreas() {
@@ -599,6 +659,25 @@ public final class CanvasView: NSView {
             return
         }
         let point = worldPoint(for: event)
+        if activeCreationTool != .select {
+            guard !isReadOnly else {
+                activeCreationTool = .select
+                NSSound.beep()
+                return
+            }
+            cancelGeometry()
+            creationDrag = CreationDragGesture(
+                tool: activeCreationTool,
+                startPoint: point,
+                currentPoint: point,
+                hasDragged: false
+            )
+            drag = nil
+            marqueeGesture = nil
+            connectionDrag = nil
+            needsDisplay = true
+            return
+        }
         if !isReadOnly {
             if let edgeID = selectedEdgeID,
                let edge = edges.first(where: { $0.id == edgeID }) {
@@ -771,6 +850,16 @@ public final class CanvasView: NSView {
             ))
             return
         }
+        if var activeCreation = creationDrag {
+            let point = worldPoint(for: event)
+            activeCreation.currentPoint = point
+            if hypot(point.x - activeCreation.startPoint.x, point.y - activeCreation.startPoint.y) >= 8.0 {
+                activeCreation.hasDragged = true
+            }
+            creationDrag = activeCreation
+            needsDisplay = true
+            return
+        }
         if var activeConnDrag = connectionDrag {
             let point = worldPoint(for: event)
             activeConnDrag.currentPoint = point
@@ -845,6 +934,13 @@ public final class CanvasView: NSView {
     public override func mouseUp(with event: NSEvent) {
         if spacePanStart != nil {
             spacePanStart = nil
+            return
+        }
+        if let activeCreation = creationDrag {
+            let point = worldPoint(for: event)
+            creationDrag = nil
+            activeCreationTool = .select
+            commitCreationDrag(activeCreation, at: point)
             return
         }
         if let activeConnDrag = connectionDrag {
@@ -958,6 +1054,9 @@ public final class CanvasView: NSView {
             case "[" where shifted, "{" where shifted:
                 sendToBack(nil)
                 return
+            case "/", "?":
+                beginShortcutsHelp()
+                return
             default:
                 if shifted && event.keyCode == 30 {
                     bringToFront(nil)
@@ -998,6 +1097,12 @@ public final class CanvasView: NSView {
                 return
             }
             if event.keyCode == 53 {
+                if creationDrag != nil || activeCreationTool != .select {
+                    creationDrag = nil
+                    activeCreationTool = .select
+                    needsDisplay = true
+                    return
+                }
                 if connectionDrag != nil {
                     connectionDrag = nil
                     needsDisplay = true
@@ -1021,7 +1126,9 @@ public final class CanvasView: NSView {
                    focusedNodeID != nil || focusedConnectionID != nil {
                     clearSelection()
                     refreshStyleInspector()
+                    refreshToolDock()
                     needsDisplay = true
+                    NSAccessibility.post(element: self, notification: .selectedChildrenChanged)
                 }
                 return
             }
@@ -1041,6 +1148,16 @@ public final class CanvasView: NSView {
             }
             if event.characters == "-" || event.characters == "_" || event.keyCode == 27 {
                 zoomOut(nil)
+                return
+            }
+            if event.characters == "?" {
+                beginShortcutsHelp()
+                return
+            }
+            if event.charactersIgnoringModifiers == "v" || event.charactersIgnoringModifiers == "V" {
+                creationDrag = nil
+                activeCreationTool = .select
+                needsDisplay = true
                 return
             }
             if event.charactersIgnoringModifiers == "n" || event.charactersIgnoringModifiers == "N" {
@@ -1069,6 +1186,7 @@ public final class CanvasView: NSView {
             default: kind = nil
             }
             if let kind {
+                activeCreationTool = .select
                 insertShape(kind)
                 return
             }
@@ -1079,10 +1197,22 @@ public final class CanvasView: NSView {
             default: lineKind = nil
             }
             if let lineKind {
+                activeCreationTool = .select
                 insertLine(lineKind)
                 return
             }
             if event.keyCode == 36 {
+                if activeCreationTool != .select {
+                    let tool = activeCreationTool
+                    creationDrag = nil
+                    activeCreationTool = .select
+                    switch tool {
+                    case .shape(let k): insertShape(k)
+                    case .line(let k): insertLine(k)
+                    case .select: break
+                    }
+                    return
+                }
                 activatePrimaryEditor()
                 return
             }
@@ -1449,9 +1579,13 @@ public final class CanvasView: NSView {
     }
 
     private func createShape(
-        _ kind: CanvasShapeKind, at position: CanvasPosition, text: String? = nil, height: Double? = nil
+        _ kind: CanvasShapeKind,
+        at position: CanvasPosition,
+        text: String? = nil,
+        width: Double = 160,
+        height: Double? = nil
     ) throws {
-        let insertion = try session.insertShape(kind, at: position, text: text, height: height)
+        let insertion = try session.insertShape(kind, at: position, text: text, width: width, height: height)
         displayInsertion(insertion.id)
         registerUndoInsertion(insertion, restoring: false, actionName: "Insert Shape")
     }
@@ -1803,6 +1937,14 @@ public final class CanvasView: NSView {
         }
     }
 
+    @objc public func toggleStyleInspector(_ sender: Any? = nil) {
+        if isStyleInspectorOpen {
+            closeStyleInspector(sender)
+        } else {
+            showStyleInspector(sender)
+        }
+    }
+
     @objc public func showStyleInspector(_ sender: Any? = nil) {
         guard window?.attachedSheet == nil, inlineTextState == nil, connectionEditor == nil else {
             NSSound.beep()
@@ -1811,6 +1953,7 @@ public final class CanvasView: NSView {
         isStyleInspectorOpen = true
         styleInspector.isHidden = false
         refreshStyleInspector()
+        refreshToolDock()
         styleInspector.focusPrimaryControl()
         needsDisplay = true
     }
@@ -1819,6 +1962,7 @@ public final class CanvasView: NSView {
         guard isStyleInspectorOpen else { return }
         isStyleInspectorOpen = false
         styleInspector.isHidden = true
+        refreshToolDock()
         window?.makeFirstResponder(self)
         needsDisplay = true
     }
@@ -1859,6 +2003,7 @@ public final class CanvasView: NSView {
     }
 
     private func refreshStyleInspector() {
+        refreshToolDock()
         guard isStyleInspectorOpen else { return }
         styleInspector.update(
             session: session,
@@ -1873,9 +2018,43 @@ public final class CanvasView: NSView {
         guard isStyleInspectorOpen else { return }
         let area = visibleRect.width > 0 ? visibleRect : bounds
         let size = styleInspector.frame.size
+        let bannerOffset: CGFloat = statusBanner.isHidden ? 0 : (statusBanner.frame.height + 12)
         styleInspector.frame.origin = CGPoint(
             x: max(12, area.maxX - size.width - 16),
-            y: area.minY + 16
+            y: area.minY + 16 + bannerOffset
+        )
+    }
+
+    public func refreshToolDock() {
+        guard isToolDockVisible else { return }
+        toolDock.update(
+            activeTool: activeCreationTool,
+            isReadOnly: isReadOnly,
+            canConnect: canInsertConnection,
+            canInsertThought: canInsertAdjacentThought,
+            isStyleOpen: isStyleInspectorOpen,
+            canExport: canExportPNG
+        )
+    }
+
+    public func positionToolDock() {
+        guard isToolDockVisible else { return }
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        let size = toolDock.frame.size
+        toolDock.frame.origin = CGPoint(
+            x: max(area.minX + 12, floor(area.midX - size.width / 2)),
+            y: max(area.minY + 12, area.maxY - size.height - 14)
+        )
+    }
+
+    public func positionStatusBanner() {
+        guard !statusBanner.isHidden else { return }
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        statusBanner.layoutControls(maxWidth: max(420, area.width - 32))
+        let size = statusBanner.frame.size
+        statusBanner.frame.origin = CGPoint(
+            x: max(area.minX + 12, floor(area.midX - size.width / 2)),
+            y: area.minY + 12
         )
     }
 
@@ -1889,9 +2068,26 @@ public final class CanvasView: NSView {
     }
 
     public func selectNode(_ id: String) {
+        guard session.position(of: id) != nil else { return }
         selectSingleNode(id)
         refreshStyleInspector()
         needsDisplay = true
+        NSAccessibility.post(element: self, notification: .selectedChildrenChanged)
+    }
+
+    public func selectConnection(_ id: String) {
+        guard session.hasConnection(id) else { return }
+        selectSingleConnection(id)
+        refreshStyleInspector()
+        needsDisplay = true
+        NSAccessibility.post(element: self, notification: .selectedChildrenChanged)
+    }
+
+    public func deselectAll() {
+        clearSelection()
+        refreshStyleInspector()
+        needsDisplay = true
+        NSAccessibility.post(element: self, notification: .selectedChildrenChanged)
     }
 
     private func applyNodeSelection(_ ids: [String]) {
@@ -2040,6 +2236,8 @@ public final class CanvasView: NSView {
         lineEndpointGesture = nil
         drag = nil
         connectionDrag = nil
+        creationDrag = nil
+        activeCreationTool = .select
         hoveredNodeID = nil
         marqueeGesture = nil
         selectedID = nil
@@ -2208,7 +2406,7 @@ public final class CanvasView: NSView {
     }
 
     public func flushPendingEditsForSave() throws {
-        guard pngExportSheet == nil else {
+        guard pngExportSheet == nil, shortcutsSheet == nil else {
             throw CanvasDocumentError("Close the active sheet before saving.")
         }
         try flushPendingEdits(actionVerb: "saving")
@@ -2228,8 +2426,14 @@ public final class CanvasView: NSView {
         guard connectionDrag == nil else {
             throw CanvasDocumentError("Finish the active connection drag before \(actionVerb).")
         }
-        guard connectionEditor == nil, attachmentPreview == nil else {
+        guard creationDrag == nil else {
+            throw CanvasDocumentError("Finish the active creation drag before \(actionVerb).")
+        }
+        guard connectionEditor == nil, attachmentPreview == nil, shortcutsSheet == nil else {
             throw CanvasDocumentError("Close the active sheet before \(actionVerb).")
+        }
+        if activeCreationTool != .select {
+            activeCreationTool = .select
         }
         if let state = inlineTextState {
             if thoughtInputView.hasMarkedText() {
@@ -2988,6 +3192,8 @@ public final class CanvasView: NSView {
         }
         positionInlineTextEditor()
         positionStyleInspector()
+        positionToolDock()
+        positionStatusBanner()
         needsDisplay = true
     }
 
@@ -4298,6 +4504,291 @@ public final class CanvasView: NSView {
         } else {
             return CGPoint(x: 0, y: ny >= 0 ? 1 : -1)
         }
+    }
+
+    // MARK: - Armed Creation Tools, Shortcuts Sheet & NSAccessibility
+
+    public func armCreationTool(_ tool: CanvasCreationTool) {
+        if tool != .select && isReadOnly {
+            NSSound.beep()
+            return
+        }
+        if inlineTextState != nil {
+            guard finishInlineTextBeforeCanvasAction() else { return }
+        }
+        guard window?.attachedSheet == nil,
+              connectionEditor == nil,
+              attachmentPreview == nil,
+              pngExportSheet == nil,
+              shortcutsSheet == nil,
+              drag == nil,
+              connectionDrag == nil else {
+            NSSound.beep()
+            return
+        }
+        cancelGeometry()
+        creationDrag = nil
+        activeCreationTool = tool
+        window?.makeFirstResponder(self)
+    }
+
+    public func activateToolFromDock(_ tool: CanvasCreationTool) {
+        if tool == .select {
+            armCreationTool(.select)
+            return
+        }
+        if activeCreationTool == tool {
+            activeCreationTool = .select
+            switch tool {
+            case .shape(let kind):
+                insertShape(kind)
+            case .line(let kind):
+                insertLine(kind)
+            case .select:
+                break
+            }
+        } else {
+            armCreationTool(tool)
+        }
+    }
+
+    private func commitCreationDrag(_ gesture: CreationDragGesture, at endPoint: CGPoint) {
+        let start = gesture.startPoint
+        let end = endPoint
+        let dragged = gesture.hasDragged || hypot(end.x - start.x, end.y - start.y) >= 8.0
+        switch gesture.tool {
+        case .select:
+            break
+        case .shape(.text):
+            let pos: CanvasPosition
+            if dragged {
+                pos = CanvasPosition(x: Double(min(start.x, end.x)), y: Double(min(start.y, end.y)))
+            } else {
+                pos = CanvasPosition(x: Double(end.x) - 80, y: Double(end.y) - 24)
+            }
+            beginNewTextShape(at: pos)
+        case .shape(let kind):
+            if dragged {
+                let minX = Double(min(start.x, end.x))
+                let minY = Double(min(start.y, end.y))
+                let width = max(32.0, Double(abs(end.x - start.x)))
+                let height = max(32.0, Double(abs(end.y - start.y)))
+                do {
+                    try createShape(kind, at: CanvasPosition(x: minX, y: minY), width: width, height: height)
+                } catch {
+                    NSSound.beep()
+                }
+            } else {
+                let pos = CanvasPosition(x: Double(end.x) - 80, y: Double(end.y) - 48)
+                do {
+                    try createShape(kind, at: pos)
+                } catch {
+                    NSSound.beep()
+                }
+            }
+            window?.makeFirstResponder(self)
+        case .line(let kind):
+            if dragged {
+                let fromPos = CanvasPosition(x: Double(start.x), y: Double(start.y))
+                let toPos = CanvasPosition(x: Double(end.x), y: Double(end.y))
+                do {
+                    let insertion = try session.insertLine(kind, from: fromPos, to: toPos)
+                    displayInsertion(insertion.id)
+                    registerUndoInsertion(
+                        insertion,
+                        restoring: false,
+                        actionName: kind == .arrow ? "Insert Arrow" : "Insert Line"
+                    )
+                } catch {
+                    NSSound.beep()
+                }
+            } else {
+                let center = CanvasPosition(x: Double(end.x), y: Double(end.y))
+                do {
+                    let insertion = try session.insertLine(kind, centeredAt: center)
+                    displayInsertion(insertion.id)
+                    registerUndoInsertion(
+                        insertion,
+                        restoring: false,
+                        actionName: kind == .arrow ? "Insert Arrow" : "Insert Line"
+                    )
+                } catch {
+                    NSSound.beep()
+                }
+            }
+            window?.makeFirstResponder(self)
+        }
+    }
+
+    private func drawCreationDragPreview(_ gesture: CreationDragGesture) {
+        guard gesture.hasDragged else { return }
+        let start = gesture.startPoint
+        let end = gesture.currentPoint
+        switch gesture.tool {
+        case .select:
+            break
+        case .shape(let kind):
+            let rect = CGRect(
+                x: min(start.x, end.x),
+                y: min(start.y, end.y),
+                width: max(32, abs(end.x - start.x)),
+                height: max(32, abs(end.y - start.y))
+            )
+            let path = outline(kind.rawValue, rect, 0)
+            CanvasTheme.selectionCobalt.withAlphaComponent(0.08).setFill()
+            path.fill()
+            CanvasTheme.selectionCobalt.setStroke()
+            path.lineWidth = 2 / zoomScale
+            path.setLineDash([6 / zoomScale, 4 / zoomScale], count: 2, phase: 0)
+            path.stroke()
+        case .line(let kind):
+            let path = NSBezierPath()
+            path.move(to: start)
+            path.line(to: end)
+            CanvasTheme.selectionCobalt.setStroke()
+            path.lineWidth = 2 / zoomScale
+            path.setLineDash([6 / zoomScale, 4 / zoomScale], count: 2, phase: 0)
+            path.stroke()
+            if kind == .arrow {
+                drawArrow(at: end, from: start, color: CanvasTheme.selectionCobalt)
+            }
+        }
+    }
+
+    @objc public func beginShortcutsHelp(_ sender: Any? = nil) {
+        guard let window, window.attachedSheet == nil,
+              connectionEditor == nil, attachmentPreview == nil,
+              pngExportSheet == nil, shortcutsSheet == nil else {
+            NSSound.beep()
+            return
+        }
+        shortcutsSheet = CanvasShortcutsSheet { [weak self, weak window] in
+            guard let self else { return }
+            self.shortcutsSheet = nil
+            window?.makeFirstResponder(self)
+        }
+        shortcutsSheet?.present(on: window)
+    }
+
+    public func viewRect(forWorldRect rect: CGRect) -> CGRect {
+        CGRect(
+            x: (rect.minX - origin.x) * zoomScale,
+            y: (rect.minY - origin.y) * zoomScale,
+            width: rect.width * zoomScale,
+            height: rect.height * zoomScale
+        )
+    }
+
+    public func accessibilityCanvasElements() -> [CanvasAccessibilityElement] {
+        var elements: [CanvasAccessibilityElement] = []
+        for node in nodes {
+            let isLocked = session.isLocked(node.id)
+            let attachment = session.attachment(of: node.id)
+            let roleSummary: String
+            if node.type == "code" {
+                roleSummary = isLocked ? "locked code block" : "code block"
+            } else if attachment != nil {
+                roleSummary = isLocked ? "locked attachment card" : "attachment card"
+            } else if node.type == "shape-line" {
+                let arrow = node.data["arrow"] as? String ?? "none"
+                let base = arrow == "none" ? "standalone line" : "standalone arrow"
+                roleSummary = isLocked ? "locked \(base)" : base
+            } else {
+                let kindName = node.kind == "rect" ? "rectangle" : node.kind
+                roleSummary = isLocked ? "locked \(kindName) shape" : "\(kindName) shape"
+            }
+
+            let rawText = Self.nodeText(node).trimmingCharacters(in: .whitespacesAndNewlines)
+            let singleLine = rawText.replacingOccurrences(of: "\n", with: " ")
+            let titleText: String
+            if let attachment {
+                if singleLine.isEmpty {
+                    titleText = "\(attachment.filename) (\(roleSummary))"
+                } else {
+                    titleText = "\(singleLine) — \(attachment.filename)"
+                }
+            } else if !singleLine.isEmpty {
+                titleText = String(singleLine.prefix(80))
+            } else {
+                titleText = "\(roleSummary.capitalized) \(node.id)"
+            }
+
+            let isSelected = selectedNodeIDs.contains(node.id) || selectedID == node.id
+            let isFocused = focusedNodeID == node.id
+            var stateParts: [String] = [isSelected ? "selected" : (isFocused ? "focused" : "unselected")]
+            if isLocked {
+                stateParts.append("locked")
+            }
+            let b = node.geometry.rotatedAxisAlignedBounds
+            let worldBounds = CGRect(x: b.x, y: b.y, width: b.width, height: b.height)
+            elements.append(
+                CanvasAccessibilityElement(
+                    elementID: node.id,
+                    elementKind: .node(
+                        id: node.id,
+                        type: node.type,
+                        shapeKind: node.kind,
+                        isLocked: isLocked,
+                        hasAttachment: attachment != nil
+                    ),
+                    titleText: titleText,
+                    roleSummary: roleSummary,
+                    valueSummary: stateParts.joined(separator: ", "),
+                    worldBounds: worldBounds,
+                    canvasView: self
+                )
+            )
+        }
+        for edge in edges {
+            let roleSummary = "connection from \(edge.source) to \(edge.target)"
+            let titleText = edge.label.isEmpty
+                ? "Connection \(edge.source) → \(edge.target)"
+                : "\(edge.label) (\(edge.source) → \(edge.target))"
+            let isSelected = selectedEdgeID == edge.id
+            let isFocused = focusedConnectionID == edge.id
+            let valueSummary = isSelected ? "selected" : (isFocused ? "focused" : "unselected")
+            let worldBounds = edge.path.bounds.insetBy(dx: -8, dy: -8)
+            elements.append(
+                CanvasAccessibilityElement(
+                    elementID: edge.id,
+                    elementKind: .connection(id: edge.id, sourceID: edge.source, targetID: edge.target),
+                    titleText: titleText,
+                    roleSummary: roleSummary,
+                    valueSummary: valueSummary,
+                    worldBounds: worldBounds,
+                    canvasView: self
+                )
+            )
+        }
+        return elements
+    }
+
+    public override func isAccessibilityElement() -> Bool {
+        true
+    }
+
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        .group
+    }
+
+    public override func accessibilityRoleDescription() -> String? {
+        "spatial canvas"
+    }
+
+    public override func accessibilityLabel() -> String? {
+        "Canvas (\(nodes.count) objects, \(edges.count) connections)"
+    }
+
+    public override func accessibilityChildren() -> [Any]? {
+        var children: [Any] = accessibilityCanvasElements()
+        for subview in [thoughtScrollView, styleInspector, toolDock, statusBanner] where !subview.isHidden {
+            children.append(subview)
+        }
+        return children
+    }
+
+    public override func accessibilitySelectedChildren() -> [Any]? {
+        accessibilityCanvasElements().filter { $0.isAccessibilitySelected() }
     }
 }
 

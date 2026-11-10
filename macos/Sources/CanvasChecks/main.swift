@@ -371,6 +371,7 @@ func runChecks() throws {
     try checkTheme(repository: repository)
     try checkPNGExport(repository: repository)
     try checkPersistenceAndRecovery(repository: repository)
+    try checkReleaseSlices(repository: repository)
 }
 
 @MainActor
@@ -550,6 +551,371 @@ func checkTheme(repository: URL) throws {
         "macos/Resources/AppIcon.icns representations or Neo-Acid Lime/Ebony Ink pixel colors did not match"
     )
     print("PASS Neo-Acid light mode palette, highlighter/ink text contrast and bitmap rendering")
+}
+
+@MainActor
+func checkReleaseSlices(repository: URL) throws {
+    let fm = FileManager.default
+    let tempRoot = fm.temporaryDirectory.appendingPathComponent("CanvasReleaseSlices-\(UUID().uuidString)", isDirectory: true)
+    try fm.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: tempRoot) }
+
+    let recoveryDir = tempRoot.appendingPathComponent("Recovery", isDirectory: true)
+    let recoveryStore = CanvasRecoveryStore(directoryURL: recoveryDir)
+    let recentKey = "local.elixircanvas.native.testRecent.\(UUID().uuidString)"
+    let recentStore = CanvasRecentDocumentsStore(defaultsKey: recentKey, maxCount: 5)
+    defer { recentStore.clear() }
+
+    let delegate = CanvasAppDelegate(recoveryStore: recoveryStore, recentDocumentsStore: recentStore)
+    delegate.installMenu()
+
+    // Verify menus: Canvas (About Canvas), File (Open Recent), View (Hide Tool Dock), Window, Help
+    guard let mainMenu = NSApplication.shared.mainMenu else {
+        throw CheckFailure(description: "Missing mainMenu after installMenu")
+    }
+    let topTitles = mainMenu.items.map(\.title)
+    try require(
+        topTitles == ["Canvas", "File", "Edit", "Insert", "View", "Window", "Help"],
+        "Unexpected top-level menus: \(topTitles)"
+    )
+    try require(NSApplication.shared.windowsMenu?.title == "Window", "NSApp.windowsMenu not wired")
+    try require(NSApplication.shared.helpMenu?.title == "Help", "NSApp.helpMenu not wired")
+    let appSubmenuTitles = mainMenu.item(withTitle: "Canvas")?.submenu?.items.map(\.title) ?? []
+    try require(appSubmenuTitles.contains("About Canvas"), "Missing About Canvas menu item")
+    let fileSubmenu = mainMenu.item(withTitle: "File")?.submenu
+    try require(fileSubmenu?.item(withTitle: "Open Recent")?.submenu != nil, "Missing File -> Open Recent submenu")
+
+    // Slice 1: Single Bottom-Center Neo-Acid Floating Icon Dock (no duplicate top NSToolbar) and armed click-or-drag creation
+    delegate.newDocument(nil)
+    defer { delegate.closeAllWindows() }
+    guard let doc = delegate.activeNativeDocument(),
+          let canvas = delegate.activeCanvas(),
+          let window = canvas.window else {
+        throw CheckFailure(description: "Failed to create native document window for Slice 1 check")
+    }
+    try require(window.toolbar == nil, "Document window should not attach a duplicate top NSToolbar")
+    try require(canvas.isToolDockVisible && !canvas.toolDock.isHidden, "Floating icon tool dock should be visible on document window")
+    try require(
+        canvas.toolDock.iconGlyph(forButtonID: "dock-tool-select") == CanvasDockIconGlyph.select &&
+        canvas.toolDock.iconGlyph(forButtonID: "dock-tool-rect") == CanvasDockIconGlyph.rectangle &&
+        canvas.toolDock.iconGlyph(forButtonID: "dock-tool-arrow") == CanvasDockIconGlyph.arrow &&
+        canvas.toolDock.iconGlyph(forButtonID: "dock-action-style") == CanvasDockIconGlyph.style &&
+        canvas.toolDock.iconGlyph(forButtonID: "dock-action-export") == CanvasDockIconGlyph.exportPNG &&
+        canvas.toolDock.iconGlyph(forButtonID: "dock-action-help") == CanvasDockIconGlyph.help,
+        "Floating tool dock buttons are missing geometric vector icon glyphs"
+    )
+    delegate.toggleToolDock(nil)
+    try require(!canvas.isToolDockVisible && canvas.toolDock.isHidden, "toggleToolDock did not hide tool dock")
+    delegate.toggleToolDock(nil)
+    try require(canvas.isToolDockVisible && !canvas.toolDock.isHidden, "toggleToolDock did not restore tool dock")
+
+    func mouse(_ type: NSEvent.EventType, world: CGPoint) -> NSEvent {
+        let viewPt = canvas.viewPoint(forWorldPoint: world)
+        return NSEvent.mouseEvent(
+            with: type,
+            location: canvas.convert(viewPt, to: nil),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        )!
+    }
+    func key(_ code: UInt16, characters: String = "", modifiers: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: code
+        )!
+    }
+
+    // 1a. Armed click placement for Rectangle via tool dock
+    canvas.activateToolFromDock(.shape(.rectangle))
+    try require(canvas.activeCreationTool == CanvasCreationTool.shape(.rectangle), "Dock did not arm rectangle tool")
+    canvas.mouseDown(with: mouse(.leftMouseDown, world: CGPoint(x: 240, y: 180)))
+    canvas.mouseUp(with: mouse(.leftMouseUp, world: CGPoint(x: 240, y: 180)))
+    try require(canvas.activeCreationTool == CanvasCreationTool.select, "Click placement did not return to Select tool")
+    guard let rectID = canvas.selectedNodeID,
+          let rectGeo = doc.session.geometry(of: rectID) else {
+        throw CheckFailure(description: "Click placement did not insert and select rectangle")
+    }
+    try require(
+        rectGeo.x == 160 && rectGeo.y == 132 && rectGeo.width == 160 && rectGeo.height == 96,
+        "Click-placed rectangle had unexpected geometry: \(rectGeo)"
+    )
+
+    // 1b. Armed drag placement for Diamond with live preview isolation before mouseUp
+    canvas.activateToolFromDock(.shape(.diamond))
+    let countBeforeDrag = (doc.session.root["nodes"] as? [Any])?.count ?? 0
+    canvas.mouseDown(with: mouse(.leftMouseDown, world: CGPoint(x: 420, y: 120)))
+    canvas.mouseDragged(with: mouse(.leftMouseDragged, world: CGPoint(x: 640, y: 260)))
+    try require(
+        canvas.hasActiveCreationDrag && ((doc.session.root["nodes"] as? [Any])?.count ?? 0) == countBeforeDrag,
+        "Creation drag mutated session before mouseUp"
+    )
+    canvas.mouseUp(with: mouse(.leftMouseUp, world: CGPoint(x: 640, y: 260)))
+    guard let diamondID = canvas.selectedNodeID,
+          let diamondGeo = doc.session.geometry(of: diamondID) else {
+        throw CheckFailure(description: "Drag placement did not commit diamond")
+    }
+    try require(
+        !canvas.hasActiveCreationDrag &&
+        canvas.activeCreationTool == CanvasCreationTool.select &&
+        diamondGeo.x == 420 && diamondGeo.y == 120 && diamondGeo.width == 220 && diamondGeo.height == 140,
+        "Dragged diamond had unexpected geometry: \(diamondGeo)"
+    )
+
+    // 1c. Armed drag placement for Arrow line
+    canvas.activateToolFromDock(.line(.arrow))
+    canvas.mouseDown(with: mouse(.leftMouseDown, world: CGPoint(x: 320, y: 180)))
+    canvas.mouseDragged(with: mouse(.leftMouseDragged, world: CGPoint(x: 420, y: 190)))
+    canvas.mouseUp(with: mouse(.leftMouseUp, world: CGPoint(x: 420, y: 190)))
+    guard let arrowID = canvas.selectedNodeID,
+          let arrowGeo = doc.session.lineGeometry(of: arrowID) else {
+        throw CheckFailure(description: "Drag placement did not commit standalone arrow")
+    }
+    try require(
+        arrowGeo.point(for: .start) == CanvasPosition(x: 320, y: 180) &&
+        arrowGeo.point(for: .end) == CanvasPosition(x: 420, y: 190),
+        "Dragged arrow endpoints did not match: \(arrowGeo)"
+    )
+
+    // 1d. Escape mid-drag cancels armed creation without mutating session or history
+    canvas.activateToolFromDock(.shape(.ellipse))
+    let preCancelNodes = (doc.session.root["nodes"] as? [Any])?.count ?? 0
+    canvas.mouseDown(with: mouse(.leftMouseDown, world: CGPoint(x: 100, y: 400)))
+    canvas.mouseDragged(with: mouse(.leftMouseDragged, world: CGPoint(x: 260, y: 520)))
+    canvas.keyDown(with: key(53, characters: "\u{1b}"))
+    try require(
+        !canvas.hasActiveCreationDrag &&
+        canvas.activeCreationTool == CanvasCreationTool.select &&
+        ((doc.session.root["nodes"] as? [Any])?.count ?? 0) == preCancelNodes,
+        "Escape did not cancel active creation drag cleanly"
+    )
+
+    // 1e. Shortcuts help sheet (? / ⌘/)
+    canvas.keyDown(with: key(44, characters: "?"))
+    try require(canvas.isShortcutsSheetOpen && canvas.activeShortcutsPanel != nil, "? did not open shortcuts reference sheet")
+    if let closeBtn = canvas.activeShortcutsPanel?.contentView?.subviews.first(where: { $0.identifier?.rawValue == "shortcuts-close" }) as? NSButton {
+        closeBtn.performClick(nil)
+    }
+    try require(!canvas.isShortcutsSheetOpen, "Shortcuts sheet did not close")
+
+    // Slice 3: NSAccessibility exposure for nodes, connections, and selection
+    let conn = try doc.session.insertConnection(source: rectID, target: diamondID, label: "flow")
+    canvas.reloadFromSession(clearingUndoHistory: false)
+    canvas.selectNode(rectID)
+    try require(
+        canvas.isAccessibilityElement() &&
+        canvas.accessibilityRole() == .group &&
+        canvas.accessibilityRoleDescription() == "spatial canvas",
+        "CanvasView root accessibility metadata missing"
+    )
+    let a11yElements = canvas.accessibilityCanvasElements()
+    try require(a11yElements.count == 4, "Expected 3 nodes + 1 connection in accessibilityCanvasElements, got \(a11yElements.count)")
+    guard let rectA11y = a11yElements.first(where: { $0.elementID == rectID }),
+          let connA11y = a11yElements.first(where: { $0.elementID == conn.id }) else {
+        throw CheckFailure(description: "Missing node or connection in accessibilityCanvasElements")
+    }
+    try require(
+        rectA11y.accessibilityIdentifier() == "canvas-node-\(rectID)" &&
+        rectA11y.isAccessibilitySelected() &&
+        rectA11y.accessibilityFrame().width > 0 &&
+        connA11y.accessibilityIdentifier() == "canvas-connection-\(conn.id)" &&
+        connA11y.accessibilityLabel()?.contains("flow") == true &&
+        !connA11y.isAccessibilitySelected(),
+        "Accessibility element attributes or selection state mismatch"
+    )
+    _ = connA11y.accessibilityPerformPress()
+    try require(
+        canvas.selectedConnectionID == conn.id &&
+        (canvas.accessibilitySelectedChildren()?.count == 1),
+        "accessibilityPerformPress did not select connection"
+    )
+
+    // Slice 2: Actionable in-window Conflict, Read-Only, and Save-Error status banner
+    try require(canvas.statusBanner.isHidden, "Status banner should be hidden before saving/conflicts")
+    let savedURL = tempRoot.appendingPathComponent("slice-banner.json")
+    _ = try doc.saveDocumentAs(to: savedURL)
+    recentStore.record(savedURL)
+    delegate.rebuildOpenRecentMenu()
+    try require(
+        recentStore.recentURLs.first?.standardizedFileURL == savedURL.standardizedFileURL &&
+        (fileSubmenu?.item(withTitle: "Open Recent")?.submenu?.items.first?.title == "slice-banner.json"),
+        "Saved document was not recorded in Open Recent"
+    )
+
+    // External modification triggers immediate in-window conflict banner without waiting for ⌘S
+    var externalRoot = doc.session.root
+    externalRoot["nodes"] = []
+    externalRoot["edges"] = []
+    try CanvasDocument.encode(externalRoot).write(to: savedURL, options: .atomic)
+    let detected = doc.checkExternalSourceStatus()
+    try require(
+        detected && !canvas.statusBanner.isHidden &&
+        canvas.statusBanner.activeKind == CanvasStatusBannerView.BannerKind.conflict(doc.conflictReason!),
+        "External change did not immediately display in-window conflict banner"
+    )
+    doc.dismissStatusBanner()
+    try require(
+        canvas.statusBanner.isHidden && doc.conflictReason != nil && doc.isStatusBannerDismissed,
+        "Keep Editing on banner should hide banner while keeping conflict autosave pause active"
+    )
+
+    // 2b. While conflict banner is dismissed, a background recovery write failure MUST surface immediately
+    let draftsSubdir = recoveryDir.appendingPathComponent("Drafts", isDirectory: true)
+    try fm.createDirectory(at: draftsSubdir, withIntermediateDirectories: true)
+    try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: recoveryDir.path)
+    try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: draftsSubdir.path)
+    _ = try? doc.writeRecoverySnapshotNow()
+    try require(
+        doc.lastRecoveryError != nil &&
+        !canvas.statusBanner.isHidden &&
+        canvas.statusBanner.activeKind == CanvasStatusBannerView.BannerKind.recoveryError(doc.lastRecoveryError!),
+        "Recovery failure after dismissing conflict banner did not display recoveryError banner"
+    )
+    // Dismissing recoveryError banner preserves lastRecoveryError, and a subsequent recovery failure re-displays the banner
+    doc.dismissStatusBanner()
+    try require(
+        canvas.statusBanner.isHidden && doc.lastRecoveryError != nil,
+        "Dismissing recovery banner must preserve lastRecoveryError state"
+    )
+    _ = try? doc.writeRecoverySnapshotNow()
+    try require(
+        !canvas.statusBanner.isHidden &&
+        canvas.statusBanner.activeKind == CanvasStatusBannerView.BannerKind.recoveryError(doc.lastRecoveryError!),
+        "Subsequent recovery failure after dismissal did not re-show recoveryError banner"
+    )
+    try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: draftsSubdir.path)
+    try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: recoveryDir.path)
+    try doc.writeRecoverySnapshotNow()
+    try require(
+        doc.lastRecoveryError == nil && canvas.statusBanner.isHidden,
+        "Successful recovery write did not clear lastRecoveryError and hide recoveryError banner"
+    )
+
+    // 2c. Resolve conflict via Save As to a writable subdirectory, then trigger Save Error -> Dismiss -> new Save Error
+    let saveSubdir = tempRoot.appendingPathComponent("SaveSubdir", isDirectory: true)
+    try fm.createDirectory(at: saveSubdir, withIntermediateDirectories: true)
+    let resolvedURL = saveSubdir.appendingPathComponent("resolved.json")
+    _ = try doc.saveDocumentAs(to: resolvedURL)
+    try require(doc.conflictReason == nil && canvas.statusBanner.isHidden, "Save As did not clear conflict state")
+
+    _ = try doc.session.insertShape(.ellipse, at: CanvasPosition(x: 60, y: 60))
+    try fm.setAttributes([.posixPermissions: 0o500], ofItemAtPath: saveSubdir.path)
+    doc.triggerScheduledAutosaveNow()
+    try require(
+        doc.lastSaveError != nil &&
+        !canvas.statusBanner.isHidden &&
+        canvas.statusBanner.activeKind == CanvasStatusBannerView.BannerKind.saveError(doc.lastSaveError!, canRetry: true),
+        "Background autosave failure did not display saveError banner"
+    )
+    // Dismissing saveError banner MUST preserve lastSaveError and .saveFailed persistenceState
+    doc.dismissStatusBanner()
+    try require(
+        canvas.statusBanner.isHidden &&
+        doc.lastSaveError != nil &&
+        doc.persistenceState == CanvasPersistenceState.saveFailed(message: doc.lastSaveError!, hasPendingDraft: false),
+        "Dismissing saveError banner wiped lastSaveError or falsely cleared .saveFailed state"
+    )
+    // A subsequent failed save attempt MUST re-display the saveError banner even with the same error
+    _ = try? doc.saveDocumentExplicitly()
+    try require(
+        !canvas.statusBanner.isHidden &&
+        canvas.statusBanner.activeKind == CanvasStatusBannerView.BannerKind.saveError(doc.lastSaveError!, canRetry: true),
+        "Subsequent save failure after banner dismissal did not re-display saveError banner"
+    )
+    try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: saveSubdir.path)
+    _ = try doc.saveDocumentExplicitly()
+    try require(
+        doc.lastSaveError == nil && canvas.statusBanner.isHidden,
+        "Successful save did not clear saveError banner"
+    )
+
+    // 2d. Delayed recovery write keeps connected fileURL invariant (single-writer reopen deduplication)
+    // and guards saveDocumentAs while recovery is in flight:
+    _ = try doc.session.insertShape(.triangle, at: CanvasPosition(x: 120, y: 120))
+    var delayedRecoveryCompletion: (() -> Void)?
+    doc.synchronousWaitTimeout = 0.02
+    doc.saveCompletionDelayHook = { complete in
+        delayedRecoveryCompletion = complete
+    }
+    do {
+        try doc.writeRecoverySnapshotNow(requireAcknowledgement: true)
+        throw CheckFailure(description: "writeRecoverySnapshotNow succeeded before delayed completion fired")
+    } catch {}
+    try require(
+        delayedRecoveryCompletion != nil &&
+        doc.isRecoveryWriteInFlight &&
+        doc.fileURL?.standardizedFileURL == resolvedURL.standardizedFileURL,
+        "Delayed recovery write cleared or mutated connected fileURL"
+    )
+    // Reopening resolvedURL while recovery completion is still pending MUST deduplicate to the existing document:
+    let reopenedDuringRecovery = delegate.openDocument(resolvedURL)
+    try require(
+        reopenedDuringRecovery === doc && delegate.openNativeDocuments.count == 1,
+        "openDocument failed single-writer deduplication during delayed recovery write"
+    )
+    // saveDocumentAs while recovery is still in flight beyond timeout MUST refuse cleanly:
+    let postDelaySaveAsURL = saveSubdir.appendingPathComponent("post-delay-save-as.json")
+    doc.saveCompletionDelayHook = nil
+    do {
+        _ = try doc.saveDocumentAs(to: postDelaySaveAsURL)
+        throw CheckFailure(description: "saveDocumentAs succeeded while recovery write was still in flight")
+    } catch is CanvasPersistenceError {}
+    try require(
+        doc.fileURL?.standardizedFileURL == resolvedURL.standardizedFileURL,
+        "Refused saveDocumentAs during in-flight recovery changed fileURL"
+    )
+    // Complete the delayed recovery write, then perform Save As, and verify a second invocation of the old
+    // completion closure cannot revert fileURL or autosavedContentsFileURL:
+    doc.synchronousWaitTimeout = 5.0
+    delayedRecoveryCompletion?()
+    try require(!doc.isRecoveryWriteInFlight, "Delayed recovery completion did not clear isRecoveryWriteInFlight")
+    _ = try doc.saveDocumentAs(to: postDelaySaveAsURL)
+    delayedRecoveryCompletion?()
+    try require(
+        doc.fileURL?.standardizedFileURL == postDelaySaveAsURL.standardizedFileURL &&
+        doc.displayNameTitle == "post-delay-save-as.json" &&
+        doc.persistenceState == CanvasPersistenceState.saved(hasPendingDraft: false) &&
+        doc.autosavedContentsFileURL == nil,
+        "Late recovery callback reverted Save As destination URL or dirtied saved state"
+    )
+
+    // Read-only file opens with Read-Only status banner visible
+    let readOnlyURL = tempRoot.appendingPathComponent("readonly-banner.json")
+    try CanvasDocument.encode(try CanvasDocument.blank().root).write(to: readOnlyURL)
+    try fm.setAttributes([.posixPermissions: 0o444], ofItemAtPath: readOnlyURL.path)
+    defer { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: readOnlyURL.path) }
+    guard let roDoc = delegate.openDocument(readOnlyURL) else {
+        throw CheckFailure(description: "Failed to open read-only document for banner check")
+    }
+    try require(
+        !roDoc.canvasView.statusBanner.isHidden &&
+        roDoc.canvasView.statusBanner.activeKind == CanvasStatusBannerView.BannerKind.readOnly(roDoc.readOnlyReason ?? ""),
+        "Read-only document did not display in-window read-only status banner"
+    )
+
+    // Welcome window shows recent document quick-open button
+    delegate.closeAllWindows()
+    delegate.showWelcome()
+    defer { delegate.closeAllWindows() }
+    let plistPath = repository.appendingPathComponent("macos/Info.plist")
+    let plistDict = NSDictionary(contentsOf: plistPath) as? [String: Any]
+    try require(
+        plistDict?["CFBundleShortVersionString"] as? String == "1.0",
+        "Info.plist CFBundleShortVersionString is not 1.0"
+    )
+    print("PASS v1.0 release slices: NSToolbar, floating tool dock, click/drag tool creation, Open Recent, shortcuts sheet (?), in-window conflict/read-only banner, NSAccessibility elements, and v1.0 bundle metadata")
 }
 
 do {
