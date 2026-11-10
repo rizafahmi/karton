@@ -12,9 +12,15 @@ Databases, accounts, cloud storage, and multiplayer are outside the current scop
 unless requested, not permanently prohibited directions.
 
 An independent native Mac editor is in progress, sharing JSON contracts rather
-than the web runtime. `macos/` currently provides session-only New, shape/text
-and standalone line/arrow insertion, adjacent thoughts (`N` → cardinal direction
-→ inline draft with rotated ray-blocker avoidance and live measured growth),
+than the web runtime. `macos/` currently provides `NSDocument`-backed v2 New and
+v1/v2 Open, explicit Save (`⌘S`), Save As (`⇧⌘S`), v1→v2 copy export (`File → Save Version 2 Copy…`),
+confirmed Reload from Disk, coalesced 5s-quiet / 30s-continuous autosave with
+SHA-256 byte-fingerprint conflict detection inside `NSDocument`'s coordinated
+safe-save path, `NSDocument` draft autosaving (`autosavedContentsFileURL`) paired
+with private app-owned recovery envelopes for uncovered state and active inline
+text drafts, launch recovery restoration, multi-window close/quit guards,
+shape/text and standalone line/arrow insertion, adjacent thoughts (`N` → cardinal
+direction → inline draft with rotated ray-blocker avoidance and live measured growth),
 connections (with labels and reconnection), object/connection selection,
 selection-preserving Tab traversal, Space tap selection toggle and Space-drag
 viewport panning, marquee and Shift-click/⌘A multi-selection, movement, box
@@ -23,7 +29,8 @@ stacking, lock/unlock, object/connection/canvas style inspection and editing,
 captions with box growth (measured with bundled Neo-Acid and Amatic SC faces
 plus CoreText system cascade fallback), read-only attachment preview/copy,
 canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent Keynote PNG export
-(`File → Export PNG…`, `⇧⌘E`) and Undo/Redo; it never saves JSON documents.
+(`File → Export PNG…`, `⇧⌘E`) and Undo/Redo; native v2 code-snippet authoring
+and syntax highlighting remain pending.
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.
@@ -39,11 +46,14 @@ before editing/saving. [`examples/`](examples/) remains editable user content.
 Do not introduce a shared runtime or root build orchestrator for the native app.
 The approved native foundation is Swift/AppKit for the canvas, inspectors and
 document lifecycle, with Core Graphics/native text rendering in a Swift Package
-with command-line `.app` bundling, targeting macOS 27. The current app retains
-original JSON bytes and uses `CanvasSession` for validated in-memory transactions.
-New is blank v2; inserting into existing v1 leaves its version unchanged. The app
-never writes documents and refuses unsupported semantics. Routes are approximate and
-code is plain text. Existing attachment support is in scope for the editor; new
+with command-line `.app` bundling, targeting macOS 27. The app validates v1/v2
+JSON via `CanvasDocument`, uses `CanvasSession` for in-memory transactions with
+monotonically increasing revision tracking, and coordinates file persistence,
+coalesced autosave, external-conflict pause, and draft/crash recovery through
+`CanvasNativeDocument` (`NSDocument`) and `CanvasRecoveryStore`.
+New is blank v2; saving existing v1 in-place leaves its version unchanged, while
+`Save Version 2 Copy…` writes a separate v2 file. The app refuses unsupported
+semantics. Routes are approximate and code is currently rendered as plain text.
 attachment import is not. TASKS.md owns remaining gates.
 The local bundler must ad-hoc sign and verify the assembled `.app`; the standalone
 linker signature is not a valid substitute for the final bundle's seal.
@@ -68,6 +78,14 @@ silently upgrade/downgrade, or infer native implementation from web support.
   graph state, validated `encodedData()` snapshots, retained object/connection
   insertion/deletion/duplication identity and stacking, 1 MiB attachment/code duplicate
   quota checks, and lock/unlock; connection transactions validate endpoints and self-loop sides.
+  [CanvasPersistence](macos/Sources/CanvasCore/CanvasPersistence.swift) (`CanvasFileFingerprint`,
+  `CanvasPersistenceState`, `CanvasRecoverableTextDraft`, `CanvasRecoveryEnvelope`, and
+  `CanvasRecoveryStore`) and [CanvasNativeDocument](macos/Sources/CanvasUI/CanvasNativeDocument.swift)
+  (`NSDocument`) own coordinated safe saving, pre- and post-staging SHA-256 byte-fingerprint
+  verification, coalesced 5s/30s autosave, external-change conflict pause (`Save As…`,
+  confirmed `Reload from Disk…`, `Keep Editing`), `NSDocument` draft autosaving
+  (`autosavedContentsFileURL`) paired with private `0600` recovery envelopes (without
+  duplicating committed JSON snapshots), launch restoration, and close/quit guards.
   [CanvasTheme](macos/Sources/CanvasUI/CanvasTheme.swift) defines the light-first
   Neo-Acid canvas palette (`#f7f7f5` Raw Gallery Plaster background, `#ecece6`
   surface, `#0a0b0d` Ebony Ink for strokes and light/highlighter fills, `#ffffff`
@@ -102,8 +120,8 @@ silently upgrade/downgrade, or infer native implementation from web support.
   native sheets and the floating upper-right AppKit Style inspector synchronized
   with `CanvasSession` without materializing omitted defaults on observation;
   cancellation and no-ops leave history untouched.
-  The session is not persistence: closing discards changes and source bytes stay
-  untouched. Keep mutations out of the view and file writes out of the session.
+  Pointer drags, geometry gestures, and inline text drafts stay outside committed
+  `CanvasSession` JSON until commit so background autosave never serializes unconfirmed previews.
 - [Document](lib/elixir_canvas/document.ex) owns v1/v2 JSON validation,
   metadata retention, source identity, version-copy preparation and server-file persistence.
 - [Attachment](lib/elixir_canvas/attachment.ex) validates embedded UTF-8 snapshots

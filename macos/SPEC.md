@@ -1,18 +1,23 @@
 # Native macOS implementation specification
 
-Status: design specification; the session-only native app supports blank v2 New,
-shape/text and standalone line/arrow insertion, adjacent thoughts (`N` → cardinal
-direction → inline draft with rotated ray-blocker avoidance and live measured
-growth), connections (including labels and reconnection), object/connection
-selection, selection-preserving Tab traversal, Space tap selection toggle and
-Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
-resize/rotation and line endpoint editing, duplication, deletion, front/back
-stacking, lock/unlock, object/connection/canvas style editing, captions with
-measured box growth (using bundled Neo-Acid and Amatic SC faces with CoreText
-system cascade fallback), read-only attachment source preview/copy, canvas
-zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent Keynote PNG export
-(`File → Export PNG…`, `⇧⌘E`) and Undo/Redo. The full editor, persistence and
-overall milestone acceptance proof remain incomplete.
+Status: design specification; the native app supports `NSDocument`-backed blank v2
+New and v1/v2 Open, explicit Save (`⌘S`), Save As (`⇧⌘S`), v1→v2 copy export
+(`File → Save Version 2 Copy…`), confirmed Reload from Disk, coalesced 5s/30s
+autosave with SHA-256 byte-fingerprint conflict detection, `NSDocument` draft
+autosaving paired with private recovery envelopes (including active inline text
+drafts), launch recovery restoration, multi-window close/quit guards, shape/text
+and standalone line/arrow insertion, adjacent thoughts (`N` → cardinal direction →
+inline draft with rotated ray-blocker avoidance and live measured growth),
+connections (including labels and reconnection), object/connection selection,
+selection-preserving Tab traversal, Space tap selection toggle and Space-drag
+panning, marquee and Shift-click/⌘A multi-selection, movement, resize/rotation and
+line endpoint editing, duplication, deletion, front/back stacking, lock/unlock,
+object/connection/canvas style editing, captions with measured box growth (using
+bundled Neo-Acid and Amatic SC faces with CoreText system cascade fallback),
+read-only attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`),
+transparent Keynote PNG export (`File → Export PNG…`, `⇧⌘E`) and Undo/Redo.
+Native v2 code-snippet authoring/highlighting and overall milestone acceptance
+proof remain incomplete.
 
 ## 1. Approval boundary and outcome
 
@@ -53,8 +58,8 @@ open the same file in the web editor → export a transparent PNG for Keynote.
 | Deployment | macOS 27 for the first personal build; older OS/Intel support requires an explicit target and proof | Approved 2026-11-05 |
 | Project | Swift Package plus command-line `.app` bundling under `macos/`; no root build orchestrator or new third-party dependency | Approved 2026-11-05, replacing Xcode-project choice |
 | Editable content | Existing v1 shapes/lines/connections plus v2 code; preserve/preview/export/duplicate/remove existing attachments, no new attachment import | Approved 2026-11-05; section 5 coverage requires native proof |
-| Autosave | Coalesced completed transactions; request after 5 seconds quiet or within 30 seconds of continuous committed edits while active | Approved 2026-11-05; not a disk-durability deadline |
-| Recovery | Native untitled recovery plus private app-owned storage for uncovered committed work and active text drafts; retain until saved elsewhere or explicitly discarded | Scope, request timing, restore/conflict/close choices approved 2026-11-05; storage details need proof |
+| Autosave | Coalesced completed transactions; request after 5 seconds quiet or within 30 seconds of continuous committed edits while active | Approved 2026-11-05; implemented and verified via `CanvasNativeDocument` (`NSDocument`) 2026-11-10 |
+| Recovery | Native untitled recovery (`NSDocument.autosavedContentsFileURL`) plus private app-owned storage for uncovered metadata and active text drafts; retain until saved elsewhere or explicitly discarded | Approved 2026-11-05; implemented and verified 2026-11-10 |
 | PNG | Default 2,048-pixel longest side, proportional other dimension, 32 world-unit padding; configurable size, at most 8,192 pixels per side and 16,777,216 pixels total | Approved 2026-11-05; implemented and verified with Keynote light/dark slides 2026-11-10 |
 
 A basic canvas is not the complete milestone: approved code snippets, agreed
@@ -468,15 +473,14 @@ responder, document lifecycle, OS dialogs, recovery, and rendering behavior.
 ## 9. Remaining decisions and implementation entry gate
 
 Foundation, deployment target, initial content and PNG defaults were approved on
-2026-11-05. Session-only native authoring exists; editable file compatibility proof is incomplete.
-Establish fixture coverage and round-trip proof before editable saves. Native
-font-role mappings (`Mona Sans` 400/700, `Unbounded` 800, `Monaspace Neon` 400/700,
-and `Amatic SC` 700 bundled in `macos/Resources/Fonts/` with CoreText system
-cascade fallback) and transparent PNG export (`File → Export PNG…`, `⇧⌘E`) are
-implemented and verified. Before corresponding feature implementation, settle
-detailed recovery storage/cleanup, other native file operation UX, and any
-remaining shortcut additions. Prove the approved highlighter candidate before use.
-New attachment import is outside the initial scope.
+2026-11-05. `NSDocument`-backed JSON persistence, coalesced 5s/30s autosave,
+byte-fingerprint conflict detection/pause, `NSDocument` draft autosaving plus
+private recovery envelopes, launch restoration, close/quit guards, compatibility
+fixture round-trips (`Native → Web → Native`), bundled Neo-Acid / Amatic SC
+font-role mappings, and transparent Keynote PNG export (`File → Export PNG…`,
+`⇧⌘E`) are implemented and verified (2026-11-10). Native v2 code-snippet
+authoring/editing and `HighlighterSwift` integration remain to be delivered
+within the native milestone; new attachment import is outside the initial scope.
 The shared v2 schema, new-v2/existing-v1 policy, explicit version-copy semantics,
 language inventory, and web dependencies are settled, not remaining native design
 questions. New native dependency/build-tool choices require separate approval.

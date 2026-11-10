@@ -142,7 +142,7 @@ public final class WelcomeContentView: NSView {
         dotBorder.lineWidth = 1
         CanvasTheme.borderStrong.setStroke()
         dotBorder.stroke()
-        let kicker = "SESSION-ONLY · V1/V2 JSON" as NSString
+        let kicker = "LOCAL-FIRST · V1/V2 JSON" as NSString
         kicker.draw(
             at: CGPoint(x: 96, y: 39),
             withAttributes: [
@@ -170,7 +170,7 @@ public final class WelcomeContentView: NSView {
         headline.draw(at: CGPoint(x: 32, y: 84))
 
         let summary =
-            "Create a blank version-2 canvas or open an existing JSON document.\nSession changes stay in memory and never overwrite source files."
+            "Create a blank version-2 canvas or open an existing JSON document.\nConnected files autosave safely; untitled work is recoverable across launches."
             as NSString
         summary.draw(
             in: CGRect(x: 32, y: 122, width: bounds.width - 64, height: 52),

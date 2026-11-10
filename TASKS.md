@@ -1,8 +1,10 @@
 # MVP plan
 
-Unchecked work is not implemented behavior. Current web editing and the
-read-only native viewer are implemented; the independent native editor remains
-the final milestone after any adopted remaining non-native work.
+Unchecked work is not implemented behavior. Current web editing and the native
+macOS canvas editor (including `NSDocument` JSON persistence, coalesced autosave,
+conflict handling, crash/draft recovery, and Keynote PNG export) are implemented;
+native v2 code-snippet authoring/highlighting and overall milestone acceptance
+remain in the final native milestone after any adopted remaining non-native work.
 The separately approved adjacent-thought task is implemented. Connected-arrow
 styling's additive v1 metadata scope is now approved (details below); the native
 editor remains last. Save a copy preservation is separately approved and
@@ -552,17 +554,19 @@ friction.
 
 ## Final milestone: independent native macOS editor
 
-The web code-snippet prerequisite is implemented. A read-only native viewer now
-exists; the full native editor and the native code-snippet acceptance remain
-unfinished. Adopted readiness work and the remaining native decisions still apply.
+The web code-snippet prerequisite is implemented. The native macOS editor now
+implements shape/text/line/connection/adjacent-thought authoring, style inspection,
+transparent Keynote PNG export, and `NSDocument`-backed JSON persistence, coalesced
+autosave, external-change conflict handling, and draft/crash recovery; native
+code-snippet authoring/highlighting and overall milestone acceptance remain unfinished.
+Adopted readiness work and remaining decisions still apply.
 
 The [native implementation specification](macos/SPEC.md) was drafted on
 2026-11-04 as requested. It details interactions, autosave/recovery, compatibility,
 native components, export, and acceptance proof. The architecture, macOS target,
 initial content scope and PNG defaults were approved on 2026-11-05 as recorded
-below. Autosave/recovery details and remaining feature decisions are not yet
-approved. A read-only viewer exists; the editor milestone is not complete.
-
+below, and `NSDocument` persistence, coalesced autosave, conflict handling, and
+recovery were implemented and verified on 2026-11-10.
 - [ ] **Outcome:** open an existing version-1 JSON canvas in an independent
       native Mac editor, select/move objects, edit text, undo/redo, save, and
       reopen in both editors; export a transparent high-resolution PNG suitable
@@ -625,7 +629,7 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       from proposed behavior and executable acceptance requirements.
 - [ ] Resolve native decisions before project creation/implementation as
       applicable.
-- [ ] Agree compatibility fixtures and prove round-trips before editable saves.
+- [x] Agree compatibility fixtures and prove round-trips before editable saves.
 - [ ] Deliver the agreed native creation/editing workflow, keyboard and pointer
       interactions, history, autosave, and failure/conflict proof.
 - [x] Meet the PNG/Keynote gate using actual exported files.
@@ -664,10 +668,13 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       untitled document. Close/quit finishes valid editors and awaits writes;
       unresolved work offers return to editing, retain recoverable work, or
       explicit discard. Cancel leaves the window open.
-- [ ] **Remaining native recovery/file policy:** settle detailed storage/cleanup
-      and other file-operation UX in
-      [SPEC section 4](macos/SPEC.md#4-proposed-autosave-and-recovery-contract).
-      No automatic merging or locking promise; actual OS recovery needs proof.
+- [x] **Remaining native recovery/file policy (verified 2026-11-10):** `CanvasNativeDocument`
+      (`NSDocument`) uses `autosavesInPlace` and `autosavesDrafts` (`autosavedContentsFileURL`)
+      with SHA-256 byte-fingerprint verification inside `writeSafely`/`write`, paired with
+      private `0600` `CanvasRecoveryEnvelope` files in `Application Support/local.elixircanvas.native/Recovery/`
+      storing only uncovered metadata and active non-marked inline text drafts without
+      duplicating the committed JSON snapshot. Verified across launch restoration,
+      external conflicts, read-only/write failures, and multi-window close/quit guards.
 - [x] **Native repository organization:** web at root, `macos/` for native code,
       versioned shared JSON in `shared/fixtures/`; independent builds and runtimes.
 - [x] **Native foundation and initial content (2026-11-05):** Swift; AppKit
@@ -709,21 +716,24 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       Offscreen AppKit bitmap inspection covered both fixtures; direct window
       capture failed, so the actual windows were not visually captured.
       Native contract checks cover shared fixtures and selected refusal/quota cases.
-      The native app uses approximate routes and plain code, with no editable
-      JSON saves, code creation or recovery. It supports session-only New,
-      shape/text and standalone line/arrow insertion, adjacent thoughts (`N` →
-      cardinal direction → inline draft with rotated ray-blocker avoidance and
-      measured growth), connections (creation, labels and endpoint/side
-      reconnection), object/connection selection, selection-preserving Tab
-      traversal, Space tap selection toggle and Space-drag panning, marquee and
-      Shift-click/⌘A multi-selection, pointer/arrow movement, resize/rotation and
-      line endpoint editing, duplication, deletion, front/back stacking,
-      lock/unlock, object/connection/canvas style inspection/editing (`S` /
-      Edit → Style…), caption editing with measured box growth, read-only
+      The native app uses approximate routes and plain-text code rendering (native code
+      creation/editing and syntax highlighting remain pending). It supports `NSDocument`-backed
+      blank v2 New, v1/v2 Open (activating the existing window when reopening an already-open
+      file), explicit Save (`⌘S`), Save As (`⇧⌘S`), explicit v1→v2 copy export
+      (`File → Save Version 2 Copy…`), confirmed Reload from Disk, coalesced 5s-quiet /
+      30s-continuous autosave, external-change conflict pause, `NSDocument` draft autosaving
+      plus private recovery envelopes for active inline text drafts, launch recovery restoration,
+      multi-window close/quit guards, shape/text and standalone line/arrow insertion,
+      adjacent thoughts (`N` → cardinal direction → inline draft with rotated ray-blocker
+      avoidance and measured growth), connections (creation, labels and endpoint/side
+      reconnection), object/connection selection, selection-preserving Tab traversal,
+      Space tap selection toggle and Space-drag panning, marquee and Shift-click/⌘A
+      multi-selection, pointer/arrow movement (with pointer drags isolated as view previews
+      until `mouseUp`), resize/rotation and line endpoint editing, duplication, deletion,
+      front/back stacking, lock/unlock, object/connection/canvas style inspection/editing
+      (`S` / Edit → Style…), caption editing with measured box growth, read-only
       attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`),
-      transparent PNG export (`File → Export PNG…`, `⇧⌘E`) and Undo/Redo; closing
-      discards changes. Full editable
-      cross-editor proof remains pending.
+      transparent PNG export (`File → Export PNG…`, `⇧⌘E`) and Undo/Redo.
       Shared v1/v2 compatibility fixtures cover five shape kinds, free line,
       rotation/locks, all edge paths/markers (`bezier`, `smooth`, `step`, `straight`,
       `arrow`, `dot`, `none`), self-loop and automatic/named handles, `animated`/`dash`
@@ -835,6 +845,35 @@ approved. A read-only viewer exists; the editor milestone is not complete.
       app and strictly verifies it. Both direct execution and `open -n` then
       produced an observed on-screen window. This is local signing/launch proof,
       not Developer ID signing, notarization or distribution certification.
+      Native `NSDocument` persistence, coalesced autosave, conflict handling, and
+      recovery checks (`PersistenceChecks.swift`, verified 2026-11-10) cover: blank-canvas
+      authoring → valid inline text draft flush and invalid 2,001-grapheme draft refusal on
+      Save → first-save promotion → intact Undo/Redo across Save → single-writer reopen of
+      an already-open file; pointer-drag preview isolation (`mouseDragged` keeps
+      `CanvasSession` untouched so mid-drag timers never serialize unconfirmed coordinates
+      and `Escape` cancels cleanly); coalesced 5s/30s autosave, in-flight write + newer-edit
+      race, Edit → in-flight save → Undo-to-baseline race (acknowledging exact written
+      snapshots so disk/session divergence stays `.changesPending`), stale-generation
+      `Save As` isolation, and completion-delayed-beyond-deadline guard; external writer
+      modification and deletion conflicts pausing autosave with **Keep Editing**, confirmed
+      **Reload from Disk** (requiring an acknowledged independent pre-reload recovery backup
+      and refusing reload when recovery fails or is still in flight), and **Save As…**
+      (refusing the conflicted source or hardlink aliases as a force-overwrite target);
+      read-only source enforcement (disabling Save, Insert, and Edit/Undo/Redo mutations and
+      ignoring pointer/keyboard mutation attempts until `Save As` promotes a writable copy),
+      write-failure retention, separate recovery-error tracking, and multi-window
+      cancelled-Quit preservation (separating close approval from teardown); launch recovery
+      using `NSDocument` draft autosaving (`autosavedContentsFileURL`) plus lightweight
+      `CanvasRecoveryEnvelope` without snapshot duplication across untitled + active text
+      draft, unchanged connected source, changed connected source (restored as separate
+      Untitled), and corrupt recovery discard; explicit v1→v2 copy conversion refusing
+      same-file/hardlink overwrite while preserving v1 in-place saves; real `NSSavePanel`
+      modal invocation and cancellation; multi-process `SIGKILL` crash → fresh OS process
+      relaunch recovery restoring both committed nodes and active inline text drafts;
+      actual assembled `Elixir Canvas.app` launch and clean `SIGTERM` close without source
+      mutation; and `Native → Web → Native` cross-editor round-trips on temporary v1/v2
+      compatibility copies. External Accessibility automation permission is denied on this
+      machine, so physical OS Save-panel button clicking remains uncertified.
 - [x] **PNG output defaults and native/Keynote proof (2026-11-05, verified 2026-11-10):**
       2,048-pixel longest side, proportional other dimension, configurable output
       (longest side or exact dimensions with transparent letterboxing), 32 world-unit

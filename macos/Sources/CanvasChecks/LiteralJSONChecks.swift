@@ -253,9 +253,18 @@ func checkCompatibilityRoundTrips(repository: URL) throws {
     print("PASS compatibility round-trips: temporary v1/v2 copies, edge variants, collision retention, decimal/64-bit precision and undo restoration")
 }
 
+@MainActor
 func exportCrossEditorRoundTrip(in directory: URL) throws {
-    let v1Doc = try CanvasDocument(data: Data(contentsOf: directory.appendingPathComponent("v1.json")))
-    let v1Session = CanvasSession(document: v1Doc)
+    _ = NSApplication.shared
+    let tempStore = CanvasRecoveryStore(
+        directoryURL: directory.appendingPathComponent("recovery-tmp", isDirectory: true),
+        draftsDirectoryURL: directory.appendingPathComponent("drafts-tmp", isDirectory: true)
+    )
+    let v1NativeDoc = try CanvasNativeDocument(
+        opening: directory.appendingPathComponent("v1.json"),
+        recoveryStore: tempStore
+    )
+    let v1Session = v1NativeDoc.session
     _ = try v1Session.move("text", to: CanvasPosition(x: -75.5, y: 420.25))
     let ell = v1Session.geometry(of: "ellipse")!
         .resized(handle: .right, localDelta: CanvasPosition(x: 20, y: 0))
@@ -264,17 +273,20 @@ func exportCrossEditorRoundTrip(in directory: URL) throws {
     _ = try v1Session.setText("triangle", to: "三角\nNative edit")
     let added = try v1Session.insertShape(.rectangle, at: CanvasPosition(x: 780, y: 40), text: "Native node")
     _ = try v1Session.insertConnection(source: added.id, sourceSide: .left, target: "diamond", targetSide: .right)
-    try v1Session.encodedData().write(to: directory.appendingPathComponent("v1-after-native.json"), options: .atomic)
+    _ = try v1NativeDoc.saveDocumentAs(to: directory.appendingPathComponent("v1-after-native.json"))
 
-    let v2Doc = try CanvasDocument(data: Data(contentsOf: directory.appendingPathComponent("v2.json")))
-    let v2Session = CanvasSession(document: v2Doc)
+    let v2NativeDoc = try CanvasNativeDocument(
+        opening: directory.appendingPathComponent("v2.json"),
+        recoveryStore: tempStore
+    )
+    let v2Session = v2NativeDoc.session
     _ = try v2Session.move("shape", to: CanvasPosition(x: -42.5, y: 130.1))
     let codeGeo = v2Session.geometry(of: "code-explicit")!
         .resized(handle: .bottomRight, localDelta: CanvasPosition(x: 40, y: 20))
         .rotated(by: 15)
     _ = try v2Session.setGeometry("code-explicit", to: codeGeo)
     _ = try v2Session.setText("shape", to: "Native + Web")
-    try v2Session.encodedData().write(to: directory.appendingPathComponent("v2-after-native.json"), options: .atomic)
+    _ = try v2NativeDoc.saveDocumentAs(to: directory.appendingPathComponent("v2-after-native.json"))
 }
 
 @MainActor

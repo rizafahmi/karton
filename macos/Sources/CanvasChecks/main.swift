@@ -369,6 +369,7 @@ func runChecks() throws {
     try checkCompatibilityRoundTrips(repository: repository)
     try checkTheme(repository: repository)
     try checkPNGExport(repository: repository)
+    try checkPersistenceAndRecovery(repository: repository)
 }
 
 @MainActor
@@ -521,6 +522,14 @@ do {
         try MainActor.assumeIsolated {
             let view = CanvasView(session: session)
             try view.exportPNG(to: URL(fileURLWithPath: args[2]))
+        }
+    } else if args.count == 2 && args[0] == "--child-crash-writer" {
+        try MainActor.assumeIsolated {
+            try runChildCrashWriter(readyFlagPath: args[1])
+        }
+    } else if args.count == 2 && args[0] == "--child-crash-restorer" {
+        try MainActor.assumeIsolated {
+            try runChildCrashRestorer(outputPath: args[1])
         }
     } else {
         try runChecks()

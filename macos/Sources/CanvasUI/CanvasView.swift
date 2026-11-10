@@ -115,7 +115,7 @@ public final class CanvasView: NSView {
     private var origin: CGPoint
     public private(set) var zoomScale: CGFloat = 1.0
     private let session: CanvasSession
-    private let history = UndoManager()
+    private let history: UndoManager
     public override var undoManager: UndoManager? { history }
     private var selectedID: String?
     public private(set) var selectedNodeIDs: Set<String> = []
@@ -127,26 +127,67 @@ public final class CanvasView: NSView {
     private var spacePanDragged = false
     private var spacePanStart: (viewportPoint: CGPoint, worldOrigin: CGPoint)?
     private var marqueeGesture: MarqueeGesture?
-    private var drag: (ids: [String], mouse: CGPoint, positions: [String: CanvasPosition])?
+    private var drag: (
+        ids: [String],
+        mouse: CGPoint,
+        positions: [String: CanvasPosition],
+        currentPositions: [String: CanvasPosition]
+    )? {
+        didSet { onDraftStateDidChange?() }
+    }
     private var connectionEditor: ConnectionEditor?
     private var attachmentPreview: AttachmentPreviewSheet?
     public var attachmentPasteboard: NSPasteboard = .general
     private var pngExportSheet: PNGExportSheet?
     public var pngExportDestinationProvider: ((String) -> URL?)?
-    private var geometryGesture: GeometryGesture?
-    private var lineEndpointGesture: LineEndpointGesture?
-    private var inlineTextState: InlineTextState?
+    public var onDraftStateDidChange: (() -> Void)?
+    private var geometryGesture: GeometryGesture? {
+        didSet { onDraftStateDidChange?() }
+    }
+    private var lineEndpointGesture: LineEndpointGesture? {
+        didSet { onDraftStateDidChange?() }
+    }
+    private var inlineTextState: InlineTextState? {
+        didSet { onDraftStateDidChange?() }
+    }
     private let thoughtScrollView = NSScrollView()
     private let thoughtInputView = ThoughtDraftTextView(frame: NSRect(x: 0, y: 0, width: 160, height: 96))
     public let styleInspector = StyleInspectorView()
     public private(set) var isStyleInspectorOpen = false
     public var selectedNodeID: String? { selectedID }
+    public var isReadOnly: Bool { session.isReadOnly }
     public var selectedConnectionID: String? { selectedEdgeID }
     public var hasGeometryPreview: Bool { geometryGesture != nil || lineEndpointGesture != nil }
     public var hasActiveInlineTextEditor: Bool {
         switch inlineTextState {
         case .adjacentEditing, .newText, .shapeCaption: return true
         case .adjacentChoosing, .none: return false
+        }
+    }
+    public var hasActivePointerDrag: Bool {
+        guard let drag else { return false }
+        return drag.currentPositions != drag.positions
+    }
+    public var hasPendingDraftOrPreview: Bool {
+        hasActiveInlineTextEditor || isChoosingAdjacentThoughtDirection || hasGeometryPreview || hasActivePointerDrag
+    }
+    public var recoverableTextDraft: CanvasRecoverableTextDraft? {
+        guard !thoughtInputView.hasMarkedText() else { return nil }
+        switch inlineTextState {
+        case .adjacentEditing(let sourceID, let direction, let geo, let text, _):
+            return .adjacentEditing(sourceID: sourceID, direction: direction, geometry: geo, text: text)
+        case .newText(let position, let geo, let text, _):
+            return .newText(position: position, geometry: geo, text: text)
+        case .shapeCaption(let id, let beforeText, let beforeGeo, let previewGeo, let text, _):
+            return .shapeCaption(
+                id: id,
+                beforeText: beforeText,
+                beforeGeometry: beforeGeo,
+                previewGeometry: previewGeo,
+                text: text
+            )
+        case .adjacentChoosing, .none:
+            return nil
         }
     }
     public var inlineTextEditorView: NSTextView? {
@@ -217,7 +258,7 @@ public final class CanvasView: NSView {
         return selectedID.map { session.canTransform($0) || session.canEditLineEndpoints($0) } ?? false
     }
     public var canInsertConnection: Bool {
-        nodes.contains { $0.type != "shape-line" }
+        !isReadOnly && nodes.contains { $0.type != "shape-line" }
     }
     public var canEditTextSelection: Bool {
         !hasGeometryPreview && inlineTextState == nil && drag == nil &&
@@ -238,7 +279,7 @@ public final class CanvasView: NSView {
     public var isPNGExportSheetOpen: Bool { pngExportSheet != nil }
     public var activePNGExportPanel: NSPanel? { pngExportSheet?.panel }
     public var canDeleteSelection: Bool {
-        guard !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
+        guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
         if !selectedNodeIDs.isEmpty {
             return selectedNodeIDs.contains { session.canDeleteNode($0) }
         }
@@ -247,7 +288,7 @@ public final class CanvasView: NSView {
         return false
     }
     public var canDuplicateSelection: Bool {
-        guard !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
+        guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
         if !selectedNodeIDs.isEmpty {
             return selectedNodeIDs.contains { session.canDuplicateNode($0) }
         }
@@ -255,7 +296,7 @@ public final class CanvasView: NSView {
         return session.canDuplicateNode(id)
     }
     public var canBringToFront: Bool {
-        guard !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
+        guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
         if selectedNodeIDs.count > 1 {
             let unlocked = nodes.map(\.id).filter { selectedNodeIDs.contains($0) && !session.isLocked($0) }
             guard !unlocked.isEmpty else { return false }
@@ -266,7 +307,7 @@ public final class CanvasView: NSView {
         return session.canBringToFront(id)
     }
     public var canSendToBack: Bool {
-        guard !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
+        guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
         if selectedNodeIDs.count > 1 {
             let unlocked = nodes.map(\.id).filter { selectedNodeIDs.contains($0) && !session.isLocked($0) }
             guard !unlocked.isEmpty else { return false }
@@ -277,7 +318,7 @@ public final class CanvasView: NSView {
         return session.canSendToBack(id)
     }
     public var canToggleLock: Bool {
-        !hasGeometryPreview && inlineTextState == nil && drag == nil && selectedID != nil
+        !isReadOnly && !hasGeometryPreview && inlineTextState == nil && drag == nil && selectedID != nil
     }
     public var isSelectedNodeLocked: Bool {
         selectedID.map { session.isLocked($0) } ?? false
@@ -288,7 +329,7 @@ public final class CanvasView: NSView {
         self.init(session: CanvasSession(document: document))
     }
 
-    public init(session: CanvasSession) {
+    public init(session: CanvasSession, undoManager: UndoManager = UndoManager()) {
         let root = session.root
         let nodes = (root["nodes"] as? [[String: Any]] ?? []).map { raw in
             Node(id: raw["id"] as? String ?? "", type: raw["type"] as? String ?? "shape",
@@ -327,6 +368,7 @@ public final class CanvasView: NSView {
         self.paper = root["paper"] as? [String: Any] ?? [:]
         self.fontRole = role
         self.session = session
+        self.history = undoManager
         self.origin = bounds.origin
         let size = CGSize(width: max(800, bounds.width), height: max(600, bounds.height))
         super.init(frame: CGRect(origin: .zero, size: size))
@@ -507,7 +549,7 @@ public final class CanvasView: NSView {
             needsDisplay = true
             return
         }
-        if marqueeGesture == nil {
+        if marqueeGesture == nil && !isReadOnly {
             let activeIDs = selectedNodeIDs.isEmpty ? (selectedID.map { [$0] } ?? []) : nodes.map(\.id).filter { selectedNodeIDs.contains($0) }
             let unlockedIDs = activeIDs.filter { !session.isLocked($0) }
             var initialPositions: [String: CanvasPosition] = [:]
@@ -517,7 +559,7 @@ public final class CanvasView: NSView {
                 }
             }
             if !initialPositions.isEmpty {
-                drag = (ids: unlockedIDs, mouse: point, positions: initialPositions)
+                drag = (ids: unlockedIDs, mouse: point, positions: initialPositions, currentPositions: initialPositions)
             }
         }
         needsDisplay = true
@@ -572,14 +614,26 @@ public final class CanvasView: NSView {
             needsDisplay = true
             return
         }
-        guard let drag else { return }
+        guard var activeDrag = drag else { return }
         let point = worldPoint(for: event)
-        let dx = Double(point.x - drag.mouse.x)
-        let dy = Double(point.y - drag.mouse.y)
-        for id in drag.ids {
-            guard let initial = drag.positions[id] else { continue }
+        let dx = Double(point.x - activeDrag.mouse.x)
+        let dy = Double(point.y - activeDrag.mouse.y)
+        var didPreviewMove = false
+        for id in activeDrag.ids {
+            guard let initial = activeDrag.positions[id],
+                  !session.isLocked(id) else { continue }
             let position = CanvasPosition(x: initial.x + dx, y: initial.y + dy)
-            try? moveWithoutHistory(id, to: position)
+            guard position.x.isFinite, position.y.isFinite,
+                  abs(position.x) <= 1_000_000, abs(position.y) <= 1_000_000,
+                  let index = nodes.firstIndex(where: { $0.id == id }) else { continue }
+            activeDrag.currentPositions[id] = position
+            nodes[index].box.origin = CGPoint(x: position.x, y: position.y)
+            didPreviewMove = true
+        }
+        self.drag = activeDrag
+        if didPreviewMove {
+            rebuildEdges()
+            needsDisplay = true
         }
     }
 
@@ -602,15 +656,21 @@ public final class CanvasView: NSView {
             needsDisplay = true
             return
         }
-        guard let drag else { return }
+        guard let activeDrag = drag else { return }
         self.drag = nil
-        let changed = drag.ids.filter { id in
-            guard let initial = drag.positions[id], let current = session.position(of: id) else { return false }
-            return current != initial
+        var changed: [String] = []
+        for id in activeDrag.ids {
+            guard let initial = activeDrag.positions[id],
+                  let target = activeDrag.currentPositions[id],
+                  target != initial else { continue }
+            if (try? moveWithoutHistory(id, to: target)) != nil {
+                changed.append(id)
+            }
         }
         if !changed.isEmpty {
-            let snapshot = drag.positions
-            registerUndoMoves(changed, to: snapshot)
+            registerUndoMoves(changed, to: activeDrag.positions)
+        } else {
+            syncFromSession()
         }
     }
 
@@ -718,13 +778,9 @@ public final class CanvasView: NSView {
                 return
             }
             if event.keyCode == 53 {
-                if let drag {
-                    for id in drag.ids {
-                        if let initial = drag.positions[id] {
-                            try? moveWithoutHistory(id, to: initial)
-                        }
-                    }
+                if drag != nil {
                     self.drag = nil
+                    syncFromSession()
                     return
                 }
                 if marqueeGesture != nil {
@@ -845,7 +901,7 @@ public final class CanvasView: NSView {
     }
 
     @objc public func undoMove(_ sender: Any?) {
-        guard window?.attachedSheet == nil, connectionEditor == nil,
+        guard !isReadOnly, window?.attachedSheet == nil, connectionEditor == nil,
               attachmentPreview == nil, drag == nil else {
             NSSound.beep()
             return
@@ -856,7 +912,7 @@ public final class CanvasView: NSView {
     }
 
     @objc public func redoMove(_ sender: Any?) {
-        guard window?.attachedSheet == nil, connectionEditor == nil,
+        guard !isReadOnly, window?.attachedSheet == nil, connectionEditor == nil,
               attachmentPreview == nil, drag == nil else {
             NSSound.beep()
             return
@@ -1128,6 +1184,7 @@ public final class CanvasView: NSView {
 
     /// Inserts at the currently visible center, never at the source file's origin.
     public func insertShape(_ kind: CanvasShapeKind) {
+        guard !isReadOnly else { NSSound.beep(); return }
         if inlineTextState != nil {
             guard finishInlineTextBeforeCanvasAction() else { return }
         }
@@ -1146,6 +1203,7 @@ public final class CanvasView: NSView {
     }
 
     public func insertLine(_ kind: CanvasLineKind) {
+        guard !isReadOnly else { NSSound.beep(); return }
         if inlineTextState != nil {
             guard finishInlineTextBeforeCanvasAction() else { return }
         }
@@ -1435,6 +1493,12 @@ public final class CanvasView: NSView {
         spaceSelectionMode = false
     }
 
+    public func selectNode(_ id: String) {
+        selectSingleNode(id)
+        refreshStyleInspector()
+        needsDisplay = true
+    }
+
     private func selectSingleConnection(_ id: String) {
         selectedID = nil
         selectedNodeIDs.removeAll()
@@ -1557,6 +1621,102 @@ public final class CanvasView: NSView {
         needsDisplay = true
     }
 
+    public func reloadFromSession(clearingUndoHistory: Bool) {
+        inlineTextState = nil
+        thoughtScrollView.isHidden = true
+        geometryGesture = nil
+        lineEndpointGesture = nil
+        drag = nil
+        marqueeGesture = nil
+        selectedID = nil
+        selectedNodeIDs.removeAll()
+        selectedEdgeID = nil
+        focusedNodeID = nil
+        focusedConnectionID = nil
+        if clearingUndoHistory {
+            history.removeAllActions()
+        }
+        syncFromSession()
+        expandDrawingBounds()
+        window?.makeFirstResponder(self)
+    }
+
+    public func restoreRecoverableTextDraft(_ draft: CanvasRecoverableTextDraft) {
+        switch draft.kind {
+        case .adjacentEditing:
+            guard let sourceID = draft.targetID,
+                  let dirRaw = draft.directionRawValue,
+                  let direction = CanvasThoughtDirection(rawValue: dirRaw),
+                  session.canInsertAdjacentThought(from: sourceID) else { return }
+            let geo = draft.geometry
+            thoughtInputView.font = font(fontRole, "m", scale: zoomScale)
+            thoughtInputView.textColor = CanvasTheme.primaryText
+            thoughtInputView.insertionPointColor = CanvasTheme.primaryText
+            inlineTextState = .adjacentEditing(
+                sourceID: sourceID,
+                direction: direction,
+                geometry: geo,
+                text: draft.text,
+                error: nil
+            )
+            thoughtInputView.string = draft.text
+            thoughtInputView.alignment = .center
+            thoughtInputView.resetUndo()
+            thoughtScrollView.isHidden = false
+            revealThoughtGeometry(geo)
+            positionInlineTextEditor()
+            window?.makeFirstResponder(thoughtInputView)
+            needsDisplay = true
+        case .newText:
+            let pos = CanvasPosition(x: draft.x, y: draft.y)
+            let geo = draft.geometry
+            thoughtInputView.font = font(fontRole, "m", scale: zoomScale)
+            thoughtInputView.textColor = CanvasTheme.primaryText
+            thoughtInputView.insertionPointColor = CanvasTheme.primaryText
+            inlineTextState = .newText(position: pos, geometry: geo, text: draft.text, error: nil)
+            thoughtInputView.string = draft.text
+            thoughtInputView.alignment = .left
+            thoughtInputView.resetUndo()
+            thoughtScrollView.isHidden = false
+            revealThoughtGeometry(geo)
+            positionInlineTextEditor()
+            window?.makeFirstResponder(thoughtInputView)
+            needsDisplay = true
+        case .shapeCaption:
+            guard let id = draft.targetID,
+                  session.canEditText(id),
+                  let beforeGeo = draft.beforeGeometry ?? session.geometry(of: id),
+                  let index = nodes.firstIndex(where: { $0.id == id }) else { return }
+            let previewGeo = draft.geometry
+            let node = nodes[index]
+            let nodeRole = node.data["font"] as? String ?? fontRole
+            let nodeSize = node.data["size"] as? String ?? "m"
+            let effectiveFill = node.data["fill"] as? String ?? (node.kind == "text" ? "none" : "blue")
+            nodes[index].box = CGRect(x: previewGeo.x, y: previewGeo.y, width: previewGeo.width, height: previewGeo.height)
+            nodes[index].data["text"] = draft.text
+            thoughtInputView.font = font(nodeRole, nodeSize, scale: zoomScale)
+            thoughtInputView.textColor = textColor(on: effectiveFill)
+            thoughtInputView.insertionPointColor = textColor(on: effectiveFill)
+            inlineTextState = .shapeCaption(
+                id: id,
+                beforeText: draft.beforeText,
+                beforeGeometry: beforeGeo,
+                previewGeometry: previewGeo,
+                text: draft.text,
+                error: nil
+            )
+            thoughtInputView.string = draft.text
+            let effectiveAlign = node.data["align"] as? String ?? (node.kind == "text" ? "left" : "center")
+            thoughtInputView.alignment = alignment(effectiveAlign)
+            thoughtInputView.resetUndo()
+            thoughtScrollView.isHidden = false
+            rebuildEdges()
+            positionInlineTextEditor()
+            window?.makeFirstResponder(thoughtInputView)
+            needsDisplay = true
+        }
+    }
+
     public func activatePrimaryEditor() {
         if let edgeID = selectedEdgeID, session.hasConnection(edgeID) {
             beginConnection(focusLabel: true)
@@ -1633,16 +1793,30 @@ public final class CanvasView: NSView {
         pngExportSheet?.present(on: window)
     }
 
+    public func flushPendingEditsForSave() throws {
+        guard pngExportSheet == nil else {
+            throw CanvasDocumentError("Close the active sheet before saving.")
+        }
+        try flushPendingEdits(actionVerb: "saving")
+    }
+
     public func flushPendingEditsForExport() throws {
+        try flushPendingEdits(actionVerb: "exporting")
+        guard !nodes.isEmpty else {
+            throw CanvasDocumentError("Cannot export an empty canvas.")
+        }
+    }
+
+    private func flushPendingEdits(actionVerb: String) throws {
         guard drag == nil else {
-            throw CanvasDocumentError("Finish the active drag gesture before exporting.")
+            throw CanvasDocumentError("Finish the active drag gesture before \(actionVerb).")
         }
         guard connectionEditor == nil, attachmentPreview == nil else {
-            throw CanvasDocumentError("Close the active sheet before exporting.")
+            throw CanvasDocumentError("Close the active sheet before \(actionVerb).")
         }
         if let state = inlineTextState {
             if thoughtInputView.hasMarkedText() {
-                throw CanvasDocumentError("Finish active text input before exporting.")
+                throw CanvasDocumentError("Finish active text input before \(actionVerb).")
             }
             switch state {
             case .adjacentChoosing:
@@ -1650,7 +1824,7 @@ public final class CanvasView: NSView {
             case .adjacentEditing, .newText, .shapeCaption:
                 commitInlineText()
                 if inlineTextState != nil {
-                    throw CanvasDocumentError(inlineTextError ?? "Finish valid text editing before exporting.")
+                    throw CanvasDocumentError(inlineTextError ?? "Finish valid text editing before \(actionVerb).")
                 }
             }
         }
@@ -1665,9 +1839,6 @@ public final class CanvasView: NSView {
             if lineEndpointGesture != nil {
                 throw CanvasDocumentError("Could not commit pending line endpoint preview.")
             }
-        }
-        guard !nodes.isEmpty else {
-            throw CanvasDocumentError("Cannot export an empty canvas.")
         }
     }
 

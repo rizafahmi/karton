@@ -144,10 +144,20 @@ public struct CanvasStackMove: Equatable, Sendable {
     public let toIndex: Int
 }
 
-/// Mutable in-memory document state. Persistence remains deliberately unavailable.
+/// Mutable in-memory document state with monotonically increasing committed revision tracking.
 public final class CanvasSession {
     public let document: CanvasDocument
-    public private(set) var root: [String: Any]
+    public private(set) var revision: UInt64 = 0
+    public var isReadOnly: Bool = false
+    public var onDidMutate: ((UInt64) -> Void)?
+    public private(set) var root: [String: Any] {
+        didSet {
+            guard !suppressRevisionIncrement else { return }
+            revision &+= 1
+            onDidMutate?(revision)
+        }
+    }
+    private var suppressRevisionIncrement = false
 
     public init(document: CanvasDocument) {
         self.document = document
@@ -163,6 +173,24 @@ public final class CanvasSession {
     /// Reopens the current session state as an independent validated document.
     public func encodedDocument() throws -> CanvasDocument {
         try CanvasDocument(data: encodedData())
+    }
+
+    /// Produces a validated version-2 JSON snapshot copy with only the root version changed
+    /// if the session is currently version 1, leaving this session's root and revision untouched.
+    public func encodedVersion2CopyData() throws -> Data {
+        var copy = root
+        copy["version"] = 2
+        return try CanvasDocument.encode(copy)
+    }
+
+    /// Replaces the in-memory root with a validated document (for Reload from Disk or Recovery restoration).
+    public func replaceRoot(_ newRoot: [String: Any], revision newRevision: UInt64 = 0) throws {
+        try CanvasDocument.validate(newRoot)
+        suppressRevisionIncrement = true
+        root = newRoot
+        suppressRevisionIncrement = false
+        revision = newRevision
+        onDidMutate?(revision)
     }
 
     public func position(of id: String) -> CanvasPosition? {
@@ -182,19 +210,29 @@ public final class CanvasSession {
 
     @discardableResult
     public func setLocked(_ id: String, to locked: Bool?) throws -> Bool {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var nodes = root["nodes"] as? [[String: Any]],
               let index = nodes.firstIndex(where: { $0["id"] as? String == id }) else {
             throw CanvasDocumentError("Unknown node ID: \(id).")
         }
         let previous = nodes[index]["locked"] as? Bool
         guard previous != locked else { return false }
-        nodes[index]["locked"] = locked
-        root["nodes"] = nodes
+        var updated = nodes[index]
+        updated["locked"] = locked
+        nodes[index] = updated
+        var candidate = root
+        candidate["nodes"] = nodes
+        root = candidate
         return true
     }
 
     @discardableResult
     public func move(_ id: String, to position: CanvasPosition) throws -> CanvasMove? {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard position.x.isFinite, position.y.isFinite,
               abs(position.x) <= 1_000_000, abs(position.y) <= 1_000_000 else {
             throw CanvasDocumentError("Node \(id) needs finite coordinates within 1000000.")
@@ -212,7 +250,9 @@ public final class CanvasSession {
         node["x"] = position.x
         node["y"] = position.y
         nodes[index] = node
-        root["nodes"] = nodes
+        var candidate = root
+        candidate["nodes"] = nodes
+        root = candidate
         return CanvasMove(id: id, before: before, after: position)
     }
     public func geometry(of id: String) -> CanvasGeometry? {
@@ -223,7 +263,7 @@ public final class CanvasSession {
     }
 
     public func canTransform(_ id: String) -> Bool {
-        guard let type = node(id)?["type"] as? String else { return false }
+        guard !isReadOnly, let type = node(id)?["type"] as? String else { return false }
         return (type == "shape" || type == "code") && !isLocked(id)
     }
 
@@ -243,7 +283,9 @@ public final class CanvasSession {
         nodes[index]["height"] = geometry.height
         data["rotation"] = geometry.rotation
         nodes[index]["data"] = data
-        root["nodes"] = nodes
+        var candidate = root
+        candidate["nodes"] = nodes
+        root = candidate
         return true
     }
 
@@ -265,7 +307,7 @@ public final class CanvasSession {
     }
 
     public func canEditLineEndpoints(_ id: String) -> Bool {
-        node(id)?["type"] as? String == "shape-line" && !isLocked(id)
+        !isReadOnly && node(id)?["type"] as? String == "shape-line" && !isLocked(id)
     }
 
     @discardableResult
@@ -286,7 +328,9 @@ public final class CanvasSession {
         data["to"] = [geometry.to.x, geometry.to.y]
         data["rotation"] = geometry.rotation
         nodes[index]["data"] = data
-        root["nodes"] = nodes
+        var candidate = root
+        candidate["nodes"] = nodes
+        root = candidate
         return true
     }
 
@@ -312,7 +356,7 @@ public final class CanvasSession {
     }
 
     public func canEditText(_ id: String) -> Bool {
-        node(id)?["type"] as? String == "shape" && !isLocked(id)
+        !isReadOnly && node(id)?["type"] as? String == "shape" && !isLocked(id)
     }
 
     /// Changes only the caption; nil restores an originally absent text field.
@@ -361,6 +405,9 @@ public final class CanvasSession {
     }
 
     public func applyTextChange(_ change: CanvasTextChange) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var nodes = root["nodes"] as? [[String: Any]],
               let index = nodes.firstIndex(where: { $0["id"] as? String == change.id }),
               !isLocked(change.id) else {
@@ -407,7 +454,7 @@ public final class CanvasSession {
     }
 
     public func canInsertAdjacentThought(from id: String) -> Bool {
-        node(id)?["type"] as? String == "shape" && !isLocked(id)
+        !isReadOnly && node(id)?["type"] as? String == "shape" && !isLocked(id)
     }
 
     public func adjacentThoughtGeometry(
@@ -491,6 +538,9 @@ public final class CanvasSession {
     }
 
     public func removeInsertion(_ insertion: CanvasShapeInsertion) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var nodes = root["nodes"] as? [[String: Any]],
               let index = nodes.firstIndex(where: { $0["id"] as? String == insertion.id }),
               !isLocked(insertion.id) else {
@@ -503,10 +553,15 @@ public final class CanvasSession {
             throw CanvasDocumentError("Undo connections before undoing shape insertion.")
         }
         nodes.remove(at: index)
-        root["nodes"] = nodes
+        var candidate = root
+        candidate["nodes"] = nodes
+        root = candidate
     }
 
     public func restoreInsertion(_ insertion: CanvasShapeInsertion) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var nodes = root["nodes"] as? [[String: Any]],
               insertion.index <= nodes.count, node(insertion.id) == nil else {
             throw CanvasDocumentError("Cannot restore the inserted shape at its original position.")
@@ -519,7 +574,7 @@ public final class CanvasSession {
     }
 
     public func canDuplicateNode(_ id: String) -> Bool {
-        node(id) != nil && !isLocked(id)
+        !isReadOnly && node(id) != nil && !isLocked(id)
     }
 
     @discardableResult
@@ -556,11 +611,14 @@ public final class CanvasSession {
     }
 
     public func canDeleteNode(_ id: String) -> Bool {
-        node(id) != nil && !isLocked(id)
+        !isReadOnly && node(id) != nil && !isLocked(id)
     }
 
     @discardableResult
     public func deleteNode(_ id: String) throws -> CanvasNodeDeletion {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var nodes = root["nodes"] as? [[String: Any]],
               let index = nodes.firstIndex(where: { $0["id"] as? String == id }) else {
             throw CanvasDocumentError("Unknown node ID: \(id).")
@@ -579,12 +637,17 @@ public final class CanvasSession {
                 remainingEdges.append(edge)
             }
         }
-        root["nodes"] = nodes
-        root["edges"] = remainingEdges
+        var candidate = root
+        candidate["nodes"] = nodes
+        candidate["edges"] = remainingEdges
+        root = candidate
         return CanvasNodeDeletion(id: id, node: removedNode, index: index, edges: removedEdges)
     }
 
     public func restoreNodeDeletion(_ deletion: CanvasNodeDeletion) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var nodes = root["nodes"] as? [[String: Any]],
               deletion.index <= nodes.count, node(deletion.id) == nil else {
             throw CanvasDocumentError("Cannot restore the deleted object at its original position.")
@@ -611,13 +674,15 @@ public final class CanvasSession {
     }
 
     public func canBringToFront(_ id: String) -> Bool {
-        guard let nodes = root["nodes"] as? [[String: Any]],
+        guard !isReadOnly,
+              let nodes = root["nodes"] as? [[String: Any]],
               let index = nodeIndex(of: id), !isLocked(id) else { return false }
         return index < nodes.count - 1
     }
 
     public func canSendToBack(_ id: String) -> Bool {
-        guard let index = nodeIndex(of: id), !isLocked(id) else { return false }
+        guard !isReadOnly,
+              let index = nodeIndex(of: id), !isLocked(id) else { return false }
         return index > 0
     }
 
@@ -645,6 +710,9 @@ public final class CanvasSession {
 
     @discardableResult
     public func moveNode(_ id: String, toIndex targetIndex: Int) throws -> CanvasStackMove? {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var nodes = root["nodes"] as? [[String: Any]],
               let fromIndex = nodes.firstIndex(where: { $0["id"] as? String == id }) else {
             throw CanvasDocumentError("Unknown node ID: \(id).")
@@ -658,7 +726,9 @@ public final class CanvasSession {
         guard fromIndex != targetIndex else { return nil }
         let item = nodes.remove(at: fromIndex)
         nodes.insert(item, at: targetIndex)
-        root["nodes"] = nodes
+        var candidate = root
+        candidate["nodes"] = nodes
+        root = candidate
         return CanvasStackMove(id: id, fromIndex: fromIndex, toIndex: targetIndex)
     }
     public func insertConnection(
@@ -666,6 +736,9 @@ public final class CanvasSession {
         target: String, targetSide: CanvasConnectionSide? = nil,
         label: String? = nil
     ) throws -> CanvasConnectionInsertion {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         try validateConnection(source: source, sourceSide: sourceSide, target: target, targetSide: targetSide)
         let normalizedLabel = (label?.isEmpty == false) ? label : nil
         let id = UUID().uuidString
@@ -680,7 +753,9 @@ public final class CanvasSession {
             id: id, edge: edge, index: edges.count
         )
         edges.append(edge)
-        root["edges"] = edges
+        var candidate = root
+        candidate["edges"] = edges
+        root = candidate
         return insertion
     }
 
@@ -710,6 +785,9 @@ public final class CanvasSession {
         targetSide: CanvasConnectionSide? = nil,
         label: String? = nil
     ) throws -> CanvasConnectionUpdate? {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var edges = root["edges"] as? [[String: Any]],
               let index = edges.firstIndex(where: { $0["id"] as? String == id }),
               let current = connectionState(of: id) else {
@@ -759,6 +837,9 @@ public final class CanvasSession {
     }
 
     public func applyConnectionUpdate(_ update: CanvasConnectionUpdate) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var edges = root["edges"] as? [[String: Any]],
               let index = edges.firstIndex(where: { $0["id"] as? String == update.id }) else {
             throw CanvasDocumentError("Cannot apply connection update to missing connection.")
@@ -771,12 +852,17 @@ public final class CanvasSession {
     }
 
     public func removeInsertion(_ insertion: CanvasConnectionInsertion) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var edges = root["edges"] as? [[String: Any]],
               let index = edges.firstIndex(where: { $0["id"] as? String == insertion.id }) else {
             throw CanvasDocumentError("The inserted connection is missing.")
         }
         edges.remove(at: index)
-        root["edges"] = edges
+        var candidate = root
+        candidate["edges"] = edges
+        root = candidate
     }
 
     public func hasConnection(_ id: String) -> Bool {
@@ -785,16 +871,24 @@ public final class CanvasSession {
 
     @discardableResult
     public func deleteConnection(_ id: String) throws -> CanvasConnectionInsertion {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var edges = root["edges"] as? [[String: Any]],
               let index = edges.firstIndex(where: { $0["id"] as? String == id }) else {
             throw CanvasDocumentError("Unknown connection ID: \(id).")
         }
         let removed = edges.remove(at: index)
-        root["edges"] = edges
+        var candidate = root
+        candidate["edges"] = edges
+        root = candidate
         return CanvasConnectionInsertion(id: id, edge: removed, index: index)
     }
 
     public func restoreInsertion(_ insertion: CanvasConnectionInsertion) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         let edge = insertion.edge
         try validateConnection(
             source: edge["source"] as? String ?? "",
@@ -808,7 +902,9 @@ public final class CanvasSession {
             throw CanvasDocumentError("Cannot restore the connection at its original position.")
         }
         edges.insert(edge, at: insertion.index)
-        root["edges"] = edges
+        var candidate = root
+        candidate["edges"] = edges
+        root = candidate
     }
 
     public static let supportedPaperBackgrounds = ["dots", "lines", "cross", "none"]
@@ -844,6 +940,9 @@ public final class CanvasSession {
     public func setDocumentStyle(
         property: CanvasStyleProperty, to value: CanvasStyleValue
     ) throws -> CanvasStyleChange? {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard availableDocumentStyleProperties().contains(property) else {
             throw CanvasDocumentError("This style is not supported for the canvas; nothing was changed.")
         }
@@ -982,6 +1081,9 @@ public final class CanvasSession {
     public func setNodeStyle(
         _ id: String, property: CanvasStyleProperty, to value: CanvasStyleValue
     ) throws -> CanvasStyleChange? {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard let raw = node(id),
               var nodes = root["nodes"] as? [[String: Any]],
               let index = nodes.firstIndex(where: { $0["id"] as? String == id }),
@@ -1011,6 +1113,9 @@ public final class CanvasSession {
     public func setConnectionStyle(
         _ id: String, property: CanvasStyleProperty, to value: CanvasStyleValue
     ) throws -> CanvasStyleChange? {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         guard var edges = root["edges"] as? [[String: Any]],
               let index = edges.firstIndex(where: { $0["id"] as? String == id }) else {
             throw CanvasDocumentError("Unknown connection ID: \(id).")
@@ -1045,6 +1150,9 @@ public final class CanvasSession {
     }
 
     public func applyStyleChange(_ change: CanvasStyleChange) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
         var candidate = root
         switch change.target {
         case .node(let id, _, let afterData):

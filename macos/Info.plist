@@ -16,8 +16,9 @@
     <key>CFBundleDocumentTypes</key>
     <array><dict>
         <key>CFBundleTypeName</key><string>JSON canvas</string>
-        <key>CFBundleTypeRole</key><string>Viewer</string>
+        <key>CFBundleTypeRole</key><string>Editor</string>
         <key>LSHandlerRank</key><string>Alternate</string>
+        <key>NSDocumentClass</key><string>CanvasNativeDocument</string>
         <key>LSItemContentTypes</key><array><string>public.json</string></array>
     </dict></array>
 </dict>

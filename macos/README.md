@@ -1,7 +1,12 @@
 # Native macOS editor
 
-This directory contains an independent native canvas app with session-only
-New, shape/text and standalone line/arrow insertion, adjacent thoughts (`N`),
+This directory contains an independent native canvas editor with `NSDocument`-backed
+blank v2 New and v1/v2 Open, explicit Save (**⌘S**), Save As (**⇧⌘S**), explicit
+v1→v2 copy export (**File → Save Version 2 Copy…**), confirmed Reload from Disk,
+coalesced 5s-quiet / 30s-continuous autosave with byte-fingerprint conflict
+detection, `NSDocument` draft autosaving paired with private recovery envelopes
+(including active inline text drafts), launch recovery restoration, close/quit
+guards, shape/text and standalone line/arrow insertion, adjacent thoughts (`N`),
 connections (including labels and endpoint/side reconnection), object/connection
 selection, selection-preserving Tab traversal, Space tap selection toggle and
 Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
@@ -10,8 +15,8 @@ stacking, lock/unlock, object/connection/canvas style editing, caption editing
 with automatic box growth (using bundled Neo-Acid and Amatic SC typography with
 CoreText system glyph fallback), read-only attachment source preview/copy, canvas
 zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent PNG export (**File → Export PNG…**,
-**⇧⌘E**) and Undo/Redo. The planned editor is not complete: there is no JSON
-saving, code creation, recovery or syntax highlighting.
+**⇧⌘E**) and Undo/Redo. Native v2 code-snippet creation/editing and syntax
+highlighting remain pending.
 
 ## Build and run
 
@@ -29,8 +34,9 @@ Apple developer account is needed for this local build. Ad-hoc signing is not
 Developer ID signing, notarization, or a distribution guarantee.
 
 Use **File → New** (**⌘N**) or **New Canvas** in the welcome window to start a
-blank version-2 canvas. **File → Open…** opens supported v1/v2 JSON files.
-Each New/Open creates a separate session window without replacing existing work.
+blank version-2 canvas. **File → Open…** (**⌘O**) opens supported v1/v2 JSON files;
+reopening an already-open file activates its existing window rather than creating a
+second writer.
 
 Use **Insert → Rectangle / Ellipse / Diamond / Triangle / Text…** or
 **Insert → Line / Arrow** to add content at the current viewport center, including
@@ -162,8 +168,26 @@ excludes paper background, grid, selection outlines, handles and inspector chrom
 and produces identical output regardless of viewport zoom, scroll position or display
 scale.
 
-The app never saves or changes JSON source files. Closing the window discards session
-changes without a confirmation prompt. It validates versions, graph references,
+Use **File → Save** (**⌘S**) and **File → Save As…** (**⇧⌘S**) to save canvases as
+portable UTF-8 JSON through `NSDocument` safe-saving. Saving flushes valid pending
+inline text drafts or geometry previews once and refuses invalid drafts (>2,000
+graphemes) without truncation. Connected writable files coalescingly autosave
+committed changes after 5 seconds quiet or within 30 seconds of continuous edits
+without clearing or splitting Undo/Redo history; pointer drags, geometry gestures
+and inline text drafts stay outside committed JSON until committed. If a connected
+file is modified or removed externally, autosave pauses and offers **Save As…** (to
+a different destination), confirmed **Reload from Disk…** (preserving a recovery
+snapshot of local work first), or **Keep Editing**. For version-1 documents,
+**File → Save Version 2 Copy…** writes a separate version-2 snapshot to a different
+file while leaving the open version-1 document and source untouched. Unsaved
+untitled work, conflicted work and acknowledged active inline text drafts are
+retained via `NSDocument` draft autosaving (`autosavedContentsFileURL`) and a
+private `0600` recovery envelope in `~/Library/Application Support/local.elixircanvas.native/Recovery/`,
+offered for restoration on next launch (restoring as a separate Untitled document
+if the connected source changed on disk). Closing a window or quitting with
+unresolved work offers **Save** / **Save As…**, **Keep Recovery**, **Discard
+Changes**, or **Cancel**.
+It validates versions, graph references,
 content limits and supported rendering semantics before opening; unsupported
 documents are refused with a message. Some valid web canvases may be refused,
 including self-loops without two distinct named side handles and geometry outside
@@ -217,19 +241,18 @@ Editing is keyboard-first with full mouse/trackpad support. Prioritize rapid
 thought entry, adjacent thoughts, and keyboard connections without replacing
 native text editing or standard Mac commands.
 
-In the planned editor, connected documents autosave to their JSON source; explicit
-Save remains available. The current app implements neither. Recover committed work and
-acknowledged active text drafts; request autosave and recovery writes after 5
-seconds quiet or within 30 seconds of
-continuous changes. These are request targets, not durability guarantees.
-Retain recovery until saved elsewhere or explicitly discarded, without silent
-expiry; incomplete IME composition and changes after the last recovery write may
-be lost. Autosave retains undo history. On an external conflict it pauses while
-the user chooses Save As, confirmed Reload or Keep Editing. Recovery is offered
-on launch; changed-source work restores separately as untitled. Close/quit waits
-for valid work and writes, or offers return, recovery retention or explicit
-discard. Detailed storage/cleanup and other file-operation behavior remain open.
-The web app's explicit-save behavior is unchanged.
+Connected documents autosave to their JSON source via `NSDocument` safe-saving,
+while explicit **Save** (**⌘S**) and **Save As…** (**⇧⌘S**) remain available.
+Committed work and acknowledged active text drafts are recovered across launches
+using `NSDocument` draft autosaving (`autosavedContentsFileURL`) plus a private
+recovery envelope for uncovered state, requested after 5 seconds quiet or within
+30 seconds of continuous changes (request targets, not power-loss durability
+guarantees). Recovery is retained until saved elsewhere or explicitly discarded,
+without silent expiry; incomplete IME composition and changes after the last
+recovery write may be lost. Autosave preserves Undo/Redo history. External
+modifications pause autosave and offer **Save As…**, confirmed **Reload from
+Disk…**, or **Keep Editing**. Changed-source recovery restores separately as
+Untitled. The web app's explicit-save behavior is unchanged.
 
 ## Remaining work
 
@@ -243,9 +266,11 @@ native scope, unresolved decisions, and acceptance requirements. Approved on
 Core Graphics/native text rendering, Swift Package and command-line `.app` bundling.
 PNG defaults to a 2,048-pixel longest side with configurable dimensions, 32-unit
 padding and caps of 8,192 pixels per side / 16,777,216 pixels total (implemented
-and verified with bundled Neo-Acid typography and Keynote slides). HighlighterSwift
-is the approved highlighting candidate; it is not yet added or proven in the app.
-Recovery details and native file persistence UX remain decisions.
-The current app does not establish editable web/native compatibility. Web verification
+and verified with bundled Neo-Acid typography and Keynote slides), and
+`NSDocument`-backed JSON persistence, coalesced autosave, external conflict
+handling, recovery, and editable `Native → Web → Native` round-trips are
+implemented and verified. HighlighterSwift is the approved highlighting
+candidate; native v2 code-snippet authoring and highlighting are not yet added.
+Web verification
 still runs with `mix check` from the repository root; it does not build or verify
 the native app.
