@@ -1331,7 +1331,7 @@ public final class CanvasSession {
     public static let supportedAlignments = ["left", "center", "right"]
 
     public func availableDocumentStyleProperties() -> [CanvasStyleProperty] {
-        [.paperBackground, .paperGrid, .font]
+        [.paperBackground, .paperGrid, .font, .align]
     }
 
     public func effectiveDocumentStyle() -> [CanvasStyleProperty: CanvasStyleValue] {
@@ -1340,10 +1340,12 @@ public final class CanvasSession {
         let background = paper?["background"] as? String ?? "dots"
         let grid = intValue(paper?["grid"]) ?? 20
         let font = appearance?["font"] as? String ?? "sans"
+        let align = appearance?["align"] as? String ?? "center"
         return [
             .paperBackground: .string(background),
             .paperGrid: .int(grid),
-            .font: .string(font)
+            .font: .string(font),
+            .align: .string(align)
         ]
     }
 
@@ -1374,14 +1376,14 @@ public final class CanvasSession {
             paper[property.rawValue] = rawValue
             candidate[topKey] = paper
             afterValue = paper
-        case .font:
+        case .font, .align:
             topKey = "appearance"
             beforeValue = root[topKey]
             if let existing = candidate[topKey], !(existing is [String: Any]) {
                 throw CanvasDocumentError("Appearance must be an object.")
             }
             var appearance = (candidate[topKey] as? [String: Any]) ?? [:]
-            appearance["font"] = rawValue
+            appearance[property.rawValue] = rawValue
             candidate[topKey] = appearance
             afterValue = appearance
         default:
@@ -1416,7 +1418,9 @@ public final class CanvasSession {
     public func effectiveNodeStyle(of id: String) -> [CanvasStyleProperty: CanvasStyleValue]? {
         guard let raw = node(id), let type = raw["type"] as? String,
               let data = raw["data"] as? [String: Any] else { return nil }
-        let docFont = (root["appearance"] as? [String: Any])?["font"] as? String ?? "sans"
+        let appearance = root["appearance"] as? [String: Any]
+        let docFont = appearance?["font"] as? String ?? "sans"
+        let docAlign = appearance?["align"] as? String
         switch type {
         case "shape":
             let kind = data["kind"] as? String ?? "rect"
@@ -1425,7 +1429,7 @@ public final class CanvasSession {
                     .fill: .string(data["fill"] as? String ?? "none"),
                     .font: .string(data["font"] as? String ?? docFont),
                     .size: .string(data["size"] as? String ?? "m"),
-                    .align: .string(data["align"] as? String ?? "left")
+                    .align: .string(data["align"] as? String ?? docAlign ?? "left")
                 ]
             }
             var values: [CanvasStyleProperty: CanvasStyleValue] = [
@@ -1435,7 +1439,7 @@ public final class CanvasSession {
                 .dash: .bool(boolValue(data["dash"]) ?? false),
                 .font: .string(data["font"] as? String ?? docFont),
                 .size: .string(data["size"] as? String ?? "m"),
-                .align: .string(data["align"] as? String ?? "center")
+                .align: .string(data["align"] as? String ?? docAlign ?? "center")
             ]
             if kind == "rect" {
                 values[.radius] = .int(intValue(data["radius"]) ?? 8)

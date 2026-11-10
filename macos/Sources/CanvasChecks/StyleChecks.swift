@@ -136,18 +136,20 @@ func checkStyles(repository: URL) throws {
     try require(view.isStyleInspectorOpen && !inspector.isHidden, "Edit -> Style… did not open inspector")
     try require(try label("style-title").stringValue == "Canvas" &&
                 (try label("style-message").isHidden) &&
-                visibleProperties() == [.paperBackground, .paperGrid, .font] &&
+                visibleProperties() == [.paperBackground, .paperGrid, .font, .align] &&
                 popup(.paperBackground)?.titleOfSelectedItem == "None" &&
                 popup(.paperGrid)?.titleOfSelectedItem == "20 px" &&
-                popup(.font)?.titleOfSelectedItem == "Title",
-                "Empty-selection Style inspector did not show Canvas paper, grid, and default font controls")
+                popup(.font)?.titleOfSelectedItem == "Title" &&
+                popup(.align)?.titleOfSelectedItem == "Center",
+                "Empty-selection Style inspector did not show Canvas paper, grid, default font, and default alignment controls")
     try require(NSDictionary(dictionary: session.root).isEqual(to: baselineRoot),
                 "Opening empty-selection Canvas Style inspector materialized defaults")
 
-    // Test no-op document style selection and real document style edits (paper background, grid size, default font) + Undo/Redo.
+    // Test no-op document style selection and real document style edits (paper background, grid size, default font, default alignment) + Undo/Redo.
     try choose(.paperBackground, title: "None")
     try choose(.paperGrid, title: "20 px")
     try choose(.font, title: "Title")
+    try choose(.align, title: "Center")
     try require(NSDictionary(dictionary: session.root).isEqual(to: baselineRoot),
                 "Selecting already-effective Canvas document styles mutated root")
     func maxGridDiff(at world: CGPoint, from base: NSColor) -> CGFloat {
@@ -172,16 +174,23 @@ func checkStyles(repository: URL) throws {
     try choose(.paperBackground, title: "Cross")
     try choose(.paperGrid, title: "40 px")
     try choose(.font, title: "Mono")
+    try choose(.align, title: "Right")
     let updatedPaper = session.root["paper"] as? [String: Any]
     let updatedAppearance = session.root["appearance"] as? [String: Any]
     try require(updatedPaper?["background"] as? String == "cross" &&
                 (updatedPaper?["grid"] as? NSNumber)?.intValue == 40 &&
                 updatedPaper?["future-paper"] as? String == "kept" &&
                 updatedAppearance?["font"] as? String == "mono" &&
+                updatedAppearance?["align"] as? String == "right" &&
                 updatedAppearance?["future-appearance"] as? String == "kept",
                 "Canvas document style edits did not persist or lost unknown paper/appearance metadata")
+    try require(session.effectiveNodeStyle(of: "rect")?[.align] == .string("right") &&
+                session.effectiveNodeStyle(of: "text")?[.align] == .string("right") &&
+                ((session.root["nodes"] as? [[String: Any]])?.first(where: { $0["id"] as? String == "rect" })?["data"] as? [String: Any])?["align"] == nil,
+                "Canvas default alignment did not propagate to unstyled shapes/text without mutating node data")
     try require(maxGridDiff(at: gridPoint, from: blankPaperColor) > 0.05,
                 "Changing paper background from None to Cross did not draw grid marks on canvas")
+    dispatchKey(6, "z", modifiers: [.command]) // Undo align
     dispatchKey(6, "z", modifiers: [.command]) // Undo font
     dispatchKey(6, "z", modifiers: [.command]) // Undo grid
     dispatchKey(6, "z", modifiers: [.command]) // Undo background

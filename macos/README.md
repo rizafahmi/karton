@@ -104,12 +104,12 @@ For the selected object(s):
   deleted, but locked objects cannot be moved, resized, rotated, edited, styled,
   duplicated, reordered or deleted.
 - **Edit → Style…** (**S**) opens the upper-right floating AppKit Style inspector
-  for the selected object or connection, or for the canvas (**Paper**, **Grid size**
-  and **Default text**) when nothing is selected. It exposes only properties supported
-  by the active target (fill, stroke, stroke width, solid/dashed, corners,
-  arrowheads, text style/size/alignment, connection `connector_style`
+  for the selected object or connection, or for the canvas (**Paper**, **Grid size**,
+  **Default text** and **Default alignment**) when nothing is selected. It exposes only
+  properties supported by the active target (fill, stroke, stroke width, solid/dashed,
+  corners, arrowheads, text style/size/alignment, connection `connector_style`
   stroke/width/dash plus path and target marker, or canvas `paper.background`,
-  `paper.grid` and `appearance.font`), reads inherited typography and
+  `paper.grid`, `appearance.font` and `appearance.align`), reads inherited typography and
   defaults without materializing them, retains `animated` when changing connection
   dash, and visibly refuses non-object `connector_style` metadata collisions.
   **Escape** cancels active geometry previews before closing Style, and closes

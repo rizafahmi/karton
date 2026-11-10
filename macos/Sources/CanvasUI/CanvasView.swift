@@ -137,6 +137,7 @@ public final class CanvasView: NSView {
     private var edges: [EdgeDrawing]
     private var paper: [String: Any]
     private var fontRole: String
+    private var defaultAlign: String?
     private var origin: CGPoint
     public private(set) var zoomScale: CGFloat = 1.0
     private let session: CanvasSession
@@ -424,7 +425,9 @@ public final class CanvasView: NSView {
                  data: raw["data"] as? [String: Any] ?? [:])
         }
         let index = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
-        let role = (root["appearance"] as? [String: Any])?["font"] as? String ?? "sans"
+        let appearance = root["appearance"] as? [String: Any]
+        let role = appearance?["font"] as? String ?? "sans"
+        let defaultAlign = appearance?["align"] as? String
         let edges = (root["edges"] as? [[String: Any]] ?? []).compactMap { raw -> EdgeDrawing? in
             guard let source = index[raw["source"] as? String ?? ""],
                   let target = index[raw["target"] as? String ?? ""] else { return nil }
@@ -453,6 +456,7 @@ public final class CanvasView: NSView {
         self.edges = edges
         self.paper = root["paper"] as? [String: Any] ?? [:]
         self.fontRole = role
+        self.defaultAlign = defaultAlign
         self.session = session
         self.history = undoManager
         self.origin = bounds.origin
@@ -471,7 +475,7 @@ public final class CanvasView: NSView {
         thoughtInputView.isAutomaticDashSubstitutionEnabled = false
         thoughtInputView.isAutomaticTextReplacementEnabled = false
         thoughtInputView.font = font(role, "m")
-        thoughtInputView.alignment = .center
+        thoughtInputView.alignment = alignment(defaultAlign ?? "center")
         thoughtInputView.textColor = CanvasTheme.primaryText
         thoughtInputView.insertionPointColor = CanvasTheme.primaryText
         thoughtInputView.minSize = .zero
@@ -554,7 +558,7 @@ public final class CanvasView: NSView {
             } else {
                 isEditingCaption = false
             }
-            Self.drawNode(node, role: fontRole, hideCaption: isEditingCaption)
+            Self.drawNode(node, role: fontRole, defaultAlign: defaultAlign, hideCaption: isEditingCaption)
         }
         if selectedNodeIDs.count > 1 {
             for node in nodes where selectedNodeIDs.contains(node.id) {
@@ -2207,7 +2211,9 @@ public final class CanvasView: NSView {
 
     private func syncFromSession() {
         paper = session.root["paper"] as? [String: Any] ?? [:]
-        fontRole = (session.root["appearance"] as? [String: Any])?["font"] as? String ?? "sans"
+        let appearance = session.root["appearance"] as? [String: Any]
+        fontRole = appearance?["font"] as? String ?? "sans"
+        defaultAlign = appearance?["align"] as? String
         nodes = (session.root["nodes"] as? [[String: Any]] ?? []).map { raw in
             Node(id: raw["id"] as? String ?? "", type: raw["type"] as? String ?? "shape",
                  box: CGRect(x: number(raw["x"]), y: number(raw["y"]),
@@ -2272,7 +2278,7 @@ public final class CanvasView: NSView {
                 error: nil
             )
             thoughtInputView.string = draft.text
-            thoughtInputView.alignment = .center
+            thoughtInputView.alignment = alignment(defaultAlign ?? "center")
             thoughtInputView.resetUndo()
             thoughtScrollView.isHidden = false
             revealThoughtGeometry(geo)
@@ -2287,7 +2293,7 @@ public final class CanvasView: NSView {
             thoughtInputView.insertionPointColor = CanvasTheme.primaryText
             inlineTextState = .newText(position: pos, geometry: geo, text: draft.text, error: nil)
             thoughtInputView.string = draft.text
-            thoughtInputView.alignment = .left
+            thoughtInputView.alignment = alignment(defaultAlign ?? "left")
             thoughtInputView.resetUndo()
             thoughtScrollView.isHidden = false
             revealThoughtGeometry(geo)
@@ -2318,7 +2324,7 @@ public final class CanvasView: NSView {
                 error: nil
             )
             thoughtInputView.string = draft.text
-            let effectiveAlign = node.data["align"] as? String ?? (node.kind == "text" ? "left" : "center")
+            let effectiveAlign = Self.effectiveAlignment(data: node.data, kind: node.kind, defaultAlign: defaultAlign)
             thoughtInputView.alignment = alignment(effectiveAlign)
             thoughtInputView.resetUndo()
             thoughtScrollView.isHidden = false
@@ -2485,7 +2491,9 @@ public final class CanvasView: NSView {
         try flushPendingEditsForExport()
         _ = CanvasTypography.ensureRegistered()
         let snapshotRoot = session.root
-        let snapshotRole = (snapshotRoot["appearance"] as? [String: Any])?["font"] as? String ?? "sans"
+        let snapshotAppearance = snapshotRoot["appearance"] as? [String: Any]
+        let snapshotRole = snapshotAppearance?["font"] as? String ?? "sans"
+        let snapshotAlign = snapshotAppearance?["align"] as? String
         let snapshotNodes = (snapshotRoot["nodes"] as? [[String: Any]] ?? []).map { raw in
             Node(
                 id: raw["id"] as? String ?? "",
@@ -2533,7 +2541,7 @@ public final class CanvasView: NSView {
             Self.drawEdge(edge, role: snapshotRole, isSelected: false)
         }
         for node in snapshotNodes {
-            Self.drawNode(node, role: snapshotRole, hideCaption: false)
+            Self.drawNode(node, role: snapshotRole, defaultAlign: snapshotAlign, hideCaption: false)
         }
         cgContext.restoreGState()
         NSGraphicsContext.restoreGraphicsState()
@@ -2571,7 +2579,7 @@ public final class CanvasView: NSView {
         let initialText = beforeText ?? ""
         let effectiveRole = node.data["font"] as? String ?? fontRole
         let effectiveSize = node.data["size"] as? String ?? "m"
-        let effectiveAlign = node.data["align"] as? String ?? (node.kind == "text" ? "left" : "center")
+        let effectiveAlign = Self.effectiveAlignment(data: node.data, kind: node.kind, defaultAlign: defaultAlign)
         let effectiveFill = node.data["fill"] as? String ?? (node.kind == "text" ? "none" : "blue")
         thoughtInputView.font = font(effectiveRole, effectiveSize, scale: zoomScale)
         thoughtInputView.alignment = alignment(effectiveAlign)
@@ -2599,13 +2607,14 @@ public final class CanvasView: NSView {
     private func beginNewTextShape(at position: CanvasPosition) {
         guard let window else { return }
         let geo = CanvasGeometry(x: position.x, y: position.y, width: 160, height: 48, rotation: nil)
+        let effectiveAlign = defaultAlign ?? "left"
         thoughtInputView.font = font(fontRole, "m", scale: zoomScale)
-        thoughtInputView.alignment = .left
+        thoughtInputView.alignment = alignment(effectiveAlign)
         thoughtInputView.textColor = CanvasTheme.primaryText
         thoughtInputView.insertionPointColor = CanvasTheme.primaryText
         inlineTextState = .newText(position: position, geometry: geo, text: "", error: nil)
         thoughtInputView.string = ""
-        thoughtInputView.alignment = .left
+        thoughtInputView.alignment = alignment(effectiveAlign)
         thoughtInputView.resetUndo()
         thoughtScrollView.isHidden = false
         revealThoughtGeometry(geo)
@@ -2682,13 +2691,14 @@ public final class CanvasView: NSView {
         guard case .adjacentChoosing(let sourceID) = inlineTextState else { return }
         do {
             let geo = try session.adjacentThoughtGeometry(from: sourceID, direction: direction, height: 96)
+            let effectiveAlign = defaultAlign ?? "center"
             thoughtInputView.font = font(fontRole, "m", scale: zoomScale)
-            thoughtInputView.alignment = .center
+            thoughtInputView.alignment = alignment(effectiveAlign)
             thoughtInputView.textColor = CanvasTheme.primaryText
             thoughtInputView.insertionPointColor = CanvasTheme.primaryText
             inlineTextState = .adjacentEditing(sourceID: sourceID, direction: direction, geometry: geo, text: "", error: nil)
             thoughtInputView.string = ""
-            thoughtInputView.alignment = .center
+            thoughtInputView.alignment = alignment(effectiveAlign)
             thoughtInputView.resetUndo()
             thoughtScrollView.isHidden = false
             revealThoughtGeometry(geo)
@@ -2974,21 +2984,26 @@ public final class CanvasView: NSView {
     private func positionInlineTextEditor() {
         let geo: CanvasGeometry
         let scaledFont: NSFont
+        let editorAlign: String
         switch inlineTextState {
         case .adjacentEditing(_, _, let g, _, _):
             geo = g
             scaledFont = font(fontRole, "m", scale: zoomScale)
+            editorAlign = defaultAlign ?? "center"
         case .newText(_, let g, _, _):
             geo = g
             scaledFont = font(fontRole, "m", scale: zoomScale)
+            editorAlign = defaultAlign ?? "left"
         case .shapeCaption(let id, _, _, let g, _, _):
             geo = g
             if let node = nodes.first(where: { $0.id == id }) {
                 let effectiveRole = node.data["font"] as? String ?? fontRole
                 let effectiveSize = node.data["size"] as? String ?? "m"
                 scaledFont = font(effectiveRole, effectiveSize, scale: zoomScale)
+                editorAlign = Self.effectiveAlignment(data: node.data, kind: node.kind, defaultAlign: defaultAlign)
             } else {
                 scaledFont = font(fontRole, "m", scale: zoomScale)
+                editorAlign = defaultAlign ?? "center"
             }
         case .adjacentChoosing, .none:
             thoughtScrollView.frameRotation = 0
@@ -2997,6 +3012,7 @@ public final class CanvasView: NSView {
         }
         thoughtInputView.font = scaledFont
         thoughtInputView.typingAttributes[.font] = scaledFont
+        thoughtInputView.alignment = alignment(editorAlign)
         let viewRect = CGRect(
             x: (geo.x - origin.x) * zoomScale,
             y: (geo.y - origin.y) * zoomScale,
@@ -3993,7 +4009,17 @@ public final class CanvasView: NSView {
         return bounds
     }
 
-    private static func drawNode(_ node: Node, role fontRole: String, hideCaption: Bool) {
+    private static func effectiveAlignment(data: [String: Any], kind: String, defaultAlign: String?) -> String {
+        if let nodeAlign = data["align"] as? String {
+            return nodeAlign
+        }
+        if let defaultAlign {
+            return defaultAlign
+        }
+        return kind == "text" ? "left" : "center"
+    }
+
+    private static func drawNode(_ node: Node, role fontRole: String, defaultAlign: String? = nil, hideCaption: Bool) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
         context.translateBy(x: node.center.x, y: node.center.y)
@@ -4024,7 +4050,7 @@ public final class CanvasView: NSView {
                 let role = node.type == "code" ? "mono" : (data["font"] as? String ?? fontRole)
                 let rect = textRect(node, role: fontRole)
                 let style = NSMutableParagraphStyle()
-                style.alignment = node.type == "code" ? .left : alignment(data["align"] as? String ?? (kind == "text" ? "left" : "center"))
+                style.alignment = node.type == "code" ? .left : alignment(effectiveAlignment(data: data, kind: kind, defaultAlign: defaultAlign))
                 style.lineBreakMode = .byWordWrapping
                 let attrs: [NSAttributedString.Key: Any] = [.font: font(role, data["size"] as? String ?? "m"), .foregroundColor: textColor(on: fill), .paragraphStyle: style]
                 (text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attrs)

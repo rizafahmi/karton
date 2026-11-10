@@ -608,9 +608,11 @@ New files explicitly include:
 The document role is the default for shapes and connector labels. Text-bearing
 shapes may save an explicit `data.font` override. Missing `data.font` inherits the
 document role; choosing an object style saves an explicit role. Standalone lines
-do not have a typography role. Shape dimensions
-and `data.size` remain authored geometry and size. Other appearance metadata is
-preserved; unsupported role names and non-object appearance values are rejected.
+do not have a typography role. Optional `appearance.align` (`left`, `center`, or
+`right`) sets the canvas's default text alignment for shapes and text without an
+explicit `data.align` override. Shape dimensions and `data.size` remain authored
+geometry and size. Other appearance metadata is preserved; unsupported role or
+alignment names and non-object appearance values are rejected.
 
 The interface owns resolved font families and palette values. It does not add a
 theme identifier, resolved font name, or hex colors when saving. Another renderer
@@ -682,7 +684,7 @@ Style fields in `data` follow the Shapes kit:
 | `radius` | `0`, `8` (rectangle corner radius) | `8`; text: `0` |
 | `size` | `s`, `m`, `l` | `m` |
 | `font` | `sans`, `heading`, `mono`, `handwritten` (text-bearing shapes only) | Inherit document `appearance.font` |
-| `align` | `left`, `center`, `right` | `center`; text: `left` |
+| `align` | `left`, `center`, `right` | Inherit `appearance.align` when set; else `center` (text: `left`) |
 | `rotation` | Numeric degrees | `0` |
 | `arrow` | `end`, `both`, `none` (standalone lines) | `end` |
 

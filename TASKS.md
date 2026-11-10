@@ -874,8 +874,8 @@ styled, connected, duplicated with 1 MiB quota enforcement, and exported to PNG)
       connections (`edge.data.connector_style` `stroke`, `width`, `dash` plus
       top-level `path` and `marker`, with `animated` retention and visible
       non-object `connector_style` collision refusal), and the canvas when
-      nothing is selected (`paper.background`, `paper.grid` and `appearance.font`,
-      preserving unknown `paper`/`appearance` metadata). Selected connections also
+      nothing is selected (`paper.background`, `paper.grid`, `appearance.font` and
+      `appearance.align`, preserving unknown `paper`/`appearance` metadata). Selected connections also
       support label editing and endpoint/side reconnection via Return/double-click/C,
       and attachment cards open a read-only literal UTF-8 source preview sheet with
       exact BOM-preserving clipboard copy. Observation never materializes

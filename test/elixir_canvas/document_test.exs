@@ -481,7 +481,10 @@ defmodule ElixirCanvas.DocumentTest do
           %{"font" => "mono"},
           %{"font" => "handwritten"},
           %{"future" => %{"palette" => ["ink", "blue"], "enabled" => true}},
-          %{"font" => "handwritten", "future" => %{"custom" => nil}}
+          %{"font" => "handwritten", "future" => %{"custom" => nil}},
+          %{"font" => "sans", "align" => "left"},
+          %{"align" => "center"},
+          %{"align" => "right", "future" => %{"keep" => true}}
         ] do
       source = Map.put(original, "appearance", appearance)
       File.write!(path, Jason.encode!(source))
@@ -526,7 +529,11 @@ defmodule ElixirCanvas.DocumentTest do
           %{"font" => 1},
           %{"font" => true},
           %{"font" => []},
-          %{"font" => %{}}
+          %{"font" => %{}},
+          %{"align" => nil},
+          %{"align" => ""},
+          %{"align" => "justify"},
+          %{"align" => 1}
         ] do
       bytes = original |> Map.put("appearance", appearance) |> Jason.encode!()
       File.write!(path, bytes)

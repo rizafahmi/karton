@@ -328,8 +328,8 @@ public final class StyleInspectorView: NSView {
             } else if index + 1 < rowViews.count {
                 let label = rowViews[index]
                 let control = rowViews[index + 1]
-                label.frame = NSRect(x: padding, y: y + 4, width: 96, height: 18)
-                control.frame = NSRect(x: padding + 100, y: y, width: width - padding * 2 - 100, height: 26)
+                label.frame = NSRect(x: padding, y: y + 4, width: 108, height: 18)
+                control.frame = NSRect(x: padding + 112, y: y, width: width - padding * 2 - 112, height: 26)
                 y += 32
                 index += 2
             } else {
@@ -380,7 +380,7 @@ public final class StyleInspectorView: NSView {
         case .marker: return "Target marker"
         case .font: return isDocument ? "Default text" : "Text style"
         case .size: return "Text size"
-        case .align: return "Alignment"
+        case .align: return isDocument ? "Default alignment" : "Alignment"
         }
     }
     private static func options(

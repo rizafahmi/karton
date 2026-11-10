@@ -428,11 +428,15 @@ defmodule ElixirCanvas.Document do
   defp validate_appearance(:error), do: :ok
 
   defp validate_appearance({:ok, %{} = appearance}) do
-    if not Map.has_key?(appearance, "font") or
-         appearance["font"] in @font_roles do
-      :ok
-    else
-      {:error, "Appearance font must be sans, heading, mono, or handwritten."}
+    cond do
+      Map.has_key?(appearance, "font") and appearance["font"] not in @font_roles ->
+        {:error, "Appearance font must be sans, heading, mono, or handwritten."}
+
+      Map.has_key?(appearance, "align") and appearance["align"] not in ~w(left center right) ->
+        {:error, "Appearance align must be left, center, or right."}
+
+      true ->
+        :ok
     end
   end
 

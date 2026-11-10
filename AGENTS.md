@@ -129,7 +129,7 @@ silently upgrade/downgrade, or infer native implementation from web support.
   [ConnectionEditor](macos/Sources/CanvasUI/ConnectionEditor.swift) (connection
   creation, label editing, and endpoint/side reconnection),
   [StyleInspectorView](macos/Sources/CanvasUI/StyleInspector.swift) (object,
-  connection, and empty-selection canvas `paper`/`appearance.font` controls),
+  connection, and empty-selection canvas `paper`/`appearance.font`/`appearance.align` controls),
   [CanvasChrome](macos/Sources/CanvasUI/CanvasChrome.swift) (`CanvasCreationTool`,
   `CanvasDockIconGlyph`, `CanvasToolDockView`, `CanvasStatusBannerView`,
   `CanvasShortcutsSheet`, and `CanvasRecentDocumentsStore`), and

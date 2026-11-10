@@ -137,6 +137,7 @@ private enum Validator {
         if let appearance = root["appearance"] {
             guard let appearance = appearance as? [String: Any] else { try fail("Appearance must be an object.") }
             try supported(appearance, "font", fonts, "Appearance")
+            try supported(appearance, "align", ["left", "center", "right"], "Appearance")
         }
         if let paper = root["paper"], !(paper is NSNull) {
             guard let paper = paper as? [String: Any] else { try fail("Paper must be an object.") }

@@ -136,7 +136,8 @@ func checkCompatibilityRoundTrips(repository: URL) throws {
     let updatedDocPaper = try v1Session.setDocumentStyle(property: .paperBackground, to: .string("cross"))
     let updatedDocGrid = try v1Session.setDocumentStyle(property: .paperGrid, to: .int(32))
     let updatedDocFont = try v1Session.setDocumentStyle(property: .font, to: .string("heading"))
-    try require(updatedDocPaper != nil && updatedDocGrid != nil && updatedDocFont != nil,
+    let updatedDocAlign = try v1Session.setDocumentStyle(property: .align, to: .string("left"))
+    try require(updatedDocPaper != nil && updatedDocGrid != nil && updatedDocFont != nil && updatedDocAlign != nil,
                 "v1 document style edits did not apply")
     let broughtFront = try v1Session.bringToFront("ellipse")
     try require(broughtFront != nil, "v1 ellipse bringToFront did not apply")
@@ -192,11 +193,13 @@ func checkCompatibilityRoundTrips(repository: URL) throws {
                 (reopenedPaper?["grid"] as? NSNumber)?.intValue == 32 &&
                 (reopenedPaper?["future"] as? [String: Any])?["note"] as? String == "paper" &&
                 reopenedAppearance?["font"] as? String == "heading" &&
+                reopenedAppearance?["align"] as? String == "left" &&
                 reopenedAppearance?["future"] as? String == "keep",
                 "v1 document style round-trip lost paper/appearance edits or unknown metadata")
     try v1Session.restoreInsertion(deletedLoop)
     _ = try v1Session.setLocked("text", to: nil)
     _ = try v1Session.moveNode("ellipse", toIndex: broughtFront!.fromIndex)
+    try v1Session.applyStyleChange(updatedDocAlign!.inverse)
     try v1Session.applyStyleChange(updatedDocFont!.inverse)
     try v1Session.applyStyleChange(updatedDocGrid!.inverse)
     try v1Session.applyStyleChange(updatedDocPaper!.inverse)
