@@ -108,6 +108,24 @@ public final class CanvasView: NSView {
         }
     }
 
+    private enum ConnectionDragMode: Equatable {
+        case create(sourceID: String, sourceSide: CanvasConnectionSide?)
+        case reconnect(edgeID: String, draggingTarget: Bool)
+    }
+
+    private struct ConnectionDropTarget: Equatable {
+        let nodeID: String
+        let side: CanvasConnectionSide?
+    }
+
+    private struct ConnectionDragGesture {
+        let mode: ConnectionDragMode
+        let startPoint: CGPoint
+        var currentPoint: CGPoint
+        var hasDragged: Bool = false
+        var target: ConnectionDropTarget?
+    }
+
     private var nodes: [Node]
     private var edges: [EdgeDrawing]
     private var paper: [String: Any]
@@ -135,9 +153,14 @@ public final class CanvasView: NSView {
     )? {
         didSet { onDraftStateDidChange?() }
     }
+    private var connectionDrag: ConnectionDragGesture? {
+        didSet { onDraftStateDidChange?() }
+    }
+    private var hoveredNodeID: String?
     private var connectionEditor: ConnectionEditor?
     private var attachmentPreview: AttachmentPreviewSheet?
     public var attachmentPasteboard: NSPasteboard = .general
+    public static let clipboardPasteboardType = NSPasteboard.PasteboardType("local.elixircanvas.native.clipboard")
     private var pngExportSheet: PNGExportSheet?
     public var pngExportDestinationProvider: ((String) -> URL?)?
     public var onDraftStateDidChange: (() -> Void)?
@@ -168,8 +191,9 @@ public final class CanvasView: NSView {
         guard let drag else { return false }
         return drag.currentPositions != drag.positions
     }
+    public var hasActiveConnectionDrag: Bool { connectionDrag != nil }
     public var hasPendingDraftOrPreview: Bool {
-        hasActiveInlineTextEditor || isChoosingAdjacentThoughtDirection || hasGeometryPreview || hasActivePointerDrag
+        hasActiveInlineTextEditor || isChoosingAdjacentThoughtDirection || hasGeometryPreview || hasActivePointerDrag || hasActiveConnectionDrag
     }
     public var recoverableTextDraft: CanvasRecoverableTextDraft? {
         guard !thoughtInputView.hasMarkedText() else { return nil }
@@ -278,6 +302,37 @@ public final class CanvasView: NSView {
     }
     public var isPNGExportSheetOpen: Bool { pngExportSheet != nil }
     public var activePNGExportPanel: NSPanel? { pngExportSheet?.panel }
+    private var orderedSelectedNodeIDs: [String] {
+        let set = selectedNodeIDs.isEmpty ? (selectedID.map { Set([$0]) } ?? []) : selectedNodeIDs
+        return nodes.map(\.id).filter { set.contains($0) }
+    }
+    private var orderedUnlockedSelectedNodeIDs: [String] {
+        orderedSelectedNodeIDs.filter { !session.isLocked($0) }
+    }
+    public var canCopySelection: Bool {
+        !hasGeometryPreview && inlineTextState == nil && drag == nil &&
+            connectionEditor == nil && attachmentPreview == nil && pngExportSheet == nil &&
+            !orderedSelectedNodeIDs.isEmpty
+    }
+    public var canCutSelection: Bool {
+        !isReadOnly && !hasGeometryPreview && inlineTextState == nil && drag == nil &&
+            connectionEditor == nil && attachmentPreview == nil && pngExportSheet == nil &&
+            !orderedUnlockedSelectedNodeIDs.isEmpty
+    }
+    public var canPaste: Bool {
+        guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil,
+              connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil,
+              let data = attachmentPasteboard.data(forType: Self.clipboardPasteboardType),
+              (try? CanvasClipboardPayload.decode(from: data)) != nil else {
+            return false
+        }
+        return true
+    }
+    public var canSelectAll: Bool {
+        !hasGeometryPreview && inlineTextState == nil && drag == nil &&
+            connectionEditor == nil && attachmentPreview == nil && pngExportSheet == nil &&
+            !nodes.isEmpty
+    }
     public var canDeleteSelection: Bool {
         guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
         if !selectedNodeIDs.isEmpty {
@@ -430,7 +485,15 @@ public final class CanvasView: NSView {
             height: dirtyRect.height / zoomScale
         )
         drawPaper(worldDirty)
-        for edge in edges { Self.drawEdge(edge, role: fontRole, isSelected: edge.id == selectedEdgeID) }
+        let reconnectingEdgeID: String?
+        if case .reconnect(let eid, _) = connectionDrag?.mode {
+            reconnectingEdgeID = eid
+        } else {
+            reconnectingEdgeID = nil
+        }
+        for edge in edges where edge.id != reconnectingEdgeID {
+            Self.drawEdge(edge, role: fontRole, isSelected: edge.id == selectedEdgeID)
+        }
         for node in nodes {
             let isEditingCaption: Bool
             if case .shapeCaption(let editingID, _, _, _, _, _) = inlineTextState, editingID == node.id {
@@ -447,6 +510,11 @@ public final class CanvasView: NSView {
         } else if let selectedID, let node = nodes.first(where: { $0.id == selectedID }) {
             drawSelection(node)
         }
+        if connectionDrag == nil, !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil,
+           let hid = hoveredNodeID, hid != selectedID,
+           let hoverNode = nodes.first(where: { $0.id == hid }), hoverNode.type != "shape-line" {
+            drawConnectionPorts(for: hoverNode, activeSide: nil)
+        }
         if spaceSelectionMode, let focusedID = focusedNodeID, !selectedNodeIDs.contains(focusedID),
            let node = nodes.first(where: { $0.id == focusedID }) {
             drawFocusedNodeOutline(node)
@@ -460,15 +528,61 @@ public final class CanvasView: NSView {
             border.lineWidth = 1 / zoomScale
             border.stroke()
         }
+        if let activeConnDrag = connectionDrag {
+            drawConnectionDragPreview(activeConnDrag)
+        }
         if let inlineTextState {
             drawInlineTextPreview(inlineTextState)
         }
         context.restoreGState()
         if let geometryGesture { drawGeometryHelp(geometryGesture.handle) }
         if let lineEndpointGesture { drawLineEndpointHelp(lineEndpointGesture.endpoint) }
+        if connectionDrag != nil {
+            drawHelpBanner("Drag to an object or side port to connect · Release to commit · Escape: cancel")
+        }
         if let inlineTextState { drawInlineTextHelp(inlineTextState) }
         positionInlineTextEditor()
         positionStyleInspector()
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+    }
+
+    public override func mouseMoved(with event: NSEvent) {
+        guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil, connectionDrag == nil else {
+            if hoveredNodeID != nil {
+                hoveredNodeID = nil
+                needsDisplay = true
+            }
+            return
+        }
+        let point = worldPoint(for: event)
+        let hitID = nodes.reversed().first(where: { node in
+            guard node.type != "shape-line" else { return false }
+            return containsNearNode(point, node: node, padding: 20) || connectionPort(at: point, node: node) != nil
+        })?.id
+        if hitID != hoveredNodeID {
+            hoveredNodeID = hitID
+            needsDisplay = true
+        }
+    }
+
+    public override func mouseExited(with event: NSEvent) {
+        if hoveredNodeID != nil {
+            hoveredNodeID = nil
+            needsDisplay = true
+        }
     }
 
     public override func mouseDown(with event: NSEvent) {
@@ -485,6 +599,37 @@ public final class CanvasView: NSView {
             return
         }
         let point = worldPoint(for: event)
+        if !isReadOnly {
+            if let edgeID = selectedEdgeID,
+               let edge = edges.first(where: { $0.id == edgeID }) {
+                let startPt = edge.samples.first ?? edge.end
+                let endPt = edge.end
+                if hypot(point.x - endPt.x, point.y - endPt.y) < 12.0 {
+                    connectionDrag = ConnectionDragGesture(
+                        mode: .reconnect(edgeID: edgeID, draggingTarget: true),
+                        startPoint: point,
+                        currentPoint: point,
+                        target: nil
+                    )
+                    drag = nil
+                    marqueeGesture = nil
+                    needsDisplay = true
+                    return
+                }
+                if hypot(point.x - startPt.x, point.y - startPt.y) < 12.0 {
+                    connectionDrag = ConnectionDragGesture(
+                        mode: .reconnect(edgeID: edgeID, draggingTarget: false),
+                        startPoint: point,
+                        currentPoint: point,
+                        target: nil
+                    )
+                    drag = nil
+                    marqueeGesture = nil
+                    needsDisplay = true
+                    return
+                }
+            }
+        }
         if selectedNodeIDs.count <= 1, let id = selectedID, session.canTransform(id),
            let node = nodes.first(where: { $0.id == id }),
            let handle = geometryHandle(at: point, node: node) {
@@ -507,6 +652,53 @@ public final class CanvasView: NSView {
             marqueeGesture = nil
             needsDisplay = true
             return
+        }
+        if !isReadOnly {
+            if selectedNodeIDs.count <= 1, let id = selectedID,
+               let node = nodes.first(where: { $0.id == id }),
+               let side = connectionPort(at: point, node: node) {
+                cancelGeometry()
+                connectionDrag = ConnectionDragGesture(
+                    mode: .create(sourceID: node.id, sourceSide: side),
+                    startPoint: point,
+                    currentPoint: point,
+                    target: nil
+                )
+                drag = nil
+                marqueeGesture = nil
+                needsDisplay = true
+                return
+            }
+            if let portHit = nodes.reversed().compactMap({ node -> (Node, CanvasConnectionSide)? in
+                guard node.id != selectedID, let side = connectionPort(at: point, node: node) else { return nil }
+                return (node, side)
+            }).first {
+                cancelGeometry()
+                connectionDrag = ConnectionDragGesture(
+                    mode: .create(sourceID: portHit.0.id, sourceSide: portHit.1),
+                    startPoint: point,
+                    currentPoint: point,
+                    target: nil
+                )
+                drag = nil
+                marqueeGesture = nil
+                needsDisplay = true
+                return
+            }
+            if event.modifierFlags.contains(.option),
+               let hitNode = nodes.reversed().first(where: { $0.type != "shape-line" && contains(point, node: $0) }) {
+                cancelGeometry()
+                connectionDrag = ConnectionDragGesture(
+                    mode: .create(sourceID: hitNode.id, sourceSide: nil),
+                    startPoint: point,
+                    currentPoint: point,
+                    target: nil
+                )
+                drag = nil
+                marqueeGesture = nil
+                needsDisplay = true
+                return
+            }
         }
         cancelGeometry()
         let shift = event.modifierFlags.contains(.shift)
@@ -579,6 +771,19 @@ public final class CanvasView: NSView {
             ))
             return
         }
+        if var activeConnDrag = connectionDrag {
+            let point = worldPoint(for: event)
+            activeConnDrag.currentPoint = point
+            if hypot(point.x - activeConnDrag.startPoint.x, point.y - activeConnDrag.startPoint.y) >= 4.0 {
+                activeConnDrag.hasDragged = true
+                activeConnDrag.target = resolveConnectionDropTarget(at: point, for: activeConnDrag)
+            } else {
+                activeConnDrag.target = nil
+            }
+            connectionDrag = activeConnDrag
+            needsDisplay = true
+            return
+        }
         if var gesture = geometryGesture, gesture.pointerStart != nil {
             let point = worldPoint(for: event)
             do {
@@ -640,6 +845,12 @@ public final class CanvasView: NSView {
     public override func mouseUp(with event: NSEvent) {
         if spacePanStart != nil {
             spacePanStart = nil
+            return
+        }
+        if let activeConnDrag = connectionDrag {
+            let point = worldPoint(for: event)
+            connectionDrag = nil
+            commitConnectionDrag(activeConnDrag, at: point)
             return
         }
         if geometryGesture?.pointerStart != nil {
@@ -714,6 +925,15 @@ public final class CanvasView: NSView {
             case "a" where !shifted:
                 selectAll(nil)
                 return
+            case "c" where !shifted:
+                copySelection(nil)
+                return
+            case "x" where !shifted:
+                cutSelection(nil)
+                return
+            case "v" where !shifted:
+                pasteSelection(nil)
+                return
             case "d" where !shifted:
                 duplicateSelection(nil)
                 return
@@ -778,6 +998,11 @@ public final class CanvasView: NSView {
                 return
             }
             if event.keyCode == 53 {
+                if connectionDrag != nil {
+                    connectionDrag = nil
+                    needsDisplay = true
+                    return
+                }
                 if drag != nil {
                     self.drag = nil
                     syncFromSession()
@@ -906,6 +1131,7 @@ public final class CanvasView: NSView {
             NSSound.beep()
             return
         }
+        if connectionDrag != nil { connectionDrag = nil; needsDisplay = true; return }
         if inlineTextState != nil { cancelInlineText(); return }
         if hasGeometryPreview { cancelGeometry(); return }
         history.undo()
@@ -917,6 +1143,7 @@ public final class CanvasView: NSView {
             NSSound.beep()
             return
         }
+        if connectionDrag != nil { connectionDrag = nil; needsDisplay = true; return }
         if inlineTextState != nil { cancelInlineText(); return }
         if hasGeometryPreview { cancelGeometry(); return }
         history.redo()
@@ -1265,17 +1492,93 @@ public final class CanvasView: NSView {
         }
     }
 
-    @objc public func duplicateSelection(_ sender: Any? = nil) {
-        guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
-              connectionEditor == nil,
-              let id = selectedID, session.canDuplicateNode(id) else {
+    @objc public func copy(_ sender: Any?) {
+        copySelection(sender)
+    }
+
+    @objc public func cut(_ sender: Any?) {
+        cutSelection(sender)
+    }
+
+    @objc public func paste(_ sender: Any?) {
+        pasteSelection(sender)
+    }
+
+    @objc public func copySelection(_ sender: Any? = nil) {
+        guard canCopySelection, window?.attachedSheet == nil else {
             NSSound.beep()
             return
         }
         do {
-            let insertion = try session.duplicateNode(id)
-            displayInsertion(insertion.id)
-            registerUndoInsertion(insertion, restoring: false, actionName: "Duplicate")
+            let payload = try session.copyNodes(orderedSelectedNodeIDs)
+            let data = try payload.encodedData()
+            attachmentPasteboard.clearContents()
+            attachmentPasteboard.setData(data, forType: Self.clipboardPasteboardType)
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    @objc public func cutSelection(_ sender: Any? = nil) {
+        guard canCutSelection, window?.attachedSheet == nil else {
+            NSSound.beep()
+            return
+        }
+        let unlocked = orderedUnlockedSelectedNodeIDs
+        do {
+            let payload = try session.copyNodes(unlocked)
+            let data = try payload.encodedData()
+            let deletion = try session.deleteNodes(unlocked)
+            attachmentPasteboard.clearContents()
+            attachmentPasteboard.setData(data, forType: Self.clipboardPasteboardType)
+            let remaining = orderedSelectedNodeIDs.filter { !Set(unlocked).contains($0) }
+            applyNodeSelection(remaining)
+            syncFromSession()
+            registerUndoBatchDeletion(deletion, restoring: true, actionName: "Cut")
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    @objc public func pasteSelection(_ sender: Any? = nil) {
+        guard canPaste, window?.attachedSheet == nil,
+              let data = attachmentPasteboard.data(forType: Self.clipboardPasteboardType) else {
+            NSSound.beep()
+            return
+        }
+        do {
+            let payload = try CanvasClipboardPayload.decode(from: data)
+            let insertion = try session.paste(payload)
+            applyNodeSelection(insertion.nodeIDs)
+            syncFromSession()
+            registerUndoBatchInsertion(insertion, restoring: false, actionName: "Paste")
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    @objc public func duplicateSelection(_ sender: Any? = nil) {
+        guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
+              connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil else {
+            NSSound.beep()
+            return
+        }
+        let unlocked = orderedUnlockedSelectedNodeIDs
+        guard !unlocked.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        do {
+            if unlocked.count == 1 && orderedSelectedNodeIDs.count == 1 {
+                let insertion = try session.duplicateNode(unlocked[0])
+                displayInsertion(insertion.id)
+                registerUndoInsertion(insertion, restoring: false, actionName: "Duplicate")
+            } else {
+                let insertion = try session.duplicateNodes(unlocked)
+                applyNodeSelection(insertion.nodeIDs)
+                syncFromSession()
+                registerUndoBatchInsertion(insertion, restoring: false, actionName: "Duplicate")
+            }
         } catch {
             NSSound.beep()
         }
@@ -1283,25 +1586,36 @@ public final class CanvasView: NSView {
 
     @objc public func deleteSelection(_ sender: Any? = nil) {
         guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
-              connectionEditor == nil else {
+              connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil else {
             NSSound.beep()
             return
         }
-        if let id = selectedID {
-            guard session.canDeleteNode(id) else { NSSound.beep(); return }
+        let unlocked = orderedUnlockedSelectedNodeIDs
+        if unlocked.count == 1 && orderedSelectedNodeIDs.count == 1 {
+            let id = unlocked[0]
             do {
                 let deletion = try session.deleteNode(id)
-                selectedID = nil
-                selectedEdgeID = nil
+                clearSelection()
                 syncFromSession()
                 registerUndoNodeDeletion(deletion, restoring: true)
             } catch {
                 NSSound.beep()
             }
-        } else if let edgeID = selectedEdgeID {
+        } else if !unlocked.isEmpty {
+            do {
+                let deletion = try session.deleteNodes(unlocked)
+                let remaining = orderedSelectedNodeIDs.filter { !Set(unlocked).contains($0) }
+                applyNodeSelection(remaining)
+                syncFromSession()
+                registerUndoBatchDeletion(deletion, restoring: true, actionName: "Delete")
+            } catch {
+                NSSound.beep()
+            }
+        } else if let edgeID = selectedEdgeID, orderedSelectedNodeIDs.isEmpty {
             do {
                 let deletion = try session.deleteConnection(edgeID)
                 selectedEdgeID = nil
+                focusedConnectionID = nil
                 rebuildEdges()
                 refreshStyleInspector()
                 needsDisplay = true
@@ -1314,16 +1628,64 @@ public final class CanvasView: NSView {
         }
     }
 
+    private func registerUndoBatchInsertion(
+        _ insertion: CanvasBatchInsertion,
+        restoring: Bool,
+        actionName: String
+    ) {
+        recordUndo(actionName) { target in
+            do {
+                if restoring {
+                    try target.session.restoreBatchInsertion(insertion)
+                    target.applyNodeSelection(insertion.nodeIDs)
+                } else {
+                    try target.session.removeBatchInsertion(insertion)
+                    let removed = Set(insertion.nodeIDs)
+                    let remaining = target.orderedSelectedNodeIDs.filter { !removed.contains($0) }
+                    target.applyNodeSelection(remaining)
+                }
+                target.syncFromSession()
+                target.registerUndoBatchInsertion(insertion, restoring: !restoring, actionName: actionName)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
+    private func registerUndoBatchDeletion(
+        _ deletion: CanvasBatchDeletion,
+        restoring: Bool,
+        actionName: String
+    ) {
+        recordUndo(actionName) { target in
+            do {
+                if restoring {
+                    try target.session.restoreBatchDeletion(deletion)
+                    target.applyNodeSelection(deletion.ids)
+                } else {
+                    _ = try target.session.deleteNodes(deletion.ids)
+                    let removed = Set(deletion.ids)
+                    let remaining = target.orderedSelectedNodeIDs.filter { !removed.contains($0) }
+                    target.applyNodeSelection(remaining)
+                }
+                target.syncFromSession()
+                target.registerUndoBatchDeletion(deletion, restoring: !restoring, actionName: actionName)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
     private func registerUndoNodeDeletion(_ deletion: CanvasNodeDeletion, restoring: Bool) {
         recordUndo("Delete") { target in
             do {
                 if restoring {
                     try target.session.restoreNodeDeletion(deletion)
-                    target.selectedID = deletion.id
-                    target.selectedEdgeID = nil
+                    target.selectSingleNode(deletion.id)
                 } else {
                     _ = try target.session.deleteNode(deletion.id)
                     if target.selectedID == deletion.id { target.selectedID = nil }
+                    target.selectedNodeIDs.remove(deletion.id)
                     if let edgeID = target.selectedEdgeID, !target.session.hasConnection(edgeID) {
                         target.selectedEdgeID = nil
                     }
@@ -1338,15 +1700,25 @@ public final class CanvasView: NSView {
 
     @objc public func bringToFront(_ sender: Any? = nil) {
         guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
-              connectionEditor == nil,
-              let id = selectedID else {
+              connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil else {
+            NSSound.beep()
+            return
+        }
+        let unlocked = orderedUnlockedSelectedNodeIDs
+        guard !unlocked.isEmpty else {
             NSSound.beep()
             return
         }
         do {
-            guard let move = try session.bringToFront(id) else { return }
-            syncFromSession()
-            registerUndoStackMove(move, actionName: "Bring to Front")
+            if unlocked.count == 1 && orderedSelectedNodeIDs.count == 1 {
+                guard let move = try session.bringToFront(unlocked[0]) else { return }
+                syncFromSession()
+                registerUndoStackMove(move, actionName: "Bring to Front")
+            } else {
+                guard let move = try session.bringToFront(unlocked) else { return }
+                syncFromSession()
+                registerUndoBatchStackMove(move, actionName: "Bring to Front")
+            }
         } catch {
             NSSound.beep()
         }
@@ -1354,17 +1726,41 @@ public final class CanvasView: NSView {
 
     @objc public func sendToBack(_ sender: Any? = nil) {
         guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
-              connectionEditor == nil,
-              let id = selectedID else {
+              connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil else {
+            NSSound.beep()
+            return
+        }
+        let unlocked = orderedUnlockedSelectedNodeIDs
+        guard !unlocked.isEmpty else {
             NSSound.beep()
             return
         }
         do {
-            guard let move = try session.sendToBack(id) else { return }
-            syncFromSession()
-            registerUndoStackMove(move, actionName: "Send to Back")
+            if unlocked.count == 1 && orderedSelectedNodeIDs.count == 1 {
+                guard let move = try session.sendToBack(unlocked[0]) else { return }
+                syncFromSession()
+                registerUndoStackMove(move, actionName: "Send to Back")
+            } else {
+                guard let move = try session.sendToBack(unlocked) else { return }
+                syncFromSession()
+                registerUndoBatchStackMove(move, actionName: "Send to Back")
+            }
         } catch {
             NSSound.beep()
+        }
+    }
+
+    private func registerUndoBatchStackMove(_ move: CanvasBatchStackMove, actionName: String) {
+        recordUndo(actionName) { target in
+            do {
+                let inverse = move.inverse
+                try target.session.applyBatchStackMove(inverse)
+                target.applyNodeSelection(inverse.ids)
+                target.syncFromSession()
+                target.registerUndoBatchStackMove(inverse, actionName: actionName)
+            } catch {
+                NSSound.beep()
+            }
         }
     }
 
@@ -1372,8 +1768,7 @@ public final class CanvasView: NSView {
         recordUndo(actionName) { target in
             do {
                 guard let inverse = try target.session.moveNode(move.id, toIndex: move.fromIndex) else { return }
-                target.selectedID = move.id
-                target.selectedEdgeID = nil
+                target.selectSingleNode(move.id)
                 target.syncFromSession()
                 target.registerUndoStackMove(inverse, actionName: actionName)
             } catch {
@@ -1497,6 +1892,23 @@ public final class CanvasView: NSView {
         selectSingleNode(id)
         refreshStyleInspector()
         needsDisplay = true
+    }
+
+    private func applyNodeSelection(_ ids: [String]) {
+        guard !ids.isEmpty else {
+            clearSelection()
+            return
+        }
+        if ids.count == 1 {
+            selectSingleNode(ids[0])
+        } else {
+            selectedNodeIDs = Set(ids)
+            selectedID = ids.first
+            focusedNodeID = ids.first
+            selectedEdgeID = nil
+            focusedConnectionID = nil
+            spaceSelectionMode = true
+        }
     }
 
     private func selectSingleConnection(_ id: String) {
@@ -1627,6 +2039,8 @@ public final class CanvasView: NSView {
         geometryGesture = nil
         lineEndpointGesture = nil
         drag = nil
+        connectionDrag = nil
+        hoveredNodeID = nil
         marqueeGesture = nil
         selectedID = nil
         selectedNodeIDs.removeAll()
@@ -1810,6 +2224,9 @@ public final class CanvasView: NSView {
     private func flushPendingEdits(actionVerb: String) throws {
         guard drag == nil else {
             throw CanvasDocumentError("Finish the active drag gesture before \(actionVerb).")
+        }
+        guard connectionDrag == nil else {
+            throw CanvasDocumentError("Finish the active connection drag before \(actionVerb).")
         }
         guard connectionEditor == nil, attachmentPreview == nil else {
             throw CanvasDocumentError("Close the active sheet before \(actionVerb).")
@@ -2729,25 +3146,352 @@ public final class CanvasView: NSView {
             }
             return
         }
-        guard session.canTransform(node.id) else { return }
-        let geometry = node.geometry
-        let top = geometry.point(for: .top), rotate = geometry.point(for: .rotation)
-        let stalk = NSBezierPath()
-        stalk.move(to: CGPoint(x: top.x, y: top.y))
-        stalk.line(to: CGPoint(x: rotate.x, y: rotate.y))
-        stalk.lineWidth = 1
-        CanvasTheme.selectionCobalt.setStroke()
-        stalk.stroke()
-        for handle in CanvasGeometryHandle.allCases {
-            let point = geometry.point(for: handle)
-            let rect = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
-            let path = handle == .rotation ? NSBezierPath(ovalIn: rect) : NSBezierPath(rect: rect)
-            let active = geometryGesture?.handle == handle
-            (active ? CanvasTheme.selectionCobalt : CanvasTheme.elevatedSurface).setFill()
-            path.fill()
+        if session.canTransform(node.id) {
+            let geometry = node.geometry
+            let top = geometry.point(for: .top), rotate = geometry.point(for: .rotation)
+            let stalk = NSBezierPath()
+            stalk.move(to: CGPoint(x: top.x, y: top.y))
+            stalk.line(to: CGPoint(x: rotate.x, y: rotate.y))
+            stalk.lineWidth = 1
             CanvasTheme.selectionCobalt.setStroke()
-            path.lineWidth = active ? 2 : 1.5
-            path.stroke()
+            stalk.stroke()
+            for handle in CanvasGeometryHandle.allCases {
+                let point = geometry.point(for: handle)
+                let rect = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
+                let path = handle == .rotation ? NSBezierPath(ovalIn: rect) : NSBezierPath(rect: rect)
+                let active = geometryGesture?.handle == handle
+                (active ? CanvasTheme.selectionCobalt : CanvasTheme.elevatedSurface).setFill()
+                path.fill()
+                CanvasTheme.selectionCobalt.setStroke()
+                path.lineWidth = active ? 2 : 1.5
+                path.stroke()
+            }
+        }
+        if !isReadOnly, node.type != "shape-line", !hasGeometryPreview, inlineTextState == nil, drag == nil, connectionDrag == nil {
+            drawConnectionPorts(for: node, activeSide: nil)
+        }
+    }
+
+    public func connectionPortWorldPoint(of nodeID: String, side: CanvasConnectionSide) -> CGPoint? {
+        guard let node = nodes.first(where: { $0.id == nodeID }), node.type != "shape-line" else { return nil }
+        return connectionPortPoint(for: node, side: side)
+    }
+
+    private func connectionPortPoint(for node: Node, side: CanvasConnectionSide) -> CGPoint {
+        let base = Self.handle(node, side.rawValue)
+        let isSelectedTransformable = selectedNodeIDs.count <= 1 && selectedID == node.id && session.canTransform(node.id)
+        guard isSelectedTransformable else { return base }
+        let dir = Self.direction(node, side.rawValue)
+        let offset: CGFloat = side == .top ? 38 : 16
+        return CGPoint(x: base.x + dir.x * offset, y: base.y + dir.y * offset)
+    }
+
+    private func containsNearNode(_ location: CGPoint, node: Node, padding: CGFloat) -> Bool {
+        let angle = -node.rotation * .pi / 180
+        let dx = location.x - node.center.x
+        let dy = location.y - node.center.y
+        let local = CGPoint(
+            x: node.center.x + dx * cos(angle) - dy * sin(angle),
+            y: node.center.y + dx * sin(angle) + dy * cos(angle)
+        )
+        return node.box.insetBy(dx: -padding, dy: -padding).contains(local)
+    }
+
+    private func connectionPort(at point: CGPoint, node: Node) -> CanvasConnectionSide? {
+        guard node.type != "shape-line" else { return nil }
+        var closest: CanvasConnectionSide?
+        var bestDistance: CGFloat = 11.0
+        for side in CanvasConnectionSide.allCases {
+            let portPt = connectionPortPoint(for: node, side: side)
+            let d = hypot(point.x - portPt.x, point.y - portPt.y)
+            if d < bestDistance {
+                bestDistance = d
+                closest = side
+            }
+        }
+        return closest
+    }
+
+    private func resolveConnectionDropTarget(
+        at point: CGPoint,
+        for drag: ConnectionDragGesture
+    ) -> ConnectionDropTarget? {
+        let fixedNodeID: String
+        let fixedSide: CanvasConnectionSide?
+        switch drag.mode {
+        case .create(let sourceID, let sourceSide):
+            fixedNodeID = sourceID
+            fixedSide = sourceSide
+        case .reconnect(let edgeID, let draggingTarget):
+            guard let state = session.connectionState(of: edgeID) else { return nil }
+            if draggingTarget {
+                fixedNodeID = state.source
+                fixedSide = state.sourceSide
+            } else {
+                fixedNodeID = state.target
+                fixedSide = state.targetSide
+            }
+        }
+        let effectiveFixedSideForSelfLoop: CanvasConnectionSide? = fixedSide ?? {
+            guard let fixedNode = nodes.first(where: { $0.id == fixedNodeID }) else { return nil }
+            return CanvasConnectionSide(rawValue: Self.nearestSide(fixedNode, drag.startPoint))
+        }()
+
+        var bestPort: (nodeID: String, side: CanvasConnectionSide, distance: CGFloat)?
+        for node in nodes.reversed() where node.type != "shape-line" {
+            for side in CanvasConnectionSide.allCases {
+                let handlePt = Self.handle(node, side.rawValue)
+                let portPt = connectionPortPoint(for: node, side: side)
+                let d = min(
+                    hypot(point.x - handlePt.x, point.y - handlePt.y),
+                    hypot(point.x - portPt.x, point.y - portPt.y)
+                )
+                if d <= 14.0 {
+                    if node.id == fixedNodeID {
+                        guard hypot(point.x - drag.startPoint.x, point.y - drag.startPoint.y) >= 12.0,
+                              let fixed = effectiveFixedSideForSelfLoop,
+                              fixed != side else { continue }
+                    }
+                    if bestPort == nil || d < bestPort!.distance {
+                        bestPort = (node.id, side, d)
+                    }
+                }
+            }
+        }
+        if let bestPort {
+            return ConnectionDropTarget(nodeID: bestPort.nodeID, side: bestPort.side)
+        }
+        if let hitNode = nodes.reversed().first(where: { $0.type != "shape-line" && contains(point, node: $0) }) {
+            if hitNode.id == fixedNodeID {
+                guard hypot(point.x - drag.startPoint.x, point.y - drag.startPoint.y) >= 24.0,
+                      let fixed = effectiveFixedSideForSelfLoop,
+                      let candidateSide = CanvasConnectionSide(rawValue: Self.nearestSide(hitNode, point)),
+                      candidateSide != fixed else {
+                    return nil
+                }
+                return ConnectionDropTarget(nodeID: hitNode.id, side: candidateSide)
+            } else {
+                return ConnectionDropTarget(nodeID: hitNode.id, side: nil)
+            }
+        }
+        return nil
+    }
+
+    private func commitConnectionDrag(_ drag: ConnectionDragGesture, at point: CGPoint) {
+        guard drag.hasDragged,
+              hypot(point.x - drag.startPoint.x, point.y - drag.startPoint.y) >= 4.0 else {
+            switch drag.mode {
+            case .create(let sourceID, _):
+                selectSingleNode(sourceID)
+                refreshStyleInspector()
+            case .reconnect(let edgeID, _):
+                selectSingleConnection(edgeID)
+            }
+            needsDisplay = true
+            return
+        }
+        guard let target = resolveConnectionDropTarget(at: point, for: drag) else {
+            needsDisplay = true
+            return
+        }
+        do {
+            switch drag.mode {
+            case .create(let sourceID, let rawSourceSide):
+                let effectiveSourceSide: CanvasConnectionSide?
+                if target.nodeID == sourceID {
+                    effectiveSourceSide = rawSourceSide ?? nodes.first(where: { $0.id == sourceID }).flatMap {
+                        CanvasConnectionSide(rawValue: Self.nearestSide($0, drag.startPoint))
+                    }
+                } else {
+                    effectiveSourceSide = rawSourceSide
+                }
+                let insertion = try session.insertConnection(
+                    source: sourceID,
+                    sourceSide: effectiveSourceSide,
+                    target: target.nodeID,
+                    targetSide: target.side,
+                    label: nil
+                )
+                selectSingleConnection(insertion.id)
+                rebuildEdges()
+                refreshStyleInspector()
+                needsDisplay = true
+                registerUndoConnection(insertion, restoring: false, actionName: "Connect")
+            case .reconnect(let edgeID, let draggingTarget):
+                guard let existing = session.connectionState(of: edgeID) else {
+                    needsDisplay = true
+                    return
+                }
+                let newSource: String
+                let newSourceSide: CanvasConnectionSide?
+                let newTarget: String
+                let newTargetSide: CanvasConnectionSide?
+                if draggingTarget {
+                    newSource = existing.source
+                    newTarget = target.nodeID
+                    newTargetSide = target.side
+                    if newSource == newTarget {
+                        newSourceSide = existing.sourceSide ?? nodes.first(where: { $0.id == newSource }).flatMap {
+                            CanvasConnectionSide(rawValue: Self.nearestSide($0, drag.startPoint))
+                        }
+                    } else {
+                        newSourceSide = existing.sourceSide
+                    }
+                } else {
+                    newSource = target.nodeID
+                    newSourceSide = target.side
+                    newTarget = existing.target
+                    if newSource == newTarget {
+                        newTargetSide = existing.targetSide ?? nodes.first(where: { $0.id == newTarget }).flatMap {
+                            CanvasConnectionSide(rawValue: Self.nearestSide($0, drag.startPoint))
+                        }
+                    } else {
+                        newTargetSide = existing.targetSide
+                    }
+                }
+                if let update = try session.updateConnection(
+                    edgeID,
+                    source: newSource,
+                    sourceSide: newSourceSide,
+                    target: newTarget,
+                    targetSide: newTargetSide,
+                    label: existing.label
+                ) {
+                    selectSingleConnection(edgeID)
+                    rebuildEdges()
+                    refreshStyleInspector()
+                    needsDisplay = true
+                    registerUndoConnectionUpdate(update)
+                } else {
+                    selectSingleConnection(edgeID)
+                    needsDisplay = true
+                }
+            }
+        } catch {
+            NSSound.beep()
+            needsDisplay = true
+        }
+    }
+
+    private func drawConnectionPorts(for node: Node, activeSide: CanvasConnectionSide?) {
+        let isSelectedTransformable = selectedNodeIDs.count <= 1 && selectedID == node.id && session.canTransform(node.id)
+        for side in CanvasConnectionSide.allCases {
+            let base = Self.handle(node, side.rawValue)
+            let portPt = connectionPortPoint(for: node, side: side)
+            if isSelectedTransformable && side != .top {
+                let stem = NSBezierPath()
+                stem.move(to: base)
+                stem.line(to: portPt)
+                stem.lineWidth = 1
+                CanvasTheme.selectionCobalt.withAlphaComponent(0.6).setStroke()
+                stem.stroke()
+            }
+            let isActive = activeSide == side
+            let r: CGFloat = isActive ? 5.5 : 4.5
+            let oval = NSBezierPath(ovalIn: CGRect(x: portPt.x - r, y: portPt.y - r, width: r * 2, height: r * 2))
+            (isActive ? CanvasTheme.selectionCobalt : CanvasTheme.elevatedSurface).setFill()
+            oval.fill()
+            CanvasTheme.selectionCobalt.setStroke()
+            oval.lineWidth = isActive ? 2 : 1.5
+            oval.stroke()
+        }
+    }
+
+    private func drawConnectionDragPreview(_ drag: ConnectionDragGesture) {
+        let index = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        for node in nodes where node.type != "shape-line" {
+            let activeSide: CanvasConnectionSide? = (drag.target?.nodeID == node.id) ? drag.target?.side : nil
+            drawConnectionPorts(for: node, activeSide: activeSide)
+        }
+        if let target = drag.target, let targetNode = index[target.nodeID] {
+            drawFocusedNodeOutline(targetNode)
+            let sourceID: String
+            let sourceSide: String?
+            let targetID: String
+            let targetSide: String?
+            var rawEdge: [String: Any] = ["id": "__preview__", "path": "bezier", "marker": "arrow"]
+            switch drag.mode {
+            case .create(let sid, let sSide):
+                sourceID = sid
+                targetID = target.nodeID
+                if sourceID == targetID {
+                    sourceSide = sSide?.rawValue ?? index[sid].map { Self.nearestSide($0, drag.startPoint) }
+                } else {
+                    sourceSide = sSide?.rawValue
+                }
+                targetSide = target.side?.rawValue
+            case .reconnect(let edgeID, let draggingTarget):
+                if let existingRaw = (session.root["edges"] as? [[String: Any]])?.first(where: { $0["id"] as? String == edgeID }) {
+                    rawEdge = existingRaw
+                }
+                guard let state = session.connectionState(of: edgeID) else { return }
+                if draggingTarget {
+                    sourceID = state.source
+                    sourceSide = state.sourceSide?.rawValue
+                    targetID = target.nodeID
+                    targetSide = target.side?.rawValue
+                } else {
+                    sourceID = target.nodeID
+                    sourceSide = target.side?.rawValue
+                    targetID = state.target
+                    targetSide = state.targetSide?.rawValue
+                }
+            }
+            if let sNode = index[sourceID], let tNode = index[targetID] {
+                rawEdge["source"] = sourceID
+                rawEdge["target"] = targetID
+                if let sourceSide { rawEdge["source_handle"] = sourceSide } else { rawEdge.removeValue(forKey: "source_handle") }
+                if let targetSide { rawEdge["target_handle"] = targetSide } else { rawEdge.removeValue(forKey: "target_handle") }
+                let previewEdge = Self.makeEdge(rawEdge, sNode, tNode, role: fontRole)
+                Self.drawEdge(previewEdge, role: fontRole, isSelected: true)
+                return
+            }
+        }
+        let anchorPoint: CGPoint
+        let arrowFrom: CGPoint
+        let arrowAt: CGPoint
+        switch drag.mode {
+        case .create(let sourceID, let sourceSide):
+            if let sourceNode = index[sourceID] {
+                let side = sourceSide?.rawValue ?? Self.nearestSide(sourceNode, drag.currentPoint)
+                anchorPoint = Self.handle(sourceNode, side)
+            } else {
+                anchorPoint = drag.startPoint
+            }
+            arrowFrom = anchorPoint
+            arrowAt = drag.currentPoint
+        case .reconnect(let edgeID, let draggingTarget):
+            if let state = session.connectionState(of: edgeID) {
+                if draggingTarget, let sourceNode = index[state.source] {
+                    let side = state.sourceSide?.rawValue ?? Self.nearestSide(sourceNode, drag.currentPoint)
+                    anchorPoint = Self.handle(sourceNode, side)
+                    arrowFrom = anchorPoint
+                    arrowAt = drag.currentPoint
+                } else if !draggingTarget, let targetNode = index[state.target] {
+                    let side = state.targetSide?.rawValue ?? Self.nearestSide(targetNode, drag.currentPoint)
+                    anchorPoint = Self.handle(targetNode, side)
+                    arrowFrom = drag.currentPoint
+                    arrowAt = anchorPoint
+                } else {
+                    anchorPoint = drag.startPoint
+                    arrowFrom = anchorPoint
+                    arrowAt = drag.currentPoint
+                }
+            } else {
+                anchorPoint = drag.startPoint
+                arrowFrom = anchorPoint
+                arrowAt = drag.currentPoint
+            }
+        }
+        let wire = NSBezierPath()
+        wire.move(to: anchorPoint)
+        wire.line(to: drag.currentPoint)
+        wire.lineWidth = 2
+        wire.setLineDash([6, 4], count: 2, phase: 0)
+        CanvasTheme.selectionCobalt.setStroke()
+        wire.stroke()
+        if hypot(arrowAt.x - arrowFrom.x, arrowAt.y - arrowFrom.y) > 4 {
+            drawArrow(at: arrowAt, from: arrowFrom, color: CanvasTheme.selectionCobalt)
         }
     }
 
@@ -3110,7 +3854,7 @@ public final class CanvasView: NSView {
         }
         if isSelected {
             for endpoint in [edge.samples.first ?? edge.end, edge.end] {
-                let handleRect = CGRect(x: endpoint.x - 3, y: endpoint.y - 3, width: 6, height: 6)
+                let handleRect = CGRect(x: endpoint.x - 4, y: endpoint.y - 4, width: 8, height: 8)
                 let handlePath = NSBezierPath(rect: handleRect)
                 CanvasTheme.elevatedSurface.setFill()
                 handlePath.fill()
@@ -3170,40 +3914,98 @@ public final class CanvasView: NSView {
         return CGSize(width: ceil(rect.width) + 2, height: ceil(rect.height) + 2)
     }
 
+    public func edgeSamples(of id: String) -> [CGPoint]? {
+        edges.first(where: { $0.id == id })?.samples
+    }
+
+    public func edgeLabelPoint(of id: String) -> CGPoint? {
+        edges.first(where: { $0.id == id })?.labelPoint
+    }
+
+    public func edgeTargetTangent(of id: String) -> CGPoint? {
+        guard let edge = edges.first(where: { $0.id == id }) else { return nil }
+        let dx = edge.end.x - edge.previous.x
+        let dy = edge.end.y - edge.previous.y
+        let len = hypot(dx, dy)
+        guard len > 0.0001 else { return nil }
+        return CGPoint(x: dx / len, y: dy / len)
+    }
+
     private static func makeEdge(_ raw: [String: Any], _ source: Node, _ target: Node, role: String) -> EdgeDrawing {
         let fromSide = raw["source_handle"] as? String ?? nearestSide(source, target.center)
         let toSide = raw["target_handle"] as? String ?? nearestSide(target, source.center)
         let a = handle(source, fromSide), b = handle(target, toSide)
+        let style = raw["path"] as? String ?? "bezier"
+        let label = raw["label"] as? String ?? ""
         let path = NSBezierPath(); path.move(to: a)
         var samples: [CGPoint] = [a]
         var previous = a
         var labelPoint = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
         if source.id == target.id {
-            let radius = hypot(source.box.width, source.box.height) / 2 + 48
-            let outer = CGRect(x: source.center.x - radius, y: source.center.y - radius, width: radius * 2, height: radius * 2)
+            let rotated = source.geometry.rotatedAxisAlignedBounds
+            let visualBox = source.box.union(
+                CGRect(x: rotated.x, y: rotated.y, width: rotated.width, height: rotated.height)
+            )
+            let outer = visualBox.insetBy(dx: -48, dy: -48)
             func exit(_ p: CGPoint) -> (CGPoint, Int) {
                 let dx = p.x - source.center.x, dy = p.y - source.center.y
-                let tx = dx == 0 ? CGFloat.infinity : radius / abs(dx)
-                let ty = dy == 0 ? CGFloat.infinity : radius / abs(dy)
+                let tx = dx > 0 ? (outer.maxX - source.center.x) / dx : dx < 0 ? (outer.minX - source.center.x) / dx : CGFloat.infinity
+                let ty = dy > 0 ? (outer.maxY - source.center.y) / dy : dy < 0 ? (outer.minY - source.center.y) / dy : CGFloat.infinity
                 let scale = min(tx, ty)
-                return (CGPoint(x: source.center.x + dx * scale, y: source.center.y + dy * scale), tx < ty ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0))
+                return (
+                    CGPoint(x: source.center.x + dx * scale, y: source.center.y + dy * scale),
+                    tx < ty ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0)
+                )
             }
             let (start, s) = exit(a), (finish, t) = exit(b)
-            let corners = [CGPoint(x: outer.minX, y: outer.minY), CGPoint(x: outer.maxX, y: outer.minY), CGPoint(x: outer.maxX, y: outer.maxY), CGPoint(x: outer.minX, y: outer.maxY)]
+            let corners = [
+                CGPoint(x: outer.minX, y: outer.minY),
+                CGPoint(x: outer.maxX, y: outer.minY),
+                CGPoint(x: outer.maxX, y: outer.maxY),
+                CGPoint(x: outer.minX, y: outer.maxY)
+            ]
             func route(_ direction: Int) -> [CGPoint] {
-                var points = [a, start], side = s
-                while side != t { points.append(corners[(side + (direction == 1 ? 1 : 0)) % 4]); side = (side + direction + 4) % 4 }
-                points.append(finish); points.append(b); return points
+                var rawPoints = [a, start]
+                var side = s
+                while side != t {
+                    rawPoints.append(corners[(side + (direction == 1 ? 1 : 0)) % 4])
+                    side = (side + direction + 4) % 4
+                }
+                rawPoints.append(finish)
+                rawPoints.append(b)
+                var filtered: [CGPoint] = []
+                for pt in rawPoints {
+                    if let last = filtered.last, hypot(pt.x - last.x, pt.y - last.y) <= 0.001 {
+                        continue
+                    }
+                    filtered.append(pt)
+                }
+                return filtered
             }
-            func length(_ points: [CGPoint]) -> CGFloat { zip(points, points.dropFirst()).reduce(0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) } }
+            func length(_ points: [CGPoint]) -> CGFloat {
+                zip(points, points.dropFirst()).reduce(0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
+            }
             let clockwise = route(1), counter = route(-1)
             let points = length(clockwise) <= length(counter) ? clockwise : counter
-            for p in points.dropFirst() { path.line(to: p) }
-            samples = points
-            previous = points[points.count - 2]
-            labelPoint = points[points.count / 2]
+            let cornerRadius: CGFloat = (style == "step" || style == "straight") ? 0 : 16
+            samples = appendRoundedPolyline(points, cornerRadius: cornerRadius, to: path)
+            previous = points.count >= 2 ? points[points.count - 2] : a
+            labelPoint = midpointAlongPolyline(points)
+            if !label.isEmpty {
+                let size = labelSize(label, role: role)
+                let pillWidth = size.width + 10
+                let pillHeight = size.height + 4
+                if abs(labelPoint.x - source.center.x) > abs(labelPoint.y - source.center.y) {
+                    labelPoint.x = labelPoint.x > source.center.x
+                        ? max(labelPoint.x, visualBox.maxX + pillWidth / 2 + 12)
+                        : min(labelPoint.x, visualBox.minX - pillWidth / 2 - 12)
+                } else {
+                    labelPoint.y = labelPoint.y > source.center.y
+                        ? max(labelPoint.y, visualBox.maxY + pillHeight / 2 + 12)
+                        : min(labelPoint.y, visualBox.minY - pillHeight / 2 - 12)
+                }
+            }
         } else {
-            let style = raw["path"] as? String ?? "bezier"
             let v1 = direction(source, fromSide), v2 = direction(target, toSide)
             let distance = max(40, hypot(b.x - a.x, b.y - a.y) / 2)
             let c1 = CGPoint(x: a.x + v1.x * distance, y: a.y + v1.y * distance)
@@ -3212,25 +4014,27 @@ public final class CanvasView: NSView {
                 path.line(to: b)
                 samples = [a, b]
             } else if style == "step" || style == "smooth" {
-                let horizontal = abs(v1.x) >= abs(v1.y)
-                let p1 = horizontal ? CGPoint(x: (a.x + b.x) / 2, y: a.y) : CGPoint(x: a.x, y: (a.y + b.y) / 2)
-                let p2 = horizontal ? CGPoint(x: (a.x + b.x) / 2, y: b.y) : CGPoint(x: b.x, y: (a.y + b.y) / 2)
-                if style == "smooth" {
-                    path.curve(to: p2, controlPoint1: p1, controlPoint2: p1)
-                    samples = sampleCubic(from: a, c1: p1, c2: p1, to: p2, steps: 16) + [b]
-                } else {
-                    path.line(to: p1); path.line(to: p2)
-                    samples = [a, p1, p2, b]
-                }
-                path.line(to: b); previous = p2
-                labelPoint = CGPoint(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
+                let n1 = cardinalDirection(source, fromSide)
+                let n2 = cardinalDirection(target, toSide)
+                let sRot = source.geometry.rotatedAxisAlignedBounds
+                let tRot = target.geometry.rotatedAxisAlignedBounds
+                let sBox = source.box.union(CGRect(x: sRot.x, y: sRot.y, width: sRot.width, height: sRot.height))
+                let tBox = target.box.union(CGRect(x: tRot.x, y: tRot.y, width: tRot.width, height: tRot.height))
+                let points = orthogonalStepPoints(
+                    from: a, startDir: n1, sourceBox: sBox,
+                    to: b, endDir: n2, targetBox: tBox,
+                    margin: 20
+                )
+                let cornerRadius: CGFloat = style == "smooth" ? 8 : 0
+                samples = appendRoundedPolyline(points, cornerRadius: cornerRadius, to: path)
+                previous = points.count >= 2 ? points[points.count - 2] : a
+                labelPoint = midpointAlongPolyline(points)
             } else {
                 path.curve(to: b, controlPoint1: c1, controlPoint2: c2); previous = c2
                 samples = sampleCubic(from: a, c1: c1, c2: c2, to: b, steps: 24)
                 labelPoint = CGPoint(x: (a.x + 3 * c1.x + 3 * c2.x + b.x) / 8, y: (a.y + 3 * c1.y + 3 * c2.y + b.y) / 8)
             }
         }
-        let label = raw["label"] as? String ?? ""
         let labelRect: CGRect?
         if label.isEmpty {
             labelRect = nil
@@ -3250,6 +4054,186 @@ public final class CanvasView: NSView {
             marker: raw["marker"] as? String ?? "arrow",
             animated: raw["animated"] as? Bool ?? false
         )
+    }
+
+    private static func orthogonalStepPoints(
+        from a: CGPoint,
+        startDir n: CGPoint,
+        sourceBox: CGRect,
+        to b: CGPoint,
+        endDir o: CGPoint,
+        targetBox: CGRect,
+        margin: CGFloat
+    ) -> [CGPoint] {
+        let leadA = CGPoint(x: a.x + n.x * margin, y: a.y + n.y * margin)
+        let leadB = CGPoint(x: b.x + o.x * margin, y: b.y + o.y * margin)
+        var raw: [CGPoint] = [a, leadA]
+        let startHorizontal = abs(n.x) > 0
+        let endHorizontal = abs(o.x) > 0
+        if startHorizontal && endHorizontal {
+            if (leadB.x - leadA.x) * n.x >= 0 && n.x == -o.x {
+                let midX = (leadA.x + leadB.x) / 2
+                raw.append(CGPoint(x: midX, y: leadA.y))
+                raw.append(CGPoint(x: midX, y: leadB.y))
+            } else {
+                let midY = (leadA.y + leadB.y) / 2
+                let spanMinX = min(leadA.x, leadB.x), spanMaxX = max(leadA.x, leadB.x)
+                func clearsHorizontally(_ y: CGFloat, _ box: CGRect) -> Bool {
+                    spanMaxX <= box.minX || spanMinX >= box.maxX || y <= box.minY - margin || y >= box.maxY + margin
+                }
+                let detourY: CGFloat
+                if abs(midY - leadA.y) >= margin && abs(midY - leadB.y) >= margin &&
+                   clearsHorizontally(midY, sourceBox) && clearsHorizontally(midY, targetBox) {
+                    detourY = midY
+                } else {
+                    detourY = min(sourceBox.minY, targetBox.minY) - margin
+                }
+                raw.append(CGPoint(x: leadA.x, y: detourY))
+                raw.append(CGPoint(x: leadB.x, y: detourY))
+            }
+        } else if !startHorizontal && !endHorizontal {
+            if (leadB.y - leadA.y) * n.y >= 0 && n.y == -o.y {
+                let midY = (leadA.y + leadB.y) / 2
+                raw.append(CGPoint(x: leadA.x, y: midY))
+                raw.append(CGPoint(x: leadB.x, y: midY))
+            } else {
+                let midX = (leadA.x + leadB.x) / 2
+                let spanMinY = min(leadA.y, leadB.y), spanMaxY = max(leadA.y, leadB.y)
+                func clearsVertically(_ x: CGFloat, _ box: CGRect) -> Bool {
+                    spanMaxY <= box.minY || spanMinY >= box.maxY || x <= box.minX - margin || x >= box.maxX + margin
+                }
+                let detourX: CGFloat
+                if abs(midX - leadA.x) >= margin && abs(midX - leadB.x) >= margin &&
+                   clearsVertically(midX, sourceBox) && clearsVertically(midX, targetBox) {
+                    detourX = midX
+                } else {
+                    detourX = max(sourceBox.maxX, targetBox.maxX) + margin
+                }
+                raw.append(CGPoint(x: detourX, y: leadA.y))
+                raw.append(CGPoint(x: detourX, y: leadB.y))
+            }
+        } else if startHorizontal {
+            if (leadB.x - leadA.x) * n.x >= 0 && (leadA.y - leadB.y) * o.y >= 0 {
+                raw.append(CGPoint(x: leadB.x, y: leadA.y))
+            } else if abs(leadA.y - leadB.y) >= margin {
+                raw.append(CGPoint(x: leadA.x, y: leadB.y))
+            } else {
+                let detourY = o.y < 0
+                    ? min(sourceBox.minY, targetBox.minY) - margin
+                    : max(sourceBox.maxY, targetBox.maxY) + margin
+                raw.append(CGPoint(x: leadA.x, y: detourY))
+                raw.append(CGPoint(x: leadB.x, y: detourY))
+            }
+        } else {
+            if (leadB.y - leadA.y) * n.y >= 0 && (leadA.x - leadB.x) * o.x >= 0 {
+                raw.append(CGPoint(x: leadA.x, y: leadB.y))
+            } else if abs(leadA.x - leadB.x) >= margin {
+                raw.append(CGPoint(x: leadB.x, y: leadA.y))
+            } else {
+                let detourX = o.x < 0
+                    ? min(sourceBox.minX, targetBox.minX) - margin
+                    : max(sourceBox.maxX, targetBox.maxX) + margin
+                raw.append(CGPoint(x: detourX, y: leadA.y))
+                raw.append(CGPoint(x: detourX, y: leadB.y))
+            }
+        }
+        raw.append(leadB)
+        raw.append(b)
+        return simplifyOrthogonalPolyline(raw)
+    }
+
+    private static func simplifyOrthogonalPolyline(_ points: [CGPoint]) -> [CGPoint] {
+        var result: [CGPoint] = []
+        for pt in points {
+            if let last = result.last,
+               abs(last.x - pt.x) < 0.01 && abs(last.y - pt.y) < 0.01 {
+                continue
+            }
+            if result.count >= 2 {
+                let prev = result[result.count - 2]
+                let mid = result[result.count - 1]
+                let sameX = abs(prev.x - mid.x) < 0.01 && abs(mid.x - pt.x) < 0.01
+                let sameY = abs(prev.y - mid.y) < 0.01 && abs(mid.y - pt.y) < 0.01
+                let dx1 = mid.x - prev.x, dy1 = mid.y - prev.y
+                let dx2 = pt.x - mid.x, dy2 = pt.y - mid.y
+                let sameDirection = (dx1 * dx2 + dy1 * dy2) >= 0
+                if (sameX || sameY) && sameDirection {
+                    result.removeLast()
+                }
+            }
+            result.append(pt)
+        }
+        return result
+    }
+
+    private static func appendRoundedPolyline(
+        _ points: [CGPoint],
+        cornerRadius: CGFloat,
+        to path: NSBezierPath
+    ) -> [CGPoint] {
+        guard let first = points.first else { return [] }
+        guard points.count > 1 else { return [first] }
+        var samples: [CGPoint] = [first]
+        for i in 1..<points.count {
+            let current = points[i]
+            if i == points.count - 1 || cornerRadius <= 0 {
+                path.line(to: current)
+                samples.append(current)
+                continue
+            }
+            let prev = points[i - 1]
+            let next = points[i + 1]
+            let dPrev = hypot(current.x - prev.x, current.y - prev.y)
+            let dNext = hypot(next.x - current.x, next.y - current.y)
+            let radius = min(cornerRadius, dPrev / 2, dNext / 2)
+            guard radius > 0.01 else {
+                path.line(to: current)
+                samples.append(current)
+                continue
+            }
+            let entry = pointToward(from: current, to: prev, distance: radius)
+            let exit = pointToward(from: current, to: next, distance: radius)
+            path.line(to: entry)
+            let c1 = CGPoint(
+                x: entry.x + (2.0 / 3.0) * (current.x - entry.x),
+                y: entry.y + (2.0 / 3.0) * (current.y - entry.y)
+            )
+            let c2 = CGPoint(
+                x: exit.x + (2.0 / 3.0) * (current.x - exit.x),
+                y: exit.y + (2.0 / 3.0) * (current.y - exit.y)
+            )
+            path.curve(to: exit, controlPoint1: c1, controlPoint2: c2)
+            let arcSamples = sampleCubic(from: entry, c1: c1, c2: c2, to: exit, steps: 8)
+            samples.append(contentsOf: arcSamples)
+        }
+        return samples
+    }
+
+    private static func pointToward(from a: CGPoint, to b: CGPoint, distance: CGFloat) -> CGPoint {
+        let len = hypot(b.x - a.x, b.y - a.y)
+        guard len > 0.0001 else { return a }
+        return CGPoint(
+            x: a.x + (b.x - a.x) / len * distance,
+            y: a.y + (b.y - a.y) / len * distance
+        )
+    }
+
+    private static func midpointAlongPolyline(_ points: [CGPoint]) -> CGPoint {
+        guard let first = points.first else { return .zero }
+        guard points.count > 1 else { return first }
+        var total: CGFloat = 0
+        for i in 1..<points.count {
+            total += hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y)
+        }
+        var remaining = total / 2
+        for i in 1..<points.count {
+            let seg = hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y)
+            if seg >= remaining {
+                return pointToward(from: points[i - 1], to: points[i], distance: remaining)
+            }
+            remaining -= seg
+        }
+        return points.last ?? first
     }
 
     private static func edgeLabelY(_ centerY: CGFloat, height: CGFloat) -> CGFloat {
@@ -3290,6 +4274,30 @@ public final class CanvasView: NSView {
     private static func direction(_ node: Node, _ side: String) -> CGPoint {
         let p = handle(node, side), dx = p.x - node.center.x, dy = p.y - node.center.y
         let length = max(0.001, hypot(dx, dy)); return CGPoint(x: dx / length, y: dy / length)
+    }
+    private static func cardinalDirection(_ node: Node, _ side: String) -> CGPoint {
+        let localNormal: CGPoint
+        if node.kind == "triangle" && (side == "left" || side == "right") {
+            let halfW = max(1, node.box.width / 2)
+            let h = max(1, node.box.height)
+            let len = hypot(halfW, h)
+            localNormal = CGPoint(x: (side == "right" ? h : -h) / len, y: -halfW / len)
+        } else {
+            switch side {
+            case "top": localNormal = CGPoint(x: 0, y: -1)
+            case "bottom": localNormal = CGPoint(x: 0, y: 1)
+            case "left": localNormal = CGPoint(x: -1, y: 0)
+            default: localNormal = CGPoint(x: 1, y: 0)
+            }
+        }
+        let angle = node.rotation * .pi / 180
+        let nx = localNormal.x * cos(angle) - localNormal.y * sin(angle)
+        let ny = localNormal.x * sin(angle) + localNormal.y * cos(angle)
+        if abs(nx) >= abs(ny) {
+            return CGPoint(x: nx >= 0 ? 1 : -1, y: 0)
+        } else {
+            return CGPoint(x: 0, y: ny >= 0 ? 1 : -1)
+        }
     }
 }
 

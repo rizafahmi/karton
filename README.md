@@ -5,17 +5,21 @@ and Hakushi. The JSON file is the document, not an export from a database.
 
 ## Native macOS
 
-A native, **session-only canvas app** is available for macOS 27 through the
-[command-line build](macos/README.md). Without Phoenix, it can start blank v2
-canvases, open supported v1/v2 files, insert shapes/text and standalone lines/arrows,
-connect objects, select and Tab-traverse objects/connections, move, resize/rotate
-and edit line endpoints, duplicate, delete, reorder front/back, lock/unlock, edit
-object and connection styles, edit captions and Undo/Redo in memory.
-It never saves; code creation, attachment previews, syntax highlighting, recovery
-and PNG export are not implemented.
-The independent native editor remains an unfinished milestone; see
-[TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) and
-[macos/SPEC.md](macos/SPEC.md) for scope and acceptance proof.
+An independent native macOS editor (`Canvas.app`) is available for macOS 27 through
+the [command-line build](macos/README.md). Without Phoenix, it supports `NSDocument`-backed
+blank v2 canvases, v1/v2 Open, explicit Save (`⌘S`), Save As (`⇧⌘S`), v1→v2 copy
+export (`File → Save Version 2 Copy…`), confirmed Reload from Disk, coalesced 5s/30s
+autosave with byte-fingerprint conflict detection, `NSDocument` draft autosaving plus
+private recovery envelopes, launch recovery restoration, shape/text and standalone
+line/arrow insertion, adjacent thoughts (`N`), connections (`bezier`, `smooth`,
+`step`, `straight`, and exterior self-loops with labels and reconnection), selection
+and Tab traversal, Space tap/drag pan, marquee and `⌘A` multi-selection, movement,
+resize/rotation and line endpoint editing, Cut/Copy/Paste (`⌘X`/`⌘C`/`⌘V`),
+Duplicate (`⌘D`), Delete, front/back stacking, Lock/Unlock (`⌘L`), object/connection/canvas
+Style inspection (`S`), caption editing with measured box growth, read-only attachment
+preview/copy, canvas zoom/fit, transparent Keynote PNG export (`⇧⌘E`), and Undo/Redo.
+See [TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) and
+[macos/SPEC.md](macos/SPEC.md) for architecture and acceptance proof.
 The [shared code-snippet contract](shared/CODE_SNIPPETS.md) defines the supported
 web version-2 format with an explicit code-node type. New documents use v2;
 existing v1 documents retain their version. Native code nodes are currently
@@ -30,7 +34,7 @@ continue to run from here.
 | Path | Responsibility |
 | --- | --- |
 | `mix.exs`, `lib/`, `config/`, `assets/`, `priv/`, `test/` | Existing Phoenix/LiveView web app and its tests |
-| [`macos/`](macos/) | Swift Package and command-line build for the session-only native canvas app |
+| [`macos/`](macos/) | Swift Package and command-line `.app` bundle for the independent native macOS canvas editor |
 | [`shared/fixtures/`](shared/fixtures/) | Runtime-independent v1/v2 JSON contract fixtures consumed by web and native checks |
 | [`examples/`](examples/) | Editable user-facing boards, not disposable test fixtures |
 | `README.md`, `TASKS.md`, `DESIGN.md`, `CONTRIBUTING.md`, `SECURITY.md` | Shared contract, plans, and project guidance; web visual rules remain web-only |

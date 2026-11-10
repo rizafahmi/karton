@@ -21,11 +21,14 @@ with private app-owned recovery envelopes for uncovered state and active inline
 text drafts, launch recovery restoration, multi-window close/quit guards,
 shape/text and standalone line/arrow insertion, adjacent thoughts (`N` → cardinal
 direction → inline draft with rotated ray-blocker avoidance and live measured growth),
-connections (with labels and reconnection), object/connection selection,
-selection-preserving Tab traversal, Space tap selection toggle and Space-drag
-viewport panning, marquee and Shift-click/⌘A multi-selection, movement, box
-resize/rotation and line endpoint editing, duplication, deletion, front/back
-stacking, lock/unlock, object/connection/canvas style inspection and editing,
+connections (with pointer drag-and-drop creation/reconnection, `bezier`, rounded
+`smooth`, orthogonal `step`, `straight`, and rounded exterior self-loop routes,
+labels, and sheet editing), object/connection selection, selection-preserving Tab
+traversal, Space tap selection toggle and
+Space-drag viewport panning, marquee and Shift-click/⌘A multi-selection, movement,
+box resize/rotation and line endpoint editing, Cut/Copy/Paste (`⌘X`/`⌘C`/`⌘V`),
+duplication (`⌘D`), deletion, front/back stacking, lock/unlock, object/connection/canvas
+style inspection and editing,
 captions with box growth (measured with bundled Neo-Acid and Amatic SC faces
 plus CoreText system cascade fallback), read-only attachment preview/copy,
 canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent Keynote PNG export
@@ -56,8 +59,9 @@ coalesced autosave, external-conflict pause, and draft/crash recovery through
 `CanvasNativeDocument` (`NSDocument`) and `CanvasRecoveryStore`.
 New is blank v2; saving existing v1 in-place leaves its version unchanged, while
 `Save Version 2 Copy…` writes a separate v2 file. The app refuses unsupported
-semantics. Routes are approximate and code is currently rendered as plain text.
-attachment import is not. TASKS.md owns remaining gates.
+semantics. Connector routes render `bezier`, rounded `smooth`, orthogonal `step`,
+`straight`, and rounded exterior self-loops; code is currently rendered as plain text,
+and new attachment import is outside initial scope. TASKS.md owns remaining gates.
 The local bundler must ad-hoc sign and verify the assembled `.app`; the standalone
 linker signature is not a valid substitute for the final bundle's seal.
 [`macos/SPEC.md`](macos/SPEC.md) distinguishes approved choices from proposals;
@@ -79,8 +83,9 @@ silently upgrade/downgrade, or infer native implementation from web support.
   validate restored content/quotas; parsing happens on open, not geometry edits.
   [CanvasSession](macos/Sources/CanvasCore/CanvasSession.swift) owns mutable in-memory
   graph state, validated `encodedData()` snapshots, retained object/connection
-  insertion/deletion/duplication identity and stacking, 1 MiB attachment/code duplicate
-  quota checks, and lock/unlock; connection transactions validate endpoints and self-loop sides.
+  insertion/deletion/duplication/clipboard (`Cut`/`Copy`/`Paste`) identity and stacking,
+  1 MiB attachment/code duplicate and paste quota checks, and lock/unlock; connection
+  transactions validate endpoints and self-loop sides.
   [CanvasPersistence](macos/Sources/CanvasCore/CanvasPersistence.swift) (`CanvasFileFingerprint`,
   `CanvasPersistenceState`, `CanvasRecoverableTextDraft`, `CanvasRecoveryEnvelope`, and
   `CanvasRecoveryStore`) and [CanvasNativeDocument](macos/Sources/CanvasUI/CanvasNativeDocument.swift)
@@ -105,8 +110,9 @@ silently upgrade/downgrade, or infer native implementation from web support.
   owns AppKit object/connection hit-testing, Tab traversal, Space tap/hold-pan,
   marquee and multi-selection, viewport-centered and adjacent-thought (`N`)
   insertion, inline on-canvas shape/text caption editing with live/committed box
-  growth, zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), duplication, deletion, front/back
-  stacking, lock/unlock, rendering, PNG export snapshot capture, and explicit
+  growth, zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), Cut/Copy/Paste (`⌘X`/`⌘C`/`⌘V`),
+  duplication (`⌘D`), deletion, front/back stacking, lock/unlock, rendering, PNG
+  export snapshot capture, and explicit
   per-canvas history groups, not AppKit event-based grouping. Geometry/edges
   [CanvasGeometry](macos/Sources/CanvasCore/CanvasGeometry.swift) owns validated
   authored boxes, rotated-anchor math, adjacent-thought ray placement/blocker

@@ -175,6 +175,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         )
         window.isReleasedWhenClosed = false
         window.delegate = self
+        window.acceptsMouseMovedEvents = true
         window.backgroundColor = CanvasTheme.canvasBackground
         window.contentView = scroll
         window.center()
@@ -290,6 +291,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         )
         window.isReleasedWhenClosed = false
         window.delegate = self
+        window.acceptsMouseMovedEvents = true
         window.title = "\(name) — Session changes not saved"
         window.backgroundColor = CanvasTheme.canvasBackground
         window.contentView = scroll
@@ -357,6 +359,46 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         activeCanvas()?.beginConnection(focusLabel: true)
     }
 
+
+    @objc public func cutSelection(_ sender: Any?) {
+        if let editor = activeKeyWindow()?.firstResponder as? NSTextView {
+            if editor.isEditable {
+                editor.cut(sender)
+            } else {
+                NSSound.beep()
+            }
+        } else {
+            activeCanvas()?.cutSelection(sender)
+        }
+    }
+
+    @objc public func copySelection(_ sender: Any?) {
+        if let editor = activeKeyWindow()?.firstResponder as? NSTextView {
+            editor.copy(sender)
+        } else {
+            activeCanvas()?.copySelection(sender)
+        }
+    }
+
+    @objc public func pasteSelection(_ sender: Any?) {
+        if let editor = activeKeyWindow()?.firstResponder as? NSTextView {
+            if editor.isEditable {
+                editor.paste(sender)
+            } else {
+                NSSound.beep()
+            }
+        } else {
+            activeCanvas()?.pasteSelection(sender)
+        }
+    }
+
+    @objc public func selectAllItems(_ sender: Any?) {
+        if let editor = activeKeyWindow()?.firstResponder as? NSTextView {
+            editor.selectAll(sender)
+        } else {
+            activeCanvas()?.selectAll(sender)
+        }
+    }
     @objc public func duplicateSelection(_ sender: Any?) {
         activeCanvas()?.duplicateSelection(sender)
     }
@@ -527,6 +569,34 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             return menuItem.action == #selector(undoMove(_:))
                 ? (canvas.undoManager?.canUndo == true)
                 : (canvas.undoManager?.canRedo == true)
+        }
+        if menuItem.action == #selector(cutSelection(_:)) {
+            if let editor = keyWin?.firstResponder as? NSTextView {
+                return editor.isEditable && editor.selectedRange().length > 0
+            }
+            guard !sheetOpen, let canvas = activeCanvas() else { return false }
+            return canvas.canCutSelection
+        }
+        if menuItem.action == #selector(copySelection(_:)) {
+            if let editor = keyWin?.firstResponder as? NSTextView {
+                return editor.selectedRange().length > 0
+            }
+            guard !sheetOpen, let canvas = activeCanvas() else { return false }
+            return canvas.canCopySelection
+        }
+        if menuItem.action == #selector(pasteSelection(_:)) {
+            if let editor = keyWin?.firstResponder as? NSTextView {
+                return editor.isEditable
+            }
+            guard !sheetOpen, let canvas = activeCanvas() else { return false }
+            return canvas.canPaste
+        }
+        if menuItem.action == #selector(selectAllItems(_:)) {
+            if let editor = keyWin?.firstResponder as? NSTextView {
+                return editor.isSelectable
+            }
+            guard !sheetOpen, let canvas = activeCanvas() else { return false }
+            return canvas.canSelectAll
         }
         guard let canvas = activeCanvas() else {
             switch menuItem.action {
@@ -763,16 +833,24 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         editMenu.addItem(undo)
         editMenu.addItem(redo)
         editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let cut = NSMenuItem(title: "Cut", action: #selector(cutSelection(_:)), keyEquivalent: "x")
+        cut.target = self
+        editMenu.addItem(cut)
+        let copy = NSMenuItem(title: "Copy", action: #selector(copySelection(_:)), keyEquivalent: "c")
+        copy.target = self
+        editMenu.addItem(copy)
+        let paste = NSMenuItem(title: "Paste", action: #selector(pasteSelection(_:)), keyEquivalent: "v")
+        paste.target = self
+        editMenu.addItem(paste)
         let duplicate = NSMenuItem(title: "Duplicate", action: #selector(duplicateSelection(_:)), keyEquivalent: "d")
         duplicate.target = self
         editMenu.addItem(duplicate)
         let delete = NSMenuItem(title: "Delete", action: #selector(deleteSelection(_:)), keyEquivalent: "")
         delete.target = self
         editMenu.addItem(delete)
-        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let selectAll = NSMenuItem(title: "Select All", action: #selector(selectAllItems(_:)), keyEquivalent: "a")
+        selectAll.target = self
+        editMenu.addItem(selectAll)
         editMenu.addItem(.separator())
         let front = NSMenuItem(title: "Bring to Front", action: #selector(bringToFront(_:)), keyEquivalent: "]")
         front.target = self

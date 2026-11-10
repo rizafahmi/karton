@@ -144,6 +144,56 @@ public struct CanvasStackMove: Equatable, Sendable {
     public let toIndex: Int
 }
 
+public struct CanvasClipboardPayload: @unchecked Sendable {
+    public let nodes: [[String: Any]]
+    public let edges: [[String: Any]]
+
+    public init(nodes: [[String: Any]], edges: [[String: Any]] = []) {
+        self.nodes = nodes
+        self.edges = edges
+    }
+
+    public func encodedData() throws -> Data {
+        try CanvasJSON.encode([
+            "nodes": nodes,
+            "edges": edges
+        ])
+    }
+
+    public static func decode(from data: Data) throws -> CanvasClipboardPayload {
+        guard let root = try JSONDecoder().decode(CanvasJSON.self, from: data).value as? [String: Any],
+              let nodes = root["nodes"] as? [[String: Any]],
+              !nodes.isEmpty else {
+            throw CanvasDocumentError("Clipboard does not contain valid canvas objects.")
+        }
+        let edges = root["edges"] as? [[String: Any]] ?? []
+        return CanvasClipboardPayload(nodes: nodes, edges: edges)
+    }
+}
+
+public struct CanvasBatchInsertion: @unchecked Sendable {
+    public let nodeIDs: [String]
+    public let edgeIDs: [String]
+    fileprivate let nodes: [(index: Int, node: [String: Any])]
+    fileprivate let edges: [(index: Int, edge: [String: Any])]
+}
+
+public struct CanvasBatchDeletion: @unchecked Sendable {
+    public let ids: [String]
+    fileprivate let nodes: [(index: Int, node: [String: Any])]
+    fileprivate let edges: [(index: Int, edge: [String: Any])]
+}
+
+public struct CanvasBatchStackMove: @unchecked Sendable {
+    public let ids: [String]
+    fileprivate let beforeNodes: [[String: Any]]
+    fileprivate let afterNodes: [[String: Any]]
+
+    public var inverse: CanvasBatchStackMove {
+        CanvasBatchStackMove(ids: ids, beforeNodes: afterNodes, afterNodes: beforeNodes)
+    }
+}
+
 /// Mutable in-memory document state with monotonically increasing committed revision tracking.
 public final class CanvasSession {
     public let document: CanvasDocument
@@ -665,6 +715,362 @@ public final class CanvasSession {
         var candidate = root
         candidate["nodes"] = nodes
         candidate["edges"] = edges
+        try CanvasDocument.validate(candidate)
+        root = candidate
+    }
+
+    public func copyNodes(_ ids: [String]) throws -> CanvasClipboardPayload {
+        let idSet = Set(ids)
+        let allNodes = root["nodes"] as? [[String: Any]] ?? []
+        let selectedNodes = allNodes.filter { raw in
+            guard let id = raw["id"] as? String else { return false }
+            return idSet.contains(id)
+        }
+        guard !selectedNodes.isEmpty else {
+            throw CanvasDocumentError("Select at least one canvas object to copy.")
+        }
+        var copiedIDSet = Set<String>()
+        var copiedNodes: [[String: Any]] = []
+        for sourceNode in selectedNodes {
+            guard let id = sourceNode["id"] as? String else { continue }
+            copiedIDSet.insert(id)
+            var copy: [String: Any] = [
+                "id": id,
+                "type": sourceNode["type"] as Any,
+                "x": sourceNode["x"] as Any,
+                "y": sourceNode["y"] as Any,
+                "width": sourceNode["width"] as Any,
+                "height": sourceNode["height"] as Any,
+                "data": sourceNode["data"] as Any
+            ]
+            if let parent = sourceNode["parent"] {
+                copy["parent"] = parent
+            }
+            copiedNodes.append(copy)
+        }
+        let allEdges = root["edges"] as? [[String: Any]] ?? []
+        var copiedEdges: [[String: Any]] = []
+        for edge in allEdges {
+            guard let source = edge["source"] as? String,
+                  let target = edge["target"] as? String,
+                  copiedIDSet.contains(source),
+                  copiedIDSet.contains(target) else { continue }
+            var copiedEdge: [String: Any] = [
+                "id": edge["id"] as Any,
+                "source": source,
+                "target": target,
+                "path": edge["path"] as? String ?? "bezier",
+                "marker": edge["marker"] as? String ?? "arrow"
+            ]
+            if let sh = edge["source_handle"] { copiedEdge["source_handle"] = sh }
+            if let th = edge["target_handle"] { copiedEdge["target_handle"] = th }
+            if let label = edge["label"] { copiedEdge["label"] = label }
+            if let animated = edge["animated"] { copiedEdge["animated"] = animated }
+            if let data = edge["data"] { copiedEdge["data"] = data }
+            copiedEdges.append(copiedEdge)
+        }
+        return CanvasClipboardPayload(nodes: copiedNodes, edges: copiedEdges)
+    }
+
+    @discardableResult
+    public func paste(
+        _ payload: CanvasClipboardPayload,
+        offset: CanvasPosition? = nil
+    ) throws -> CanvasBatchInsertion {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard !payload.nodes.isEmpty else {
+            throw CanvasDocumentError("Clipboard does not contain valid canvas objects.")
+        }
+        let existingNodes = root["nodes"] as? [[String: Any]] ?? []
+        let existingEdges = root["edges"] as? [[String: Any]] ?? []
+        let resolvedOffset: CanvasPosition
+        if let offset {
+            resolvedOffset = offset
+        } else if let firstX = number(payload.nodes[0]["x"]),
+                  let firstY = number(payload.nodes[0]["y"]) {
+            var step = 1
+            while step < 64 {
+                let candidateX = firstX + Double(step) * 24.0
+                let candidateY = firstY + Double(step) * 24.0
+                let collides = existingNodes.contains { raw in
+                    guard let nx = number(raw["x"]), let ny = number(raw["y"]) else { return false }
+                    return abs(nx - candidateX) < 0.001 && abs(ny - candidateY) < 0.001
+                }
+                if !collides { break }
+                step += 1
+            }
+            resolvedOffset = CanvasPosition(x: Double(step) * 24.0, y: Double(step) * 24.0)
+        } else {
+            resolvedOffset = CanvasPosition(x: 24, y: 24)
+        }
+        let existingNodeIDSet = Set(existingNodes.compactMap { $0["id"] as? String })
+        var idMap: [String: String] = [:]
+        var newNodeIDs: [String] = []
+        var indexedNodes: [(index: Int, node: [String: Any])] = []
+        for (offsetIndex, sourceNode) in payload.nodes.enumerated() {
+            guard let oldID = sourceNode["id"] as? String,
+                  let x = number(sourceNode["x"]),
+                  let y = number(sourceNode["y"]) else {
+                throw CanvasDocumentError("Copied object has invalid coordinates.")
+            }
+            let newID = UUID().uuidString
+            idMap[oldID] = newID
+            newNodeIDs.append(newID)
+            var copy: [String: Any] = [
+                "id": newID,
+                "type": sourceNode["type"] as Any,
+                "x": x + resolvedOffset.x,
+                "y": y + resolvedOffset.y,
+                "width": sourceNode["width"] as Any,
+                "height": sourceNode["height"] as Any,
+                "data": sourceNode["data"] as Any
+            ]
+            if let oldParent = sourceNode["parent"] as? String {
+                if let mappedParent = idMap[oldParent] {
+                    copy["parent"] = mappedParent
+                } else if existingNodeIDSet.contains(oldParent) {
+                    copy["parent"] = oldParent
+                }
+            }
+            indexedNodes.append((index: existingNodes.count + offsetIndex, node: copy))
+        }
+        var newEdgeIDs: [String] = []
+        var indexedEdges: [(index: Int, edge: [String: Any])] = []
+        for (offsetIndex, sourceEdge) in payload.edges.enumerated() {
+            guard let oldSource = sourceEdge["source"] as? String,
+                  let oldTarget = sourceEdge["target"] as? String,
+                  let mappedSource = idMap[oldSource],
+                  let mappedTarget = idMap[oldTarget] else { continue }
+            let newEdgeID = UUID().uuidString
+            newEdgeIDs.append(newEdgeID)
+            var copyEdge: [String: Any] = [
+                "id": newEdgeID,
+                "source": mappedSource,
+                "target": mappedTarget,
+                "path": sourceEdge["path"] as? String ?? "bezier",
+                "marker": sourceEdge["marker"] as? String ?? "arrow"
+            ]
+            if let sh = sourceEdge["source_handle"] { copyEdge["source_handle"] = sh }
+            if let th = sourceEdge["target_handle"] { copyEdge["target_handle"] = th }
+            if let label = sourceEdge["label"] { copyEdge["label"] = label }
+            if let animated = sourceEdge["animated"] { copyEdge["animated"] = animated }
+            if let data = sourceEdge["data"] { copyEdge["data"] = data }
+            indexedEdges.append((index: existingEdges.count + offsetIndex, edge: copyEdge))
+        }
+        let insertion = CanvasBatchInsertion(
+            nodeIDs: newNodeIDs,
+            edgeIDs: newEdgeIDs,
+            nodes: indexedNodes,
+            edges: indexedEdges
+        )
+        try restoreBatchInsertion(insertion)
+        return insertion
+    }
+
+    @discardableResult
+    public func duplicateNodes(
+        _ ids: [String],
+        offset: CanvasPosition = CanvasPosition(x: 24, y: 24)
+    ) throws -> CanvasBatchInsertion {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        let unlocked = ids.filter { canDuplicateNode($0) }
+        guard !unlocked.isEmpty else {
+            throw CanvasDocumentError("Select at least one unlocked object to duplicate.")
+        }
+        let payload = try copyNodes(unlocked)
+        return try paste(payload, offset: offset)
+    }
+
+    public func restoreBatchInsertion(_ insertion: CanvasBatchInsertion) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard var nodes = root["nodes"] as? [[String: Any]] else {
+            throw CanvasDocumentError("Invalid canvas nodes array.")
+        }
+        for item in insertion.nodes {
+            guard item.index <= nodes.count,
+                  let id = item.node["id"] as? String,
+                  !nodes.contains(where: { $0["id"] as? String == id }) else {
+                throw CanvasDocumentError("Cannot restore pasted object at its original position.")
+            }
+            nodes.insert(item.node, at: item.index)
+        }
+        var edges = root["edges"] as? [[String: Any]] ?? []
+        for item in insertion.edges {
+            guard item.index <= edges.count,
+                  let id = item.edge["id"] as? String,
+                  !edges.contains(where: { $0["id"] as? String == id }) else {
+                throw CanvasDocumentError("Cannot restore pasted connection at its original position.")
+            }
+            edges.insert(item.edge, at: item.index)
+        }
+        var candidate = root
+        candidate["nodes"] = nodes
+        if !edges.isEmpty || root["edges"] != nil {
+            candidate["edges"] = edges
+        }
+        try CanvasDocument.validate(candidate)
+        root = candidate
+    }
+
+    public func removeBatchInsertion(_ insertion: CanvasBatchInsertion) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard var nodes = root["nodes"] as? [[String: Any]] else {
+            throw CanvasDocumentError("Invalid canvas nodes array.")
+        }
+        let removeNodeIDs = Set(insertion.nodeIDs)
+        let removeEdgeIDs = Set(insertion.edgeIDs)
+        nodes.removeAll { raw in
+            guard let id = raw["id"] as? String else { return false }
+            return removeNodeIDs.contains(id)
+        }
+        var edges = root["edges"] as? [[String: Any]] ?? []
+        edges.removeAll { raw in
+            let id = raw["id"] as? String ?? ""
+            let src = raw["source"] as? String ?? ""
+            let dst = raw["target"] as? String ?? ""
+            return removeEdgeIDs.contains(id) || removeNodeIDs.contains(src) || removeNodeIDs.contains(dst)
+        }
+        var candidate = root
+        candidate["nodes"] = nodes
+        if root["edges"] != nil || !edges.isEmpty {
+            candidate["edges"] = edges
+        }
+        root = candidate
+    }
+
+    @discardableResult
+    public func deleteNodes(_ ids: [String]) throws -> CanvasBatchDeletion {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard let currentNodes = root["nodes"] as? [[String: Any]] else {
+            throw CanvasDocumentError("Invalid canvas nodes array.")
+        }
+        let requestedSet = Set(ids)
+        var removedIDSet = Set<String>()
+        var removedNodes: [(index: Int, node: [String: Any])] = []
+        var remainingNodes: [[String: Any]] = []
+        for (index, node) in currentNodes.enumerated() {
+            if let id = node["id"] as? String, requestedSet.contains(id), !isLocked(id) {
+                removedIDSet.insert(id)
+                removedNodes.append((index: index, node: node))
+            } else {
+                remainingNodes.append(node)
+            }
+        }
+        guard !removedNodes.isEmpty else {
+            throw CanvasDocumentError("Select at least one unlocked object to delete.")
+        }
+        let currentEdges = root["edges"] as? [[String: Any]] ?? []
+        var removedEdges: [(index: Int, edge: [String: Any])] = []
+        var remainingEdges: [[String: Any]] = []
+        for (edgeIndex, edge) in currentEdges.enumerated() {
+            let source = edge["source"] as? String ?? ""
+            let target = edge["target"] as? String ?? ""
+            if removedIDSet.contains(source) || removedIDSet.contains(target) {
+                removedEdges.append((index: edgeIndex, edge: edge))
+            } else {
+                remainingEdges.append(edge)
+            }
+        }
+        var candidate = root
+        candidate["nodes"] = remainingNodes
+        if root["edges"] != nil || !remainingEdges.isEmpty {
+            candidate["edges"] = remainingEdges
+        }
+        root = candidate
+        return CanvasBatchDeletion(
+            ids: removedNodes.compactMap { $0.node["id"] as? String },
+            nodes: removedNodes,
+            edges: removedEdges
+        )
+    }
+
+    public func restoreBatchDeletion(_ deletion: CanvasBatchDeletion) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard var nodes = root["nodes"] as? [[String: Any]] else {
+            throw CanvasDocumentError("Invalid canvas nodes array.")
+        }
+        for item in deletion.nodes {
+            guard item.index <= nodes.count,
+                  let id = item.node["id"] as? String,
+                  !nodes.contains(where: { $0["id"] as? String == id }) else {
+                throw CanvasDocumentError("Cannot restore the deleted object at its original position.")
+            }
+            nodes.insert(item.node, at: item.index)
+        }
+        var edges = root["edges"] as? [[String: Any]] ?? []
+        for item in deletion.edges {
+            guard item.index <= edges.count,
+                  let edgeID = item.edge["id"] as? String,
+                  !edges.contains(where: { $0["id"] as? String == edgeID }) else {
+                throw CanvasDocumentError("Cannot restore a deleted connection at its original position.")
+            }
+            edges.insert(item.edge, at: item.index)
+        }
+        var candidate = root
+        candidate["nodes"] = nodes
+        if root["edges"] != nil || !edges.isEmpty {
+            candidate["edges"] = edges
+        }
+        try CanvasDocument.validate(candidate)
+        root = candidate
+    }
+
+    @discardableResult
+    public func bringToFront(_ ids: [String]) throws -> CanvasBatchStackMove? {
+        try reorderNodes(ids, toFront: true)
+    }
+
+    @discardableResult
+    public func sendToBack(_ ids: [String]) throws -> CanvasBatchStackMove? {
+        try reorderNodes(ids, toFront: false)
+    }
+
+    private func reorderNodes(_ ids: [String], toFront: Bool) throws -> CanvasBatchStackMove? {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard let currentNodes = root["nodes"] as? [[String: Any]] else { return nil }
+        let idSet = Set(ids)
+        var chosen: [[String: Any]] = []
+        var chosenIDs: [String] = []
+        var other: [[String: Any]] = []
+        for node in currentNodes {
+            if let id = node["id"] as? String, idSet.contains(id), !isLocked(id) {
+                chosen.append(node)
+                chosenIDs.append(id)
+            } else {
+                other.append(node)
+            }
+        }
+        guard !chosen.isEmpty else { return nil }
+        let reordered = toFront ? (other + chosen) : (chosen + other)
+        let beforeOrder = currentNodes.compactMap { $0["id"] as? String }
+        let afterOrder = reordered.compactMap { $0["id"] as? String }
+        guard beforeOrder != afterOrder else { return nil }
+        var candidate = root
+        candidate["nodes"] = reordered
+        root = candidate
+        return CanvasBatchStackMove(ids: chosenIDs, beforeNodes: currentNodes, afterNodes: reordered)
+    }
+
+    public func applyBatchStackMove(_ move: CanvasBatchStackMove) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        var candidate = root
+        candidate["nodes"] = move.afterNodes
         try CanvasDocument.validate(candidate)
         root = candidate
     }

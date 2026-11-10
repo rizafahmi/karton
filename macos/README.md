@@ -7,11 +7,13 @@ coalesced 5s-quiet / 30s-continuous autosave with byte-fingerprint conflict
 detection, `NSDocument` draft autosaving paired with private recovery envelopes
 (including active inline text drafts), launch recovery restoration, close/quit
 guards, shape/text and standalone line/arrow insertion, adjacent thoughts (`N`),
-connections (including labels and endpoint/side reconnection), object/connection
-selection, selection-preserving Tab traversal, Space tap selection toggle and
-Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
-resize/rotation and line endpoint editing, duplication, deletion, front/back
-stacking, lock/unlock, object/connection/canvas style editing, caption editing
+connections (with `bezier`, rounded `smooth`, orthogonal `step`, `straight`, and
+rounded exterior self-loop routes, labels and endpoint/side reconnection),
+object/connection selection, selection-preserving Tab traversal, Space tap selection
+toggle and Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
+resize/rotation and line endpoint editing, Cut/Copy/Paste (**⌘X** / **⌘C** / **⌘V**),
+duplication (**⌘D**), deletion, front/back stacking, lock/unlock,
+object/connection/canvas style editing, caption editing
 with automatic box growth (using bundled Neo-Acid and Amatic SC typography with
 CoreText system glyph fallback), read-only attachment source preview/copy, canvas
 zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent PNG export (**File → Export PNG…**,
@@ -78,14 +80,20 @@ place an inline thought draft 48 world units beyond the source's rotated bounds
 focuses the new rectangle for an immediate chained **N**; **Escape** cancels
 either stage without touching history). As multiline text grows, the preview box
 grows and rechecks ray blockers.
-For the selected unlocked object:
+For the selected object(s):
 
+- **Edit → Copy** (**⌘C**), **Edit → Cut** (**⌘X**), and **Edit → Paste** (**⌘V**)
+  copy/cut selected objects and any connections between them to the canvas clipboard
+  and paste unlocked copies with fresh IDs (cascading by `(+24, +24)` on repeated
+  pastes) while enforcing v1/v2 capabilities and the 1 MiB attachment and code quotas.
+  Plain text on the system clipboard is never converted into a canvas object outside
+  an active text editor.
 - **Edit → Duplicate** (**⌘D**) adds an unlocked copy offset by `(+24, +24)` with a
   fresh ID while enforcing the 1 MiB attachment and code source quotas.
 - **Edit → Bring to Front** (**⇧⌘]**) and **Edit → Send to Back** (**⇧⌘[**) reorder
   overlapping objects without changing positions, styles, metadata or connections.
 - **Edit → Delete** (**Delete** / **Forward Delete**) removes the selected unlocked
-  object (together with any incident connections) or the selected connection in one
+  object(s) (together with any incident connections) or the selected connection in one
   undoable step.
 - **Edit → Lock / Unlock** (**⌘L**) toggles `locked` on the selected object. Locked
   objects can be selected and unlocked, and connections attached to them can be
@@ -137,16 +145,18 @@ Geometry previews and rerouted connections stay outside committed JSON until
 commit. Cancellation/no-op preserves Redo, metadata, non-padded line boxes and
 omitted rotation fields.
 
-Select a source object and press **C**, or choose **Insert → Connection…**.
-Choose source/target objects, Automatic or named attachment sides and an optional
-label, then **Create Connection** (Return). **Cancel** (Escape) makes no change and
-preserves Redo. With no selection the source defaults to the first object; an empty
-canvas disables the menu command. A single-object canvas defaults to a right-to-top
-self-loop. Self-loops require two different named sides; invalid choices stay in
-the sheet with an error. Connecting to a locked object does not modify that object.
-Select an existing connection and press **Return** / double-click (focusing its
-label field) or press **C** / choose **Edit → Edit Connection…** to edit its label
-and reconnect its source/target objects or attachment sides in one undoable step.
+To connect objects with the pointer, hover or select a shape/code object and drag
+from one of its four circular Cobalt side ports (**top**, **right**, **bottom**,
+**left**) onto another object (for an automatic side) or onto a specific side port
+(or another side port of the same object for a self-loop); or hold **Option (⌥)**
+and drag from inside an object onto a target object. To reconnect an existing
+connection with the pointer, select the connection and drag either its source or
+target endpoint handle to a new object or side port (**Escape** cancels the drag).
+For keyboard-only connection creation or label editing, select a source object and
+press **C** (or choose **Insert → Connection…**), or select an existing connection
+and press **Return** / double-click / **C** (**Edit → Edit Connection…**) to edit its
+label and endpoints in one undoable step. Self-loops require two different named
+sides; connecting to a locked object does not modify that object.
 Connections are bound arrows; moving, resizing or rotating either endpoint remeasures
 the route without rewriting its stored sides. Exterior routes and labels expand the
 scrollable canvas without shifting the current view. Undo removes or restores the

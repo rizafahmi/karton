@@ -8,10 +8,13 @@ autosaving paired with private recovery envelopes (including active inline text
 drafts), launch recovery restoration, multi-window close/quit guards, shape/text
 and standalone line/arrow insertion, adjacent thoughts (`N` → cardinal direction →
 inline draft with rotated ray-blocker avoidance and live measured growth),
-connections (including labels and reconnection), object/connection selection,
-selection-preserving Tab traversal, Space tap selection toggle and Space-drag
-panning, marquee and Shift-click/⌘A multi-selection, movement, resize/rotation and
-line endpoint editing, duplication, deletion, front/back stacking, lock/unlock,
+connections (with pointer drag-and-drop creation/reconnection, `bezier`, rounded
+`smooth`, orthogonal `step`, `straight`, and rounded exterior self-loop routes,
+labels, and sheet editing), object/connection
+selection, selection-preserving Tab traversal, Space tap selection toggle and
+Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
+resize/rotation and line endpoint editing, Cut/Copy/Paste (`⌘X`/`⌘C`/`⌘V`),
+duplication (`⌘D`), deletion, front/back stacking, lock/unlock,
 object/connection/canvas style editing, captions with measured box growth (using
 bundled Neo-Acid and Amatic SC faces with CoreText system cascade fallback),
 read-only attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`),

@@ -725,24 +725,28 @@ recovery were implemented and verified on 2026-11-10.
       Offscreen AppKit bitmap inspection covered both fixtures; direct window
       capture failed, so the actual windows were not visually captured.
       Native contract checks cover shared fixtures and selected refusal/quota cases.
-      The native app uses approximate routes and plain-text code rendering (native code
-      creation/editing and syntax highlighting remain pending). It supports `NSDocument`-backed
-      blank v2 New, v1/v2 Open (activating the existing window when reopening an already-open
-      file), explicit Save (`⌘S`), Save As (`⇧⌘S`), explicit v1→v2 copy export
-      (`File → Save Version 2 Copy…`), confirmed Reload from Disk, coalesced 5s-quiet /
-      30s-continuous autosave, external-change conflict pause, `NSDocument` draft autosaving
-      plus private recovery envelopes for active inline text drafts, launch recovery restoration,
-      multi-window close/quit guards, shape/text and standalone line/arrow insertion,
-      adjacent thoughts (`N` → cardinal direction → inline draft with rotated ray-blocker
-      avoidance and measured growth), connections (creation, labels and endpoint/side
-      reconnection), object/connection selection, selection-preserving Tab traversal,
-      Space tap selection toggle and Space-drag panning, marquee and Shift-click/⌘A
-      multi-selection, pointer/arrow movement (with pointer drags isolated as view previews
-      until `mouseUp`), resize/rotation and line endpoint editing, duplication, deletion,
-      front/back stacking, lock/unlock, object/connection/canvas style inspection/editing
-      (`S` / Edit → Style…), caption editing with measured box growth, read-only
-      attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`),
-      transparent PNG export (`File → Export PNG…`, `⇧⌘E`) and Undo/Redo.
+      The native app renders `bezier`, rounded `smooth`, orthogonal `step`, `straight`,
+      and rounded exterior self-loop connector routes, and renders v2 `code` nodes as
+      plain text (native code creation/editing and syntax highlighting remain deferred to
+      the next phase). It supports `NSDocument`-backed blank v2 New, v1/v2 Open (activating
+      the existing window when reopening an already-open file), explicit Save (`⌘S`),
+      Save As (`⇧⌘S`), explicit v1→v2 copy export (`File → Save Version 2 Copy…`),
+      confirmed Reload from Disk, coalesced 5s-quiet / 30s-continuous autosave,
+      external-change conflict pause, `NSDocument` draft autosaving plus private recovery
+      envelopes for active inline text drafts, launch recovery restoration, multi-window
+      close/quit guards, shape/text and standalone line/arrow insertion, adjacent thoughts
+      (`N` → cardinal direction → inline draft with rotated ray-blocker avoidance and
+      measured growth), connections (pointer drag-and-drop creation and endpoint/side
+      reconnection, plus `C`/sheet creation and labels), object/connection selection,
+      selection-preserving Tab traversal, Space tap selection
+      toggle and Space-drag panning, marquee and Shift-click/⌘A multi-selection,
+      pointer/arrow movement (with pointer drags isolated as view previews until `mouseUp`),
+      resize/rotation and line endpoint editing, Cut/Copy/Paste (`⌘X`/`⌘C`/`⌘V`),
+      duplication (`⌘D`), deletion, front/back stacking, lock/unlock,
+      object/connection/canvas style inspection/editing (`S` / Edit → Style…), caption
+      editing with measured box growth, read-only attachment source preview/copy, canvas
+      zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent PNG export (`File → Export PNG…`,
+      `⇧⌘E`) and Undo/Redo.
       Shared v1/v2 compatibility fixtures cover five shape kinds, free line,
       rotation/locks, all edge paths/markers (`bezier`, `smooth`, `step`, `straight`,
       `arrow`, `dot`, `none`), self-loop and automatic/named handles, `animated`/`dash`
@@ -778,14 +782,19 @@ recovery were implemented and verified on 2026-11-10.
       insertion/movement history. A temporary executable using the actual app
       delegate and release libraries exercised File New, Insert, Undo/Redo, text
       commit, canvas focus and two independent untitled windows.
-      Native C / Insert Connection opens a source/target and side-picker sheet.
+      Native connections support both direct pointer drag-and-drop (dragging from any
+      object's 4 cardinal connection ports or Option-dragging from inside a shape onto
+      another object/side port, and dragging a selected connection's source or target
+      endpoint handle to reconnect it) and keyboard/sheet `C` / **Insert → Connection…**.
       Automatic sides remain omitted; self-loops need distinct named sides.
       Native checks cover missing endpoints, invalid/valid self-loops, retained
-      drafts, one-object defaults, cancellation, stable IDs/order, v1 metadata and
-      source-byte retention. Bitmap checks verify connection appearance/removal,
-      rerouting after endpoint movement and exterior-route visibility without
-      camera movement. A temporary actual-app-delegate smoke exercised New →
-      Insert → pointer arrange → Connection → mixed menu Undo/Redo and Escape.
+      drafts, one-object defaults, cancellation, stable IDs/order, v1 metadata,
+      pointer port-to-port and Option-drag connection creation, pointer endpoint
+      reconnection, and source-byte retention. Bitmap checks verify connection
+      appearance/removal, rerouting after endpoint movement and exterior-route
+      visibility without camera movement. A temporary actual-app-delegate smoke
+      exercised New → Insert → pointer arrange → Connection → mixed menu Undo/Redo
+      and Escape.
       That smoke first exposed event-grouped insertions merging; per-canvas
       explicit transaction groups fixed it, with back-to-back command regressions
       and removal of run-loop timing from the history checks.
@@ -814,13 +823,17 @@ recovery were implemented and verified on 2026-11-10.
       metadata and BOM-inclusive byte/grapheme limits. No format migration or saves.
       Native object and connection lifecycle commands now support pointer and
       Tab/Shift-Tab selection of objects and connections (including label pills),
-      Cobalt connection selection highlights, Delete/Forward Delete of connections
-      and unlocked objects (atomically removing and restoring incident connections
-      at their original indices), Duplicate (`⌘D`) at `(+24, +24)` with fresh IDs,
-      preserved `data` and 1 MiB attachment/code quota enforcement, Bring to Front
-      / Send to Back (`⌘⇧]` / `⌘⇧[`) with overlap bitmap proof and no-op redo
-      preservation, and undoable Lock / Unlock (`⌘L`) preserving omitted versus
-      explicit `locked` fields.
+      Cobalt connection selection highlights, orthogonal `step` (20-unit cardinal
+      lead-out and inward target entry), rounded `smooth` (8-unit rounded step corners),
+      and rotated exterior `self-loop` routing (16-unit rounded corners and exterior
+      wide-label placement), Delete/Forward Delete of connections and unlocked objects
+      (atomically removing and restoring incident connections at their original indices),
+      Cut/Copy/Paste (`⌘X`/`⌘C`/`⌘V`) and Duplicate (`⌘D`) of single or multiple objects
+      and their internal connections (with cascading `(+24, +24)` paste offsets, fresh
+      IDs preserved across Redo, plain-text canvas-paste refusal, v1 code-node paste
+      refusal, and 1 MiB attachment/code quota enforcement), Bring to Front / Send to Back
+      (`⌘⇧]` / `⌘⇧[`) with overlap bitmap proof and no-op redo preservation, and undoable
+      Lock / Unlock (`⌘L`) preserving omitted versus explicit `locked` fields.
       Native AppKit Style inspector (`S` and **Edit → Style…**) now exposes
       capability-specific controls for shapes (`fill`, `stroke`, `width`, `dash`,
       `radius` on rectangles, `font`, `size`, `align`), text (`fill`, `font`,

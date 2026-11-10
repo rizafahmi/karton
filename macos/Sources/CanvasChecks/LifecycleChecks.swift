@@ -522,7 +522,127 @@ func checkLifecycle(repository: URL) throws {
                 NSDictionary(dictionary: appSession.root).isEqual(to: baselineRoot),
                 "Escape did not dismiss inline text editor cleanly")
 
-    // Finally exercise Duplicate, Bring to Front, Send to Back, and Delete through menu actions / key equivalents.
+    // Finally exercise Duplicate, Bring to Front, Send to Back, Delete, and Cut/Copy/Paste (⌘X/⌘C/⌘V) through menu actions / key equivalents.
+    let clipPasteboard = NSPasteboard.withUniqueName()
+    defer { clipPasteboard.releaseGlobally() }
+    appCanvas.attachmentPasteboard = clipPasteboard
+
+    // Plain-text pasteboard must NOT enable Paste on the canvas or create a node on ⌘V.
+    clipPasteboard.clearContents()
+    clipPasteboard.setString("Plain text outside editor", forType: .string)
+    try require(!appCanvas.canPaste && !appDelegate.validateMenuItem(try editItem("Paste")),
+                "Plain-text pasteboard enabled canvas Paste")
+    dispatchAppKey(9, "v", modifiers: [.command])
+    try require(NSDictionary(dictionary: appSession.root).isEqual(to: baselineRoot),
+                "⌘V with plain-text pasteboard mutated the canvas")
+
+    // Locked node "locked": Copy (⌘C) is allowed (pasted copy becomes unlocked), but Cut (⌘X) is refused!
+    appCanvas.selectNode("locked")
+    try require(appCanvas.canCopySelection && !appCanvas.canCutSelection &&
+                appDelegate.validateMenuItem(try editItem("Copy")) &&
+                !appDelegate.validateMenuItem(try editItem("Cut")),
+                "Locked node did not allow Copy while disabling Cut")
+    dispatchAppKey(7, "x", modifiers: [.command]) // ⌘X on locked node refused
+    try require(NSDictionary(dictionary: appSession.root).isEqual(to: baselineRoot) && !appCanvas.canPaste,
+                "⌘X on locked node mutated session or populated clipboard")
+    dispatchAppKey(8, "c", modifiers: [.command]) // ⌘C copies "locked"
+    try require(appCanvas.canPaste && appDelegate.validateMenuItem(try editItem("Paste")),
+                "⌘C on locked node did not populate canvas clipboard")
+    dispatchAppKey(9, "v", modifiers: [.command]) // ⌘V pastes unlocked copy at (+24, +24) -> (444, 304)
+    guard let pastedFromLockedID = appCanvas.selectedNodeID, pastedFromLockedID != "locked" else {
+        throw CheckFailure(description: "⌘V did not select newly pasted copy of locked node")
+    }
+    try require(!appSession.isLocked(pastedFromLockedID) &&
+                appSession.position(of: pastedFromLockedID) == CanvasPosition(x: 444, y: 304),
+                "Pasted copy of locked node remained locked or was not offset by (+24, +24)")
+    // Consecutive ⌘V cascades to (+48, +48) -> (468, 328) instead of stacking at (444, 304)!
+    dispatchAppKey(9, "v", modifiers: [.command])
+    guard let secondPasteID = appCanvas.selectedNodeID, secondPasteID != pastedFromLockedID else {
+        throw CheckFailure(description: "Second consecutive ⌘V did not create a distinct node")
+    }
+    try require(appSession.position(of: secondPasteID) == CanvasPosition(x: 468, y: 328),
+                "Second consecutive ⌘V did not cascade to (468, 328)")
+    dispatchAppKey(6, "z", modifiers: [.command]) // Undo 2nd Paste
+    dispatchAppKey(6, "z", modifiers: [.command]) // Undo 1st Paste
+    try require(NSDictionary(dictionary: appSession.root).isEqual(to: baselineRoot),
+                "Undoing two consecutive Pastes did not restore baseline")
+    dispatchAppKey(6, "Z", modifiers: [.command, .shift]) // Redo 1st Paste restores identical ID!
+    try require(appCanvas.selectedNodeID == pastedFromLockedID &&
+                appSession.position(of: pastedFromLockedID) == CanvasPosition(x: 444, y: 304),
+                "Redo Paste did not restore identical node ID and position")
+    dispatchAppKey(6, "z", modifiers: [.command])
+
+    // Multi-node Copy (⌘C), Paste (⌘V), and Cut (⌘X) with internal connections + Undo/Redo!
+    // Select All (⌘A) selects ["back", "middle", "front", "locked"].
+    dispatchAppKey(0, "a", modifiers: [.command])
+    try require(appCanvas.selectedNodeIDs == ["back", "middle", "front", "locked"],
+                "⌘A did not select all 4 nodes")
+    // Cut (⌘X) on mixed unlocked+locked selection cuts only the 3 unlocked nodes ("back", "middle", "front")
+    // and their 3 internal edges ("e-back-front", "e-middle-front", "e-front-loop"), while also removing
+    // incident edge "e-locked" from the canvas and leaving "locked" intact!
+    dispatchAppKey(7, "x", modifiers: [.command])
+    try require((appSession.root["nodes"] as! [[String: Any]]).map { $0["id"] as! String } == ["locked"] &&
+                (appSession.root["edges"] as! [[String: Any]]).isEmpty &&
+                appCanvas.selectedNodeIDs == ["locked"],
+                "⌘X on mixed selection did not cut unlocked nodes and leave 'locked' intact")
+    let afterCutRoot = appSession.root
+    // Undo Cut (⌘Z) restores all 3 cut nodes at their original indices and all 4 edges (including "e-locked")!
+    dispatchAppKey(6, "z", modifiers: [.command])
+    try require(NSDictionary(dictionary: appSession.root).isEqual(to: baselineRoot) &&
+                appCanvas.selectedNodeIDs == ["back", "middle", "front"],
+                "Undo Cut did not restore all cut nodes and incident edges at original indices")
+    // Redo Cut (⇧⌘Z) re-applies the cut, then Undo back to baseline and Paste (⌘V) the cut subgraph!
+    dispatchAppKey(6, "Z", modifiers: [.command, .shift])
+    try require(NSDictionary(dictionary: appSession.root).isEqual(to: afterCutRoot),
+                "Redo Cut did not re-apply multi-node cut")
+    dispatchAppKey(6, "z", modifiers: [.command])
+    dispatchAppKey(9, "v", modifiers: [.command]) // Pastes the 3 cut nodes + their 3 internal edges!
+    let afterSubgraphPasteNodes = appSession.root["nodes"] as! [[String: Any]]
+    let afterSubgraphPasteEdges = appSession.root["edges"] as! [[String: Any]]
+    try require(afterSubgraphPasteNodes.count == 7 &&
+                afterSubgraphPasteEdges.count == 7 &&
+                appCanvas.selectedNodeIDs.count == 3,
+                "Pasting 3-node subgraph did not add 3 nodes and 3 internal connections (got \(afterSubgraphPasteNodes.count) nodes, \(afterSubgraphPasteEdges.count) edges)")
+    let afterSubgraphPasteRoot = appSession.root
+    dispatchAppKey(6, "z", modifiers: [.command]) // Single Undo removes all 3 pasted nodes and 3 pasted edges!
+    try require(NSDictionary(dictionary: appSession.root).isEqual(to: baselineRoot),
+                "Single Undo of subgraph Paste did not restore baseline")
+    dispatchAppKey(6, "Z", modifiers: [.command, .shift]) // Single Redo restores exact same node & edge IDs!
+    try require(NSDictionary(dictionary: appSession.root).isEqual(to: afterSubgraphPasteRoot),
+                "Single Redo of subgraph Paste did not restore identical node and edge IDs")
+    dispatchAppKey(6, "z", modifiers: [.command])
+
+    // Pasting a v2 code node into a v1 session is refused atomically without mutating v1 or clearing redo!
+    let codePayload = CanvasClipboardPayload(nodes: [
+        ["id": "c1", "type": "code", "x": 10, "y": 10, "width": 160, "height": 100, "data": ["content": "IO.puts(:v2)"]]
+    ])
+    clipPasteboard.clearContents()
+    clipPasteboard.setData(try codePayload.encodedData(), forType: CanvasView.clipboardPasteboardType)
+    let v1TargetDoc = try CanvasDocument(data: Data(contentsOf: repository.appendingPathComponent("shared/fixtures/v1/compatibility.json")))
+    let v1TargetSession = CanvasSession(document: v1TargetDoc)
+    let v1TargetBefore = v1TargetSession.root
+    do {
+        _ = try v1TargetSession.paste(codePayload)
+        throw CheckFailure(description: "Pasted a v2 code block into a v1 document")
+    } catch is CanvasDocumentError {}
+    try require(NSDictionary(dictionary: v1TargetSession.root).isEqual(to: v1TargetBefore),
+                "Refused v2->v1 code paste mutated v1 session")
+    // Also verify 1 MiB quota enforcement on Paste for both attachments and code blocks!
+    for nodeToCopy in ["att-0", "code-0"] {
+        let payload = try quotaSession.copyNodes([nodeToCopy])
+        do {
+            _ = try quotaSession.paste(payload)
+            throw CheckFailure(description: "Paste exceeded 1 MiB quota for \(nodeToCopy)")
+        } catch let error as CanvasDocumentError {
+            try require(error.localizedDescription.contains("1048576"),
+                        "Unexpected Paste quota error for \(nodeToCopy): \(error)")
+        }
+        try require(NSDictionary(dictionary: quotaSession.root).isEqual(to: quotaBefore),
+                    "Refused quota Paste mutated session for \(nodeToCopy)")
+    }
+
+    // Reselect "back" and exercise single-node Duplicate, Delete, Undo, and Edit -> Delete menu action.
+    appCanvas.selectNode("back")
     dispatchAppKey(2, "d", modifiers: [.command]) // ⌘D duplicates "back"
     try require((appSession.root["nodes"] as! [Any]).count == 5,
                 "⌘D key equivalent did not duplicate 'back' through mainMenu")
@@ -536,7 +656,6 @@ func checkLifecycle(repository: URL) throws {
     _ = appDelegate.perform(deleteMenuItem.action!, with: deleteMenuItem)
     try require(NSDictionary(dictionary: appSession.root).isEqual(to: baselineRoot),
                 "Edit -> Delete menu action did not delete the selected duplicate")
-
     // 8. Attachment preview sheet (locked & unlocked cards, literal BOM/CRLF/tabs, Copy Source, Escape/Return close)
     //    and rotated shape text-box live/committed growth keeping top anchor fixed.
     let v1Bytes = try Data(contentsOf: repository.appendingPathComponent("shared/fixtures/v1/compatibility.json"))
