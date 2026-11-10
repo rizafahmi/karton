@@ -20,6 +20,11 @@ func checkPersistenceAndRecovery(repository: URL) throws {
     let appDelegate = CanvasAppDelegate(recoveryStore: recoveryStore)
     appDelegate.installMenu()
     defer { appDelegate.closeAllWindows() }
+    try require(
+        NSApp.mainMenu?.items.first?.title == "Canvas" &&
+            NSApp.mainMenu?.items.first?.submenu?.item(withTitle: "Quit Canvas") != nil,
+        "App menu did not use 'Canvas' / 'Quit Canvas' titles"
+    )
 
     // 1. Blank-canvas workflow: New -> add shape + adjacent thought + connection -> inline draft flush on Save -> Undo/Redo across Save -> Reopen.
     appDelegate.newDocument(nil)
@@ -1038,6 +1043,13 @@ func runStandaloneWorkflowVerification(in workspaceURL: URL) throws {
     try require(
         registeredFontDir.path.contains(".app/Contents/Resources/Fonts"),
         "Fonts were not loaded from inside the .app bundle (got \(registeredFontDir.path))"
+    )
+    let bundledIconURL = registeredFontDir.deletingLastPathComponent().appendingPathComponent("AppIcon.icns")
+    try require(
+        fm.fileExists(atPath: bundledIconURL.path)
+            && (Bundle.main.infoDictionary?["CFBundleIconFile"] as? String) == "AppIcon"
+            && NSImage(contentsOf: bundledIconURL)?.representations.count == 10,
+        "Bundled Canvas.app is missing AppIcon.icns or CFBundleIconFile in Info.plist"
     )
 
     appDelegate.newDocument(nil)

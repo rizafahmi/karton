@@ -96,6 +96,57 @@ public enum CanvasTheme {
             alpha: alpha
         )
     }
+
+    /// Renders the Neo-Acid Canvas brand badge (`36×36` Acid Lime `#c5f82a` square with
+    /// Ebony Ink `#0a0b0d` border, two connected nodes, and orthogonal connector) into an
+    /// explicit-pixel sRGB PNG at `pixelSize × pixelSize`.
+    public static func appIconPNGData(pixelSize: Int = 512) -> Data? {
+        guard pixelSize > 0,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                  data: nil,
+                  width: pixelSize,
+                  height: pixelSize,
+                  bitsPerComponent: 8,
+                  bytesPerRow: 0,
+                  space: colorSpace,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return nil }
+
+        ctx.clear(CGRect(x: 0, y: 0, width: pixelSize, height: pixelSize))
+        let scale = CGFloat(pixelSize) / 36.0
+        ctx.translateBy(x: 0, y: CGFloat(pixelSize))
+        ctx.scaleBy(x: scale, y: -scale)
+
+        let badge = CGRect(x: 0, y: 0, width: 36, height: 36)
+        ctx.setFillColor(acid.cgColor)
+        ctx.fill(badge)
+
+        ctx.setStrokeColor(borderStrong.cgColor)
+        ctx.setLineWidth(2)
+        ctx.setLineJoin(.miter)
+        ctx.setLineCap(.butt)
+        ctx.stroke(badge.insetBy(dx: 1, dy: 1))
+
+        ctx.setStrokeColor(highlighterInk.cgColor)
+        ctx.setLineWidth(2)
+        ctx.stroke(CGRect(x: 8, y: 8, width: 8, height: 8))
+        ctx.stroke(CGRect(x: 20, y: 20, width: 8, height: 8))
+
+        ctx.beginPath()
+        ctx.move(to: CGPoint(x: 16, y: 12))
+        ctx.addLine(to: CGPoint(x: 24, y: 12))
+        ctx.addLine(to: CGPoint(x: 24, y: 20))
+        ctx.strokePath()
+
+        guard let cgImage = ctx.makeImage() else { return nil }
+        let rep = NSBitmapImageRep(cgImage: cgImage).retagging(with: .sRGB) ?? NSBitmapImageRep(cgImage: cgImage)
+        return rep.representation(using: .png, properties: [:])
+    }
+    public static func appIconImage(pixelSize: Int = 512) -> NSImage? {
+        guard let data = appIconPNGData(pixelSize: pixelSize) else { return nil }
+        return NSImage(data: data)
+    }
 }
 
 public final class WelcomeContentView: NSView {
@@ -152,7 +203,7 @@ public final class WelcomeContentView: NSView {
         )
 
         let headline = NSMutableAttributedString(
-            string: "Elixir Canvas ",
+            string: "Canvas ",
             attributes: [
                 .font: CanvasTypography.font("heading", "m", scale: 22.0 / 16.0),
                 .foregroundColor: CanvasTheme.primaryText,

@@ -27,7 +27,14 @@ Full Xcode is not required. From the repository root:
 
 ```sh
 sh macos/build.sh
-open "macos/.build/Elixir Canvas.app"
+open "macos/.build/Canvas.app"
+```
+
+To install `Canvas.app` locally for personal use (defaults to `~/Applications/Canvas.app`, or set `INSTALL_DIR=/Applications`):
+
+```sh
+sh macos/install.sh
+open "$HOME/Applications/Canvas.app"
 ```
 
 The build assembles the `.app`, ad-hoc signs the complete bundle with the system
@@ -203,7 +210,7 @@ swift run --package-path macos -Xswiftc -target -Xswiftc "$(uname -m)-apple-maco
 ```
 
 
-To verify bundle-isolated runtime independence (confirming `Elixir Canvas.app`
+To verify bundle-isolated runtime independence (confirming `Canvas.app`
 links only system frameworks/libraries, embeds no repository font path, launches
 `CanvasApp` outside the repository with `macos/Resources/Fonts` hidden and a
 minimal `PATH`, and runs the `CanvasChecks --verify-standalone-workflow` driver
@@ -217,17 +224,17 @@ sh -c '
   REPO_ROOT=$(pwd)
   TMP_PROOF=$(mktemp -d)
   trap "if [ -d \"$REPO_ROOT/macos/Resources/Fonts.hidden\" ]; then mv \"$REPO_ROOT/macos/Resources/Fonts.hidden\" \"$REPO_ROOT/macos/Resources/Fonts\"; fi; rm -rf \"$TMP_PROOF\"" EXIT
-  otool -L "macos/.build/Elixir Canvas.app/Contents/MacOS/CanvasApp"
-  ! strings "macos/.build/Elixir Canvas.app/Contents/MacOS/CanvasApp" | grep -F "Sources/CanvasUI/PNGExport.swift"
-  cp -R "macos/.build/Elixir Canvas.app" "$TMP_PROOF/Elixir Canvas.app"
-  cp "macos/.build/release/CanvasChecks" "$TMP_PROOF/Elixir Canvas.app/Contents/MacOS/CanvasChecks"
-  codesign --force --sign - "$TMP_PROOF/Elixir Canvas.app"
-  codesign --verify --strict "$TMP_PROOF/Elixir Canvas.app"
+  otool -L "macos/.build/Canvas.app/Contents/MacOS/CanvasApp"
+  ! strings "macos/.build/Canvas.app/Contents/MacOS/CanvasApp" | grep -F "Sources/CanvasUI/PNGExport.swift"
+  INSTALL_DIR="$TMP_PROOF/Applications" sh "$REPO_ROOT/macos/install.sh"
+  cp "macos/.build/release/CanvasChecks" "$TMP_PROOF/Applications/Canvas.app/Contents/MacOS/CanvasChecks"
+  codesign --force --sign - "$TMP_PROOF/Applications/Canvas.app"
+  codesign --verify --strict "$TMP_PROOF/Applications/Canvas.app"
   mv "$REPO_ROOT/macos/Resources/Fonts" "$REPO_ROOT/macos/Resources/Fonts.hidden"
   cp "$REPO_ROOT/shared/fixtures/v1/compatibility.json" "$TMP_PROOF/open-smoke.json"
-  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" ELIXIR_CANVAS_RECOVERY_DIR="$TMP_PROOF/AppRecovery" "$TMP_PROOF/Elixir Canvas.app/Contents/MacOS/CanvasApp" "$TMP_PROOF/open-smoke.json") & PID=$!; sleep 1; kill -0 "$PID"; kill -TERM "$PID"; wait "$PID"
-  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$TMP_PROOF/Elixir Canvas.app/Contents/MacOS/CanvasChecks" --verify-standalone-workflow "$TMP_PROOF/workspace")
-  grep -F "Elixir Canvas.app" "$TMP_PROOF/workspace/standalone-receipt.json"
+  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" ELIXIR_CANVAS_RECOVERY_DIR="$TMP_PROOF/AppRecovery" "$TMP_PROOF/Applications/Canvas.app/Contents/MacOS/CanvasApp" "$TMP_PROOF/open-smoke.json") & PID=$!; sleep 1; kill -0 "$PID"; kill -TERM "$PID"; wait "$PID"
+  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$TMP_PROOF/Applications/Canvas.app/Contents/MacOS/CanvasChecks" --verify-standalone-workflow "$TMP_PROOF/workspace")
+  grep -F "Canvas.app" "$TMP_PROOF/workspace/standalone-receipt.json"
   mv "$REPO_ROOT/macos/Resources/Fonts.hidden" "$REPO_ROOT/macos/Resources/Fonts"
   mix run -e "{:ok, doc} = ElixirCanvas.Document.open(\"$TMP_PROOF/workspace/standalone-diagram.json\"); true = ElixirCanvas.Document.format_version(doc) == 2"
 '

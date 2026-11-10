@@ -573,7 +573,7 @@ native components, export, and acceptance proof. The architecture, macOS target,
 initial content scope and PNG defaults were approved on 2026-11-05 as recorded
 below, and `NSDocument` persistence, coalesced autosave, conflict handling, and
 recovery were implemented and verified on 2026-11-10.
-- [ ] **Outcome:** open an existing version-1 JSON canvas in an independent
+- [x] **Outcome:** open an existing version-1 JSON canvas in an independent
       native Mac editor, select/move objects, edit text, undo/redo, save, and
       reopen in both editors; export a transparent high-resolution PNG suitable
       for Keynote.
@@ -633,15 +633,18 @@ recovery were implemented and verified on 2026-11-10.
       the working web app or changing its commands.
 - [x] Write the native implementation specification, separating approved direction
       from proposed behavior and executable acceptance requirements.
-- [ ] Resolve native decisions before project creation/implementation as
-      applicable (native code-snippet authoring/highlighting deferred to next phase 2026-11-10).
+- [x] Resolve native decisions before project creation/implementation as
+      applicable (native code-snippet authoring/highlighting deferred to next phase
+      and app display/bundle renamed to `Canvas` / `Canvas.app` 2026-11-10).
 - [x] Agree compatibility fixtures and prove round-trips before editable saves.
-- [ ] Deliver the agreed native creation/editing workflow, keyboard and pointer
+- [x] Deliver the agreed native creation/editing workflow, keyboard and pointer
       interactions, history, autosave, and failure/conflict proof.
 - [x] Meet the PNG/Keynote gate using actual exported files.
-- [ ] Supply audience-appropriate setup/launch/check instructions and prove
+- [x] Supply audience-appropriate setup/launch/check instructions and prove
       runtime independence; decide install/distribution needs before release
-      infrastructure.
+      infrastructure (`sh macos/build.sh` and `sh macos/install.sh` to
+      `~/Applications/Canvas.app` for personal use; Developer ID/notarization/App
+      Store deferred until wider release).
 
 ### Native decisions
 
@@ -703,7 +706,7 @@ recovery were implemented and verified on 2026-11-10.
       Auto returned exact sample text, but detection accuracy, full safety, pinned
       version and native editor/export integration remain unproven. No dependency
       is installed yet.
-- [ ] **Native compatibility/toolchain proof:** provide actual native build/check
+- [x] **Native compatibility/toolchain proof:** provide actual native build/check
       instructions, extend the agreed content fixtures and prove non-lossy
       rendering/round-trips before editable saves. A temporary Swift Package built
       against macOS 27, manually bundled and launched via `open -n -W`, reported
@@ -879,15 +882,16 @@ recovery were implemented and verified on 2026-11-10.
       bundle-isolated runtime independence proof (`otool -L` confirming only macOS system
       frameworks/libs, `strings` confirming no `#filePath` `Sources/CanvasUI/PNGExport.swift`
       source-tree fallback in `CanvasApp`, Phoenix stopped, minimal `PATH="/usr/bin:/bin:/usr/sbin:/sbin"`,
-      `macos/Resources/Fonts` hidden on disk, the copied `Elixir Canvas.app/Contents/MacOS/CanvasApp`
+      `macos/Resources/Fonts` hidden on disk, the installed `Canvas.app/Contents/MacOS/CanvasApp`
       launching and closing cleanly on a temporary document in `/tmp`, and `CanvasChecks --verify-standalone-workflow`
-      placed inside that copied `.app` bundle registering all 6 fonts from
+      placed inside that copied `Canvas.app` bundle registering all 6 fonts from
       `.app/Contents/Resources/Fonts/` and driving `New → shapes/text/adjacent thought/connection →
       pointer rearrange + Undo/Redo → Save → coalesced autosave → close/reopen → 2048×830
       transparent PNG export`, then validated by `ElixirCanvas.Document.open/1`); and
       `Native → Web → Native` cross-editor round-trips on temporary v1/v2 compatibility
-      copies. External Accessibility automation permission is denied on this machine, so
-      physical OS Save-panel button clicking and install/distribution decisions remain open.
+      copies. Local personal-use installation is provided via `sh macos/install.sh`
+      (`~/Applications/Canvas.app`). External Accessibility automation permission is
+      denied on this machine, so physical OS Save-panel button clicking remains uncertified.
 - [x] **PNG output defaults and native/Keynote proof (2026-11-05, verified 2026-11-10):**
       2,048-pixel longest side, proportional other dimension, configurable output
       (longest side or exact dimensions with transparent letterboxing), 32 world-unit

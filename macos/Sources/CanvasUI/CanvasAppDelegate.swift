@@ -38,6 +38,12 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         app.appearance = NSAppearance(named: .aqua)
         installMenu()
         app.setActivationPolicy(.regular)
+        if let bundledIconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let bundledIcon = NSImage(contentsOf: bundledIconURL) {
+            app.applicationIconImage = bundledIcon
+        } else if let icon = CanvasTheme.appIconImage() {
+            app.applicationIconImage = icon
+        }
         Darwin.signal(SIGTERM, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         source.setEventHandler { [weak self] in
@@ -86,7 +92,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.title = "Elixir Canvas"
+        window.title = "Canvas"
         window.backgroundColor = CanvasTheme.canvasBackground
         window.center()
         let content = WelcomeContentView(frame: NSRect(x: 0, y: 0, width: 520, height: 264))
@@ -710,10 +716,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     public func installMenu() {
         let app = NSApplication.shared
         let main = NSMenu()
-        let appItem = NSMenuItem(title: "Elixir Canvas", action: nil, keyEquivalent: "")
+        let appItem = NSMenuItem(title: "Canvas", action: nil, keyEquivalent: "")
         main.addItem(appItem)
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "Quit Elixir Canvas", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit Canvas", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")
         main.addItem(fileItem)

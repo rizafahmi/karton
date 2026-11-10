@@ -508,6 +508,47 @@ func checkTheme(repository: URL) throws {
             && abs(welcomeBg!.blueComponent - expectedBg.blueComponent) < 0.03,
         "WelcomeContentView background did not match Raw Gallery Plaster (#f7f7f5)"
     )
+
+    guard let iconData = CanvasTheme.appIconPNGData(pixelSize: 256),
+          let iconRep = NSBitmapImageRep(data: iconData),
+          iconRep.pixelsWide == 256 && iconRep.pixelsHigh == 256 else {
+        throw CheckFailure(description: "CanvasTheme.appIconPNGData(pixelSize: 256) failed")
+    }
+    let iconAcidSample = iconRep.colorAt(x: 28, y: 28)
+    let expectedAcid = CanvasTheme.acid.usingColorSpace(.sRGB)!
+    let iconInkSample = iconRep.colorAt(x: 57, y: 57)
+    let expectedInk = CanvasTheme.highlighterInk.usingColorSpace(.sRGB)!
+    try require(
+        iconAcidSample != nil
+            && abs(iconAcidSample!.redComponent - expectedAcid.redComponent) < 0.03
+            && abs(iconAcidSample!.greenComponent - expectedAcid.greenComponent) < 0.03
+            && abs(iconAcidSample!.blueComponent - expectedAcid.blueComponent) < 0.03
+            && iconInkSample != nil
+            && abs(iconInkSample!.redComponent - expectedInk.redComponent) < 0.03
+            && abs(iconInkSample!.greenComponent - expectedInk.greenComponent) < 0.03
+            && abs(iconInkSample!.blueComponent - expectedInk.blueComponent) < 0.03,
+        "App icon PNG pixels did not match Neo-Acid Lime (#c5f82a) background and Ebony Ink (#0a0b0d) glyph"
+    )
+    let icnsURL = repository.appendingPathComponent("macos/Resources/AppIcon.icns")
+    guard let icnsImage = NSImage(contentsOf: icnsURL),
+          let icns256Rep = icnsImage.representations.first(where: { $0.pixelsWide == 256 && $0.pixelsHigh == 256 }) as? NSBitmapImageRep else {
+        throw CheckFailure(description: "Could not load 256x256 NSBitmapImageRep from macos/Resources/AppIcon.icns")
+    }
+    let icnsAcid = icns256Rep.colorAt(x: 28, y: 28)
+    let icnsInk = icns256Rep.colorAt(x: 57, y: 57)
+    try require(
+        icnsImage.representations.count == 10
+            && icnsImage.representations.contains(where: { $0.pixelsWide == 1024 && $0.pixelsHigh == 1024 })
+            && icnsAcid != nil
+            && abs(icnsAcid!.redComponent - expectedAcid.redComponent) < 0.03
+            && abs(icnsAcid!.greenComponent - expectedAcid.greenComponent) < 0.03
+            && abs(icnsAcid!.blueComponent - expectedAcid.blueComponent) < 0.03
+            && icnsInk != nil
+            && abs(icnsInk!.redComponent - expectedInk.redComponent) < 0.03
+            && abs(icnsInk!.greenComponent - expectedInk.greenComponent) < 0.03
+            && abs(icnsInk!.blueComponent - expectedInk.blueComponent) < 0.03,
+        "macos/Resources/AppIcon.icns representations or Neo-Acid Lime/Ebony Ink pixel colors did not match"
+    )
     print("PASS Neo-Acid light mode palette, highlighter/ink text contrast and bitmap rendering")
 }
 
@@ -547,6 +588,29 @@ do {
         try MainActor.assumeIsolated {
             try runStandaloneWorkflowVerification(in: URL(fileURLWithPath: args[1], isDirectory: true))
         }
+    } else if args.count == 2 && args[0] == "--generate-icns" {
+        let fm = FileManager.default
+        let iconsetURL = fm.temporaryDirectory.appendingPathComponent("AppIcon-\(UUID().uuidString).iconset", isDirectory: true)
+        try fm.createDirectory(at: iconsetURL, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: iconsetURL) }
+        for (name, px) in [
+            ("icon_16x16.png", 16), ("icon_16x16@2x.png", 32),
+            ("icon_32x32.png", 32), ("icon_32x32@2x.png", 64),
+            ("icon_128x128.png", 128), ("icon_128x128@2x.png", 256),
+            ("icon_256x256.png", 256), ("icon_256x256@2x.png", 512),
+            ("icon_512x512.png", 512), ("icon_512x512@2x.png", 1024),
+        ] {
+            guard let png = CanvasTheme.appIconPNGData(pixelSize: px) else {
+                throw CheckFailure(description: "Failed to render \(name)")
+            }
+            try png.write(to: iconsetURL.appendingPathComponent(name))
+        }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
+        proc.arguments = ["-c", "icns", "-o", args[1], iconsetURL.path]
+        try proc.run()
+        proc.waitUntilExit()
+        try require(proc.terminationStatus == 0, "iconutil failed with status \(proc.terminationStatus)")
     } else {
         try runChecks()
         print("All native document checks passed.")
