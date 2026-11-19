@@ -187,6 +187,7 @@ func checkPNGExport(repository: URL) throws {
     )
 
     // Export at default 2,048px longest side at zoom 1.0 with no selection.
+    view.deselectAll()
     let pngDataZoom1 = try view.exportPNGData()
     guard let repZoom1 = NSBitmapImageRep(data: pngDataZoom1) else {
         throw CheckFailure(description: "Could not decode exported PNG data")
@@ -198,9 +199,9 @@ func checkPNGExport(repository: URL) throws {
         "Exported PNG dimensions (\(repZoom1.pixelsWide)x\(repZoom1.pixelsHigh)) did not match 2,048px longest-side plan (\(plan.pixelWidth)x\(plan.pixelHeight))"
     )
 
-    // Select an edge ("edge-main"), open Style inspector, zoom to 0.4x, pan viewport, and export again.
-    // Then zoom to 2.5x, select all nodes, and export a third time.
-    // All three PNG exports must be pixel-identical (zoom/pan/selection/chrome invariant).
+    // Select an edge ("edge-main"), open Style inspector, zoom to 0.4x, pan viewport, and export entire canvas.
+    // Then zoom to 2.5x, select all nodes, and export with default automatic scope.
+    // All three PNG exports must be pixel-identical (zoom/pan/selection-chrome/inspector invariant).
     let edgeMidPt = view.viewPoint(forWorldPoint: CGPoint(x: 330, y: 170))
     view.mouseDown(with: NSEvent.mouseEvent(
         with: .leftMouseDown, location: view.convert(edgeMidPt, to: nil), modifierFlags: [],
@@ -215,7 +216,7 @@ func checkPNGExport(repository: URL) throws {
     view.showStyleInspector(nil)
     view.setZoom(0.4)
     view.setVisibleWorldOrigin(CGPoint(x: -400, y: -300))
-    let pngDataZoom04 = try view.exportPNGData()
+    let pngDataZoom04 = try view.exportPNGData(scope: .entireCanvas)
 
     view.setZoom(2.5)
     view.selectAll(nil)
@@ -225,6 +226,7 @@ func checkPNGExport(repository: URL) throws {
         pngDataZoom1 == pngDataZoom04 && pngDataZoom1 == pngDataZoom25,
         "PNG export output changed across viewport zoom, scroll origin, selection, or open Style inspector"
     )
+    view.deselectAll()
     view.closeStyleInspector(nil)
     view.resetZoom(nil)
 
@@ -457,7 +459,19 @@ func checkPNGExport(repository: URL) throws {
     )
 
     // 6. Interactive PNGExportSheet via File -> Export PNG… menu action:
-    //    validation errors, cancelled destination picker, and actual PNG file write.
+    //    validation errors, cancelled destination picker, live slide preview, theme persistence,
+    //    and actual PNG file writes for light and dark slides.
+    view.deselectAll()
+    let savedThemeDefault = UserDefaults.standard.object(forKey: CanvasPNGExportTheme.userDefaultsKey)
+    UserDefaults.standard.removeObject(forKey: CanvasPNGExportTheme.userDefaultsKey)
+    defer {
+        if let savedThemeDefault {
+            UserDefaults.standard.set(savedThemeDefault, forKey: CanvasPNGExportTheme.userDefaultsKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: CanvasPNGExportTheme.userDefaultsKey)
+        }
+    }
+
     let tempDir = FileManager.default.temporaryDirectory
         .appendingPathComponent("canvas-png-checks-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -492,12 +506,37 @@ func checkPNGExport(repository: URL) throws {
         }
         return found
     }
+    let previewView = try findControl("export-png-preview", as: NSView.self)
+    let themePopup = try findControl("export-png-theme", as: NSPopUpButton.self)
     let modePopup = try findControl("export-png-mode", as: NSPopUpButton.self)
     let longestField = try findControl("export-png-longest", as: NSTextField.self)
     let widthField = try findControl("export-png-width", as: NSTextField.self)
     let heightField = try findControl("export-png-height", as: NSTextField.self)
+    let summaryLabel = try findControl("export-png-summary", as: NSTextField.self)
     let errorLabel = try findControl("export-png-error", as: NSTextField.self)
     let confirmBtn = try findControl("export-png-confirm", as: NSButton.self)
+
+    try require(
+        themePopup.indexOfSelectedItem == 0
+            && summaryLabel.stringValue.contains("Dark ink for light slides"),
+        "PNGExportSheet did not default to Light slides (dark ink)"
+    )
+
+    func samplePreviewCorner(_ view: NSView) throws -> NSColor {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            throw CheckFailure(description: "Could not allocate bitmap for PNGExportPreviewView")
+        }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        guard let color = rep.colorAt(x: 4, y: 4)?.usingColorSpace(.sRGB) else {
+            throw CheckFailure(description: "Could not sample preview backdrop pixel")
+        }
+        return color
+    }
+    let lightPreviewBg = try samplePreviewCorner(previewView)
+    try require(
+        lightPreviewBg.redComponent > 0.9 && lightPreviewBg.greenComponent > 0.9 && lightPreviewBg.blueComponent > 0.9,
+        "Light slide preview backdrop did not render Raw Gallery Plaster (got \(lightPreviewBg))"
+    )
 
     // Invalid longest side > 8192 shows error in sheet without calling destination provider.
     longestField.stringValue = "9000"
@@ -618,5 +657,361 @@ func checkPNGExport(repository: URL) throws {
     }
     try require(foundCurveApex, "Exported PNG did not render the analytic Bézier apex near the top padding boundary")
 
-    print("PASS bundled Neo-Acid typography + glyph fallback, transparent PNG export (bounds, 32pt pad, caps, zoom/DPR invariance, letterboxing, draft flush, Keynote slide compositing, and Export PNG sheet)")
+    // 8. Export-only dark-slide PNG theme: WCAG contrast, light-ink transparent PNG pixels,
+    //    live dark-slide preview, and remembered UserDefaults theme across sheet opens.
+    func darkLuminance(_ color: NSColor) -> CGFloat {
+        let rgb = color.usingColorSpace(.sRGB)!
+        func ch(_ v: CGFloat) -> CGFloat { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * ch(rgb.redComponent) + 0.7152 * ch(rgb.greenComponent) + 0.0722 * ch(rgb.blueComponent)
+    }
+    func darkContrast(_ a: NSColor, _ b: NSColor) -> CGFloat {
+        let la = darkLuminance(a), lb = darkLuminance(b)
+        return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+    }
+    for fill in ["none", "surface", "gray", "accent", "blue", "green", "violet", "yellow", "red", "ink"] {
+        let bg = fill == "none" ? CanvasTheme.darkCanvasBackground : CanvasTheme.palette(fill, theme: .dark)
+        let fg = CanvasTheme.textColor(onFill: fill, theme: .dark)
+        let ratio = darkContrast(bg, fg)
+        try require(ratio >= 4.5, "Dark-slide export fill '\(fill)' contrast \(ratio) fell below 4.5:1")
+    }
+
+    let darkPNGData = try view.exportPNGData(theme: .dark)
+    guard let darkRep = NSBitmapImageRep(data: darkPNGData) else {
+        throw CheckFailure(description: "Could not decode dark-slide PNG")
+    }
+    try require(
+        darkRep.pixelsWide == plan.pixelWidth && darkRep.pixelsHigh == plan.pixelHeight
+            && darkRep.colorAt(x: 0, y: 0)?.alphaComponent == 0
+            && darkRep.colorAt(x: emptyX, y: emptyY)?.alphaComponent == 0,
+        "Dark-slide PNG export did not preserve exact dimensions and true alpha transparency"
+    )
+    // In dark-slide export, `ink`-filled rect-dark resolves to Silver White (#e7ecf2) with Ebony Ink text.
+    let darkModeInkRect = darkRep.colorAt(x: darkRectX, y: darkRectY)!.usingColorSpace(.sRGB)!
+    try require(
+        darkModeInkRect.alphaComponent > 0.99
+            && darkModeInkRect.redComponent > 0.85
+            && darkModeInkRect.greenComponent > 0.88
+            && darkModeInkRect.blueComponent > 0.90,
+        "Dark-slide PNG `ink`-filled rectangle did not resolve to Silver White (#e7ecf2)"
+    )
+    var foundDarkGlyphOnInkRect = false
+    for py in darkTextMinY...darkTextMaxY {
+        for px in darkTextMinX...darkTextMaxX {
+            if let c = darkRep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB),
+               c.alphaComponent > 0.9 && c.redComponent < 0.12 && c.greenComponent < 0.12 && c.blueComponent < 0.12 {
+                foundDarkGlyphOnInkRect = true
+                break
+            }
+        }
+        if foundDarkGlyphOnInkRect { break }
+    }
+    try require(foundDarkGlyphOnInkRect, "Dark-slide PNG `ink`-filled rectangle did not render Ebony Ink heading text")
+
+    // In dark-slide export, `surface`-filled code-box resolves to Obsidian Elevated (#222831) with Silver White text.
+    let (codeBgX, codeBgY) = exportPixel(for: CGPoint(x: 305, y: 375), in: plan)
+    let codeBgColor = darkRep.colorAt(x: codeBgX, y: codeBgY)!.usingColorSpace(.sRGB)!
+    try require(
+        codeBgColor.alphaComponent > 0.99
+            && codeBgColor.redComponent < 0.22
+            && codeBgColor.greenComponent < 0.24
+            && codeBgColor.blueComponent < 0.28,
+        "Dark-slide PNG `surface`-filled code block did not render Obsidian Elevated (#222831)"
+    )
+    let (codeMinX, codeMinY) = exportPixel(for: CGPoint(x: 108, y: 308), in: plan)
+    let (codeMaxX, codeMaxY) = exportPixel(for: CGPoint(x: 290, y: 360), in: plan)
+    var foundLightCodeText = false
+    for py in codeMinY...codeMaxY {
+        for px in codeMinX...codeMaxX {
+            if let c = darkRep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB),
+               c.alphaComponent > 0.9 && c.redComponent > 0.80 && c.greenComponent > 0.84 && c.blueComponent > 0.88 {
+                foundLightCodeText = true
+                break
+            }
+        }
+        if foundLightCodeText { break }
+    }
+    try require(foundLightCodeText, "Dark-slide PNG `surface`-filled code block did not render Silver White code text")
+
+    // Verify interactive PNGExportSheet dark-slide toggle updates preview, writes dark PNG, and remembers preference.
+    appDelegate.exportPNG(nil)
+    guard let darkPanel = view.activePNGExportPanel,
+          let darkContent = darkPanel.contentView,
+          let darkPreview = darkContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-preview" }),
+          let darkThemePopup = darkContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-theme" }) as? NSPopUpButton,
+          let darkSummary = darkContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-summary" }) as? NSTextField,
+          let darkConfirm = darkContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-confirm" }) as? NSButton else {
+        throw CheckFailure(description: "Missing dark-slide controls in reopened PNGExportSheet")
+    }
+    darkThemePopup.selectItem(at: 1)
+    _ = darkThemePopup.target?.perform(darkThemePopup.action, with: darkThemePopup)
+    try require(
+        darkSummary.stringValue.contains("Light ink for dark slides"),
+        "Switching PNGExportSheet to Dark slides did not update summary copy"
+    )
+    let darkPreviewBg = try samplePreviewCorner(darkPreview)
+    try require(
+        darkPreviewBg.redComponent < 0.14 && darkPreviewBg.greenComponent < 0.16 && darkPreviewBg.blueComponent < 0.18,
+        "Dark slide preview backdrop did not render Obsidian Clay (#121519) (got \(darkPreviewBg))"
+    )
+    let darkOutputURL = tempDir.appendingPathComponent("keynote-dark-slide.png")
+    view.pngExportDestinationProvider = { _ in darkOutputURL }
+    darkConfirm.performClick(nil)
+    try require(
+        !view.isPNGExportSheetOpen && FileManager.default.fileExists(atPath: darkOutputURL.path),
+        "Dark-slide PNGExportSheet did not write PNG file and dismiss"
+    )
+    let darkDiskBytes = try Data(contentsOf: darkOutputURL)
+    try require(
+        darkDiskBytes == darkPNGData,
+        "Dark-slide PNG written from sheet did not match direct dark-theme PNG export"
+    )
+    try require(
+        CanvasPNGExportTheme.loadDefault() == .dark,
+        "Confirming dark-slide export did not persist dark theme default"
+    )
+    // Reopening the sheet picks up the persisted Dark slides preference and cancelling leaves state untouched.
+    appDelegate.exportPNG(nil)
+    guard let reopenedPanel = view.activePNGExportPanel,
+          let reopenedContent = reopenedPanel.contentView,
+          let reopenedThemePopup = reopenedContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-theme" }) as? NSPopUpButton,
+          let reopenedCancel = reopenedContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-cancel" }) as? NSButton else {
+        throw CheckFailure(description: "Missing controls in second reopened PNGExportSheet")
+    }
+    try require(
+        reopenedThemePopup.indexOfSelectedItem == 1,
+        "Reopened PNGExportSheet did not remember persisted Dark slides selection"
+    )
+    reopenedCancel.performClick(nil)
+    try require(
+        NSDictionary(dictionary: diagramSession.root).isEqual(to: diagramRoot)
+            && diagramSession.document.originalData == diagramBytes,
+        "Dark-slide PNG export mutated committed session state or original document bytes"
+    )
+
+    // 9. Selection-scoped PNG export: when items are selected, only selected items (and connections
+    //    between selected nodes, including self-loops) are exported; PNGExportSheet defaults to
+    //    Selection and allows switching back to Entire canvas.
+    // 9a. Explicit .selection with no selection refuses cleanly.
+    view.deselectAll()
+    do {
+        _ = try view.exportPNGData(scope: .selection)
+        throw CheckFailure(description: "Accepted explicit .selection PNG export when nothing was selected")
+    } catch let error as CanvasDocumentError {
+        try require(
+            error.localizedDescription.localizedCaseInsensitiveContains("selected"),
+            "Unexpected empty-selection export error: \(error.localizedDescription)"
+        )
+    }
+
+    // 9b. Single unconnected node ("code-box"): tightly cropped to code-box only, while .entireCanvas still exports all.
+    view.selectNode("code-box")
+    let codeBounds = view.contentWorldBounds(scope: .selection)
+    let codePlan = try view.exportPNGPlan()
+    try require(
+        codeBounds.minX >= 98 && codeBounds.minY >= 298 && codeBounds.maxX <= 322 && codeBounds.maxY <= 392
+            && codePlan.contentWorldBounds == codeBounds
+            && codePlan.pixelHeight < plan.pixelHeight,
+        "Single-node selection bounds/plan did not crop tightly to code-box (bounds=\(codeBounds), plan=\(codePlan.pixelWidth)x\(codePlan.pixelHeight))"
+    )
+    let codeOnlyPNG = try view.exportPNGData()
+    let codeOnlyExplicit = try view.exportPNGData(scope: .selection)
+    let fullWhileSelected = try view.exportPNGData(scope: .entireCanvas)
+    try require(
+        codeOnlyPNG == codeOnlyExplicit && fullWhileSelected == pngDataZoom1,
+        "Selection-scoped .automatic did not match .selection or .entireCanvas differed from full canvas"
+    )
+    guard let codeOnlyRep = NSBitmapImageRep(data: codeOnlyPNG) else {
+        throw CheckFailure(description: "Could not decode single-node selection PNG")
+    }
+    try require(
+        codeOnlyRep.pixelsWide == codePlan.pixelWidth && codeOnlyRep.pixelsHigh == codePlan.pixelHeight
+            && codeOnlyRep.colorAt(x: 0, y: 0)?.alphaComponent == 0,
+        "Single-node selection PNG dimensions or padding transparency did not match plan"
+    )
+    // Verify no selection cobalt chrome leaked onto code-box border in selection export.
+    let (codeBorderX, codeBorderY) = exportPixel(for: CGPoint(x: 210, y: 300), in: codePlan)
+    let codeBorderColor = codeOnlyRep.colorAt(x: codeBorderX, y: codeBorderY)!.usingColorSpace(.sRGB)!
+    try require(
+        !(codeBorderColor.blueComponent > 0.7 && codeBorderColor.redComponent < 0.25),
+        "Selection cobalt chrome leaked into single-node selection PNG"
+    )
+
+    // 9c. Single node with self-loop ("rect-dark"): includes its self-loop ("edge-loop") and excludes
+    //     "edge-main" (whose target "tri-rot" is unselected) and all other nodes.
+    view.selectNode("rect-dark")
+    let rectOnlyBounds = view.contentWorldBounds(scope: .selection)
+    try require(
+        rectOnlyBounds.minX < 100 && rectOnlyBounds.minY < 120 && rectOnlyBounds.maxX < 320 && rectOnlyBounds.maxY < 240,
+        "rect-dark selection bounds (\(rectOnlyBounds)) did not include self-loop while excluding tri-rot and code-box"
+    )
+    let rectOnlyPlan = try view.exportPNGPlan()
+    let rectOnlyPNG = try view.exportPNGData()
+    guard let rectOnlyRep = NSBitmapImageRep(data: rectOnlyPNG) else {
+        throw CheckFailure(description: "Could not decode rect-dark selection PNG")
+    }
+    let (rectFillX, rectFillY) = exportPixel(for: CGPoint(x: 115, y: 135), in: rectOnlyPlan)
+    let rectFillColor = rectOnlyRep.colorAt(x: rectFillX, y: rectFillY)!.usingColorSpace(.sRGB)!
+    try require(
+        rectFillColor.alphaComponent > 0.99 && rectFillColor.redComponent < 0.1,
+        "rect-dark selection PNG did not render opaque ink-filled rectangle"
+    )
+
+    // 9d. Multi-selection via Shift-click ("rect-dark" + "tri-rot"): includes both shapes, connecting
+    //     "edge-main", and "edge-loop", while excluding "code-box" and "free-arrow" below y=290.
+    let triPt = view.viewPoint(forWorldPoint: CGPoint(x: 460, y: 185))
+    view.mouseDown(with: NSEvent.mouseEvent(
+        with: .leftMouseDown, location: view.convert(triPt, to: nil), modifierFlags: [.shift],
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+        context: nil, eventNumber: 2, clickCount: 1, pressure: 1
+    )!)
+    view.mouseUp(with: NSEvent.mouseEvent(
+        with: .leftMouseUp, location: view.convert(triPt, to: nil), modifierFlags: [.shift],
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+        context: nil, eventNumber: 2, clickCount: 1, pressure: 1
+    )!)
+    try require(view.selectedNodeIDs == Set(["rect-dark", "tri-rot"]), "Expected rect-dark and tri-rot selected")
+    let pairBounds = view.contentWorldBounds(scope: .selection)
+    try require(
+        pairBounds.maxX > 540 && pairBounds.maxY < 290,
+        "Multi-node selection bounds (\(pairBounds)) did not include rotated triangle while excluding lower code-box/free-arrow"
+    )
+    let pairPlan = try view.exportPNGPlan()
+    let pairPNG = try view.exportPNGData()
+    guard let pairRep = NSBitmapImageRep(data: pairPNG) else {
+        throw CheckFailure(description: "Could not decode multi-node selection PNG")
+    }
+    let (pairTriX, pairTriY) = exportPixel(for: CGPoint(x: 460, y: 185), in: pairPlan)
+    let pairTriColor = pairRep.colorAt(x: pairTriX, y: pairTriY)!.usingColorSpace(.sRGB)!
+    try require(
+        pairTriColor.alphaComponent > 0.99 && pairTriColor.redComponent > 0.8 && pairTriColor.greenComponent > 0.7,
+        "Multi-node selection PNG did not render selected yellow triangle"
+    )
+    // Verify connecting edge "edge-main" (violet stroke around x=330, y=170) is present between the two selected nodes.
+    let (connMinX, connMinY) = exportPixel(for: CGPoint(x: 295, y: 150), in: pairPlan)
+    let (connMaxX, connMaxY) = exportPixel(for: CGPoint(x: 365, y: 190), in: pairPlan)
+    var foundConnectingEdge = false
+    for py in connMinY...connMaxY {
+        for px in connMinX...connMaxX {
+            if let c = pairRep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB),
+               c.alphaComponent > 0.8 && c.blueComponent > 0.5 && c.redComponent > 0.25 {
+                foundConnectingEdge = true
+                break
+            }
+        }
+        if foundConnectingEdge { break }
+    }
+    try require(foundConnectingEdge, "Multi-node selection PNG did not include connecting edge between selected nodes")
+
+    // 9e. Single connection selected ("edge-main" only): exports only that edge + label without shape fills or selection cobalt.
+    view.selectConnection("edge-main")
+    let edgeOnlyBounds = view.contentWorldBounds(scope: .selection)
+    try require(
+        edgeOnlyBounds.minX >= 275 && edgeOnlyBounds.maxX <= 435
+            && edgeOnlyBounds.minY >= 120 && edgeOnlyBounds.maxY <= 200,
+        "Single-connection selection bounds (\(edgeOnlyBounds)) did not crop tightly to edge-main"
+    )
+    let edgeOnlyPNG = try view.exportPNGData()
+    guard let edgeOnlyRep = NSBitmapImageRep(data: edgeOnlyPNG) else {
+        throw CheckFailure(description: "Could not decode single-connection selection PNG")
+    }
+    try require(
+        edgeOnlyRep.colorAt(x: 0, y: 0)?.alphaComponent == 0 && edgeOnlyPNG != pngDataZoom1,
+        "Single-connection selection PNG did not export cropped transparent edge"
+    )
+
+    // 9f. Interactive PNGExportSheet with selection:
+    //     defaults to Selected items, writes selection-only PNG, and allows switching to Entire canvas.
+    UserDefaults.standard.set(CanvasPNGExportTheme.light.rawValue, forKey: CanvasPNGExportTheme.userDefaultsKey)
+    view.selectNode("code-box")
+    appDelegate.exportPNG(nil)
+    guard let selPanel = view.activePNGExportPanel,
+          let selContent = selPanel.contentView,
+          let selScopePopup = selContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-scope" }) as? NSPopUpButton,
+          let selSummary = selContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-summary" }) as? NSTextField,
+          let selConfirm = selContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-confirm" }) as? NSButton else {
+        throw CheckFailure(description: "Missing export-png-scope controls in PNGExportSheet when item is selected")
+    }
+    try require(
+        selScopePopup.indexOfSelectedItem == 0
+            && selScopePopup.itemTitle(at: 0) == "Selected item"
+            && selScopePopup.itemTitle(at: 1) == "Entire canvas"
+            && selSummary.stringValue.contains("Selected item")
+            && selSummary.stringValue.contains("\(codePlan.pixelWidth) × \(codePlan.pixelHeight)"),
+        "PNGExportSheet with 1 selected item did not default to Selected item with cropped dimensions (summary: \(selSummary.stringValue))"
+    )
+    let selOutputURL = tempDir.appendingPathComponent("selection-only.png")
+    view.pngExportDestinationProvider = { _ in selOutputURL }
+    selConfirm.performClick(nil)
+    try require(
+        !view.isPNGExportSheetOpen && FileManager.default.fileExists(atPath: selOutputURL.path),
+        "Selection-scoped PNGExportSheet did not write PNG file and dismiss"
+    )
+    let selDiskBytes = try Data(contentsOf: selOutputURL)
+    try require(
+        selDiskBytes == codeOnlyPNG,
+        "PNG written from selection-scoped sheet did not match direct selection-only PNG export"
+    )
+
+    // Reopen sheet with 2 items selected, switch scope to Entire canvas, and confirm full-canvas export.
+    view.selectNode("rect-dark")
+    view.mouseDown(with: NSEvent.mouseEvent(
+        with: .leftMouseDown, location: view.convert(triPt, to: nil), modifierFlags: [.shift],
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+        context: nil, eventNumber: 3, clickCount: 1, pressure: 1
+    )!)
+    view.mouseUp(with: NSEvent.mouseEvent(
+        with: .leftMouseUp, location: view.convert(triPt, to: nil), modifierFlags: [.shift],
+        timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+        context: nil, eventNumber: 3, clickCount: 1, pressure: 1
+    )!)
+    appDelegate.exportPNG(nil)
+    guard let multiPanel = view.activePNGExportPanel,
+          let multiContent = multiPanel.contentView,
+          let multiScopePopup = multiContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-scope" }) as? NSPopUpButton,
+          let multiSummary = multiContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-summary" }) as? NSTextField,
+          let multiConfirm = multiContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-confirm" }) as? NSButton else {
+        throw CheckFailure(description: "Missing export-png-scope controls for multi-selection PNGExportSheet")
+    }
+    try require(
+        multiScopePopup.indexOfSelectedItem == 0
+            && multiScopePopup.itemTitle(at: 0) == "Selected items (2)"
+            && multiSummary.stringValue.contains("Selected items (2)"),
+        "PNGExportSheet with 2 selected items did not default to 'Selected items (2)'"
+    )
+    multiScopePopup.selectItem(at: 1)
+    _ = multiScopePopup.target?.perform(multiScopePopup.action, with: multiScopePopup)
+    try require(
+        multiSummary.stringValue.contains("\(plan.pixelWidth) × \(plan.pixelHeight)")
+            && !multiSummary.stringValue.contains("Selected items"),
+        "Switching PNGExportSheet scope to Entire canvas did not update summary to full-canvas dimensions"
+    )
+    let fullFromSheetURL = tempDir.appendingPathComponent("entire-canvas-from-selection.png")
+    view.pngExportDestinationProvider = { _ in fullFromSheetURL }
+    multiConfirm.performClick(nil)
+    try require(
+        !view.isPNGExportSheetOpen && (try Data(contentsOf: fullFromSheetURL)) == pngDataZoom1,
+        "Switching PNGExportSheet scope to Entire canvas did not write full-canvas PNG"
+    )
+    try require(
+        view.selectedNodeIDs == Set(["rect-dark", "tri-rot"])
+            && NSDictionary(dictionary: diagramSession.root).isEqual(to: diagramRoot)
+            && diagramSession.document.originalData == diagramBytes,
+        "Selection-scoped PNG export altered selection, committed session state, or original document bytes"
+    )
+
+    // With no selection, export-png-scope is omitted from the sheet.
+    view.deselectAll()
+    appDelegate.exportPNG(nil)
+    guard let noSelPanel = view.activePNGExportPanel,
+          let noSelContent = noSelPanel.contentView,
+          let noSelCancel = noSelContent.subviews.first(where: { $0.identifier?.rawValue == "export-png-cancel" }) as? NSButton else {
+        throw CheckFailure(description: "Missing controls in no-selection PNGExportSheet")
+    }
+    try require(
+        !noSelContent.subviews.contains(where: { $0.identifier?.rawValue == "export-png-scope" }),
+        "PNGExportSheet unexpectedly showed export-png-scope when nothing was selected"
+    )
+    noSelCancel.performClick(nil)
+
+    print("PASS bundled Neo-Acid typography + glyph fallback, transparent PNG export (bounds, 32pt pad, caps, zoom/DPR invariance, letterboxing, draft flush, light/dark Keynote slide themes, selection scope, live preview, and Export PNG sheet)")
 }

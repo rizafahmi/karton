@@ -151,6 +151,16 @@ public enum CanvasPNGExportSizing: Equatable, Sendable {
     case exact(width: Int, height: Int)
 }
 
+/// Content scope for native transparent PNG export.
+public enum CanvasPNGExportScope: Equatable, Hashable, Sendable {
+    /// Export the current selection if any items are selected; otherwise export the entire canvas.
+    case automatic
+    /// Export the entire canvas regardless of current selection.
+    case entireCanvas
+    /// Export only the currently selected items.
+    case selection
+}
+
 /// Validated world-to-pixel export layout for an immutable canvas snapshot.
 public struct CanvasPNGExportPlan: Equatable, Sendable {
     public let contentWorldBounds: CGRect
@@ -252,6 +262,78 @@ public struct CanvasPNGExportPlan: Equatable, Sendable {
 }
 
 @MainActor
+final class PNGExportPreviewView: NSView {
+    var theme: CanvasPNGExportTheme = .light {
+        didSet { needsDisplay = true }
+    }
+    var previewImage: NSImage? {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let backdrop = CanvasTheme.previewBackdrop(theme: theme)
+        backdrop.setFill()
+        bounds.fill()
+
+        // Subtle dot pattern on the simulated slide backdrop so transparency reads clearly.
+        let dotColor = (theme == .dark ? CanvasTheme.darkPrimaryText : CanvasTheme.mutedText)
+            .withAlphaComponent(theme == .dark ? 0.14 : 0.20)
+        dotColor.setFill()
+        var gx: CGFloat = 14
+        while gx < bounds.width - 8 {
+            var gy: CGFloat = 14
+            while gy < bounds.height - 8 {
+                NSBezierPath(ovalIn: CGRect(x: gx - 0.6, y: gy - 0.6, width: 1.2, height: 1.2)).fill()
+                gy += 16
+            }
+            gx += 16
+        }
+
+        if let image = previewImage, image.size.width > 0, image.size.height > 0 {
+            let inset = bounds.insetBy(dx: 12, dy: 12)
+            let scale = min(inset.width / image.size.width, inset.height / image.size.height)
+            let drawSize = NSSize(width: image.size.width * scale, height: image.size.height * scale)
+            let drawRect = NSRect(
+                x: inset.minX + (inset.width - drawSize.width) / 2,
+                y: inset.minY + (inset.height - drawSize.height) / 2,
+                width: drawSize.width,
+                height: drawSize.height
+            )
+            image.draw(in: drawRect, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
+        }
+
+        let badgeText = (theme == .dark ? "DARK SLIDE PREVIEW" : "LIGHT SLIDE PREVIEW") as NSString
+        let badgeAttrs: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.font("mono", "s", scale: 9.5 / 12.0),
+            .foregroundColor: theme == .dark ? CanvasTheme.darkPrimaryText : CanvasTheme.secondaryText,
+        ]
+        let textSize = badgeText.size(withAttributes: badgeAttrs)
+        let badgeRect = NSRect(
+            x: bounds.width - textSize.width - 18,
+            y: bounds.height - textSize.height - 10,
+            width: textSize.width + 10,
+            height: textSize.height + 4
+        )
+        let badgeBg = (theme == .dark ? CanvasTheme.darkElevatedSurface : CanvasTheme.elevatedSurface)
+            .withAlphaComponent(0.92)
+        badgeBg.setFill()
+        badgeRect.fill()
+        let badgeBorder = NSBezierPath(rect: badgeRect.insetBy(dx: 0.5, dy: 0.5))
+        badgeBorder.lineWidth = 1
+        (theme == .dark ? CanvasTheme.darkBorderStrong : CanvasTheme.borderSubtle).setStroke()
+        badgeBorder.stroke()
+        badgeText.draw(at: NSPoint(x: badgeRect.minX + 5, y: badgeRect.minY + 2), withAttributes: badgeAttrs)
+
+        let border = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
+        border.lineWidth = 2
+        (theme == .dark ? CanvasTheme.darkBorderStrong : CanvasTheme.borderStrong).setStroke()
+        border.stroke()
+    }
+}
+
+@MainActor
 final class PNGExportSheet: NSObject, NSTextFieldDelegate {
     private final class SubmitTextField: NSTextField {
         var onSubmit: (() -> Void)?
@@ -272,9 +354,19 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         }
     }
 
+    private struct PreviewKey: Hashable {
+        let theme: CanvasPNGExportTheme
+        let scope: CanvasPNGExportScope
+    }
+
     let panel: NSPanel
-    private let contentWorldBounds: CGRect
+    private let fullContentWorldBounds: CGRect
+    private let selectionContentWorldBounds: CGRect?
+    private let selectionSummaryTitle: String
     private let defaultFilename: String
+    private let previewView = PNGExportPreviewView()
+    private let scopePopup = NSPopUpButton()
+    private let themePopup = NSPopUpButton()
     private let modePopup = NSPopUpButton()
     private let longestLabel = NSTextField(labelWithString: "Longest side (px)")
     private let longestField = SubmitTextField()
@@ -284,24 +376,44 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
     private let heightField = SubmitTextField()
     private let summaryLabel = NSTextField(wrappingLabelWithString: "")
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
+    private let renderPreview: (CanvasPNGExportTheme, CanvasPNGExportScope) -> NSImage?
     private let chooseDestination: (String) -> URL?
-    private let performExport: (CanvasPNGExportSizing, URL) throws -> Void
+    private let performExport: (CanvasPNGExportSizing, CanvasPNGExportTheme, CanvasPNGExportScope, URL) throws -> Void
     private let completion: () -> Void
+    private var previewCache: [PreviewKey: NSImage] = [:]
+    private var lastAutoExactSize: (width: Int, height: Int)
 
     init(
-        contentWorldBounds: CGRect,
+        fullContentWorldBounds: CGRect,
+        selectionContentWorldBounds: CGRect? = nil,
+        selectionSummaryTitle: String? = nil,
         defaultFilename: String = "canvas.png",
+        initialTheme: CanvasPNGExportTheme = .light,
+        renderPreview: @escaping (CanvasPNGExportTheme, CanvasPNGExportScope) -> NSImage?,
         chooseDestination: @escaping (String) -> URL?,
-        performExport: @escaping (CanvasPNGExportSizing, URL) throws -> Void,
+        performExport: @escaping (CanvasPNGExportSizing, CanvasPNGExportTheme, CanvasPNGExportScope, URL) throws -> Void,
         completion: @escaping () -> Void
     ) {
-        self.contentWorldBounds = contentWorldBounds
+        self.fullContentWorldBounds = fullContentWorldBounds
+        self.selectionContentWorldBounds = selectionContentWorldBounds
+        self.selectionSummaryTitle = selectionSummaryTitle ?? "Selected items"
         self.defaultFilename = defaultFilename
+        self.renderPreview = renderPreview
         self.chooseDestination = chooseDestination
         self.performExport = performExport
         self.completion = completion
+        let hasSelection = selectionContentWorldBounds != nil
+        let scopeRowOffset: CGFloat = hasSelection ? 40 : 0
+        let initialBounds = selectionContentWorldBounds ?? fullContentWorldBounds
+        let defaultPlan = try? CanvasPNGExportPlan.resolve(
+            contentWorldBounds: initialBounds,
+            sizing: .longestSide(CanvasPNGExportSizing.defaultLongestSide)
+        )
+        let initialWidth = defaultPlan?.pixelWidth ?? CanvasPNGExportSizing.defaultLongestSide
+        let initialHeight = defaultPlan?.pixelHeight ?? CanvasPNGExportSizing.defaultLongestSide
+        self.lastAutoExactSize = (initialWidth, initialHeight)
         panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 500 + scopeRowOffset),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
@@ -311,12 +423,48 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
 
         let titleField = NSTextField(labelWithString: "Export PNG for Keynote")
         titleField.font = .systemFont(ofSize: 15, weight: .bold)
-        titleField.frame = NSRect(x: 24, y: 274, width: 472, height: 22)
+        titleField.frame = NSRect(x: 24, y: 456 + scopeRowOffset, width: 472, height: 22)
         panel.contentView?.addSubview(titleField)
 
+        previewView.frame = NSRect(x: 24, y: 290 + scopeRowOffset, width: 472, height: 152)
+        previewView.identifier = NSUserInterfaceItemIdentifier("export-png-preview")
+        previewView.setAccessibilityLabel("Slide export preview")
+        panel.contentView?.addSubview(previewView)
+
+        if hasSelection {
+            let scopeLabel = NSTextField(labelWithString: "Export scope")
+            scopeLabel.frame = NSRect(x: 24, y: 291, width: 132, height: 22)
+            scopePopup.frame = NSRect(x: 164, y: 286, width: 332, height: 32)
+            scopePopup.identifier = NSUserInterfaceItemIdentifier("export-png-scope")
+            scopePopup.setAccessibilityLabel("Export scope")
+            scopePopup.addItems(withTitles: [
+                self.selectionSummaryTitle,
+                "Entire canvas",
+            ])
+            scopePopup.selectItem(at: 0)
+            scopePopup.target = self
+            scopePopup.action = #selector(scopeChanged)
+            panel.contentView?.addSubview(scopeLabel)
+            panel.contentView?.addSubview(scopePopup)
+        }
+
+        let themeLabel = NSTextField(labelWithString: "Slide theme")
+        themeLabel.frame = NSRect(x: 24, y: 251, width: 132, height: 22)
+        themePopup.frame = NSRect(x: 164, y: 246, width: 332, height: 32)
+        themePopup.identifier = NSUserInterfaceItemIdentifier("export-png-theme")
+        themePopup.setAccessibilityLabel("Slide theme")
+        for theme in CanvasPNGExportTheme.allCases {
+            themePopup.addItem(withTitle: theme.displayTitle)
+        }
+        themePopup.selectItem(at: initialTheme == .dark ? 1 : 0)
+        themePopup.target = self
+        themePopup.action = #selector(themeChanged)
+        panel.contentView?.addSubview(themeLabel)
+        panel.contentView?.addSubview(themePopup)
+
         let modeLabel = NSTextField(labelWithString: "Sizing mode")
-        modeLabel.frame = NSRect(x: 24, y: 233, width: 132, height: 22)
-        modePopup.frame = NSRect(x: 164, y: 228, width: 332, height: 32)
+        modeLabel.frame = NSRect(x: 24, y: 211, width: 132, height: 22)
+        modePopup.frame = NSRect(x: 164, y: 206, width: 332, height: 32)
         modePopup.identifier = NSUserInterfaceItemIdentifier("export-png-mode")
         modePopup.setAccessibilityLabel("Sizing mode")
         modePopup.addItems(withTitles: [
@@ -328,39 +476,32 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         panel.contentView?.addSubview(modeLabel)
         panel.contentView?.addSubview(modePopup)
 
-        let defaultPlan = try? CanvasPNGExportPlan.resolve(
-            contentWorldBounds: contentWorldBounds,
-            sizing: .longestSide(CanvasPNGExportSizing.defaultLongestSide)
-        )
-        let initialWidth = defaultPlan?.pixelWidth ?? CanvasPNGExportSizing.defaultLongestSide
-        let initialHeight = defaultPlan?.pixelHeight ?? CanvasPNGExportSizing.defaultLongestSide
-
-        longestLabel.frame = NSRect(x: 24, y: 189, width: 132, height: 22)
+        longestLabel.frame = NSRect(x: 24, y: 169, width: 132, height: 22)
         configureField(
             longestField,
             id: "export-png-longest",
             label: "Longest side in pixels",
             value: "\(CanvasPNGExportSizing.defaultLongestSide)",
-            frame: NSRect(x: 164, y: 186, width: 140, height: 28)
+            frame: NSRect(x: 164, y: 166, width: 140, height: 28)
         )
         panel.contentView?.addSubview(longestLabel)
         panel.contentView?.addSubview(longestField)
 
-        widthLabel.frame = NSRect(x: 24, y: 189, width: 132, height: 22)
+        widthLabel.frame = NSRect(x: 24, y: 169, width: 132, height: 22)
         configureField(
             widthField,
             id: "export-png-width",
             label: "Width in pixels",
             value: "\(initialWidth)",
-            frame: NSRect(x: 164, y: 186, width: 120, height: 28)
+            frame: NSRect(x: 164, y: 166, width: 120, height: 28)
         )
-        heightLabel.frame = NSRect(x: 300, y: 189, width: 76, height: 22)
+        heightLabel.frame = NSRect(x: 300, y: 169, width: 76, height: 22)
         configureField(
             heightField,
             id: "export-png-height",
             label: "Height in pixels",
             value: "\(initialHeight)",
-            frame: NSRect(x: 376, y: 186, width: 120, height: 28)
+            frame: NSRect(x: 376, y: 166, width: 120, height: 28)
         )
         panel.contentView?.addSubview(widthLabel)
         panel.contentView?.addSubview(widthField)
@@ -370,13 +511,13 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         summaryLabel.identifier = NSUserInterfaceItemIdentifier("export-png-summary")
         summaryLabel.font = .systemFont(ofSize: 12)
         summaryLabel.textColor = .secondaryLabelColor
-        summaryLabel.frame = NSRect(x: 24, y: 126, width: 472, height: 44)
+        summaryLabel.frame = NSRect(x: 24, y: 112, width: 472, height: 44)
         panel.contentView?.addSubview(summaryLabel)
 
         errorLabel.identifier = NSUserInterfaceItemIdentifier("export-png-error")
         errorLabel.font = .systemFont(ofSize: 12)
         errorLabel.textColor = .systemRed
-        errorLabel.frame = NSRect(x: 24, y: 68, width: 472, height: 48)
+        errorLabel.frame = NSRect(x: 24, y: 62, width: 472, height: 44)
         errorLabel.isHidden = true
         panel.contentView?.addSubview(errorLabel)
 
@@ -394,7 +535,25 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         panel.contentView?.addSubview(exportBtn)
 
         updateModeVisibility()
+        refreshPreview()
         refreshSummary()
+    }
+
+    var selectedTheme: CanvasPNGExportTheme {
+        themePopup.indexOfSelectedItem == 1 ? .dark : .light
+    }
+
+    var selectedScope: CanvasPNGExportScope {
+        selectionContentWorldBounds != nil && scopePopup.indexOfSelectedItem == 0
+            ? .selection
+            : .entireCanvas
+    }
+
+    private var activeContentWorldBounds: CGRect {
+        if selectedScope == .selection, let selectionBounds = selectionContentWorldBounds {
+            return selectionBounds
+        }
+        return fullContentWorldBounds
     }
 
     private func configureField(
@@ -436,6 +595,28 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         return false
     }
 
+    @objc private func scopeChanged() {
+        errorLabel.isHidden = true
+        if widthField.stringValue == "\(lastAutoExactSize.width)" &&
+            heightField.stringValue == "\(lastAutoExactSize.height)",
+           let updatedPlan = try? CanvasPNGExportPlan.resolve(
+               contentWorldBounds: activeContentWorldBounds,
+               sizing: .longestSide(CanvasPNGExportSizing.defaultLongestSide)
+           ) {
+            widthField.stringValue = "\(updatedPlan.pixelWidth)"
+            heightField.stringValue = "\(updatedPlan.pixelHeight)"
+            lastAutoExactSize = (updatedPlan.pixelWidth, updatedPlan.pixelHeight)
+        }
+        refreshPreview()
+        refreshSummary()
+    }
+
+    @objc private func themeChanged() {
+        errorLabel.isHidden = true
+        refreshPreview()
+        refreshSummary()
+    }
+
     @objc private func modeChanged() {
         errorLabel.isHidden = true
         updateModeVisibility()
@@ -451,6 +632,17 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         widthField.isHidden = isLongest
         heightLabel.isHidden = isLongest
         heightField.isHidden = isLongest
+    }
+
+    private func refreshPreview() {
+        let theme = selectedTheme
+        let scope = selectedScope
+        let key = PreviewKey(theme: theme, scope: scope)
+        if previewCache[key] == nil, let rendered = renderPreview(theme, scope) {
+            previewCache[key] = rendered
+        }
+        previewView.theme = theme
+        previewView.previewImage = previewCache[key]
     }
 
     private func parsePositiveInt(_ raw: String, fieldName: String) throws -> Int {
@@ -474,20 +666,22 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
     }
 
     private func refreshSummary() {
+        let themeNote = selectedTheme.summaryNote
+        let scopePrefix = selectedScope == .selection ? "\(selectionSummaryTitle) · " : ""
         do {
             let sizing = try parsedSizing()
             let plan = try CanvasPNGExportPlan.resolve(
-                contentWorldBounds: contentWorldBounds,
+                contentWorldBounds: activeContentWorldBounds,
                 sizing: sizing
             )
             let fitNote = modePopup.indexOfSelectedItem == 0
                 ? "Proportional aspect ratio"
                 : "Proportional fit with transparent letterboxing"
             summaryLabel.stringValue =
-                "Output: \(plan.pixelWidth) × \(plan.pixelHeight) px · \(fitNote)\nTransparent sRGB alpha · 32 world-unit padding · Max 8,192 px/side (16,777,216 px total)"
+                "Output: \(plan.pixelWidth) × \(plan.pixelHeight) px · \(scopePrefix)\(fitNote)\nTransparent sRGB alpha · \(themeNote) · 32 world-unit padding · Max 8,192 px/side"
         } catch {
             summaryLabel.stringValue =
-                "Transparent sRGB alpha · 32 world-unit padding · Max 8,192 px/side (16,777,216 px total)"
+                "\(scopePrefix)Transparent sRGB alpha · \(themeNote) · 32 world-unit padding · Max 8,192 px/side"
         }
     }
 
@@ -500,15 +694,16 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         }
         do {
             let sizing = try parsedSizing()
+            let scope = selectedScope
             _ = try CanvasPNGExportPlan.resolve(
-                contentWorldBounds: contentWorldBounds,
+                contentWorldBounds: activeContentWorldBounds,
                 sizing: sizing
             )
             guard let destinationURL = chooseDestination(defaultFilename) else {
                 // Destination dialog cancelled; keep session and sheet state intact.
                 return
             }
-            try performExport(sizing, destinationURL)
+            try performExport(sizing, selectedTheme, scope, destinationURL)
             dismiss()
         } catch {
             errorLabel.stringValue = error.localizedDescription

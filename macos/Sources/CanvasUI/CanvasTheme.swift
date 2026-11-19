@@ -1,7 +1,44 @@
 import AppKit
 
+/// Target Keynote slide theme for transparent PNG export.
+/// Exported PNGs always preserve true alpha transparency; the theme selects
+/// light-slide (dark ink) or dark-slide (light ink) semantic palette resolution
+/// without modifying document JSON or the light-first editor chrome.
+public enum CanvasPNGExportTheme: String, Equatable, Sendable, CaseIterable {
+    case light
+    case dark
+
+    public var displayTitle: String {
+        switch self {
+        case .light: return "Light slides (dark ink)"
+        case .dark: return "Dark slides (light ink)"
+        }
+    }
+
+    public var summaryNote: String {
+        switch self {
+        case .light: return "Dark ink for light slides"
+        case .dark: return "Light ink for dark slides"
+        }
+    }
+
+    public static let userDefaultsKey = "local.elixircanvas.native.pngExportTheme"
+
+    public static func loadDefault(from defaults: UserDefaults = .standard) -> CanvasPNGExportTheme {
+        guard let raw = defaults.string(forKey: userDefaultsKey),
+              let theme = CanvasPNGExportTheme(rawValue: raw) else {
+            return .light
+        }
+        return theme
+    }
+
+    public func saveDefault(to defaults: UserDefaults = .standard) {
+        defaults.set(rawValue, forKey: Self.userDefaultsKey)
+    }
+}
+
 /// Neo-Acid light-first color tokens for canvas rendering and the Welcome surface,
-/// paired with native AppKit Aqua controls.
+/// paired with native AppKit Aqua controls and optional dark-slide PNG export tokens.
 public enum CanvasTheme {
     // MARK: - Base Light Surfaces & Ink (DESIGN.md §2)
 
@@ -31,6 +68,26 @@ public enum CanvasTheme {
 
     /// Ebony Ink (`#0a0b0d` / `--hl-ink`) — pinned text color on light/highlighter fills
     public static let highlighterInk = srgb(0x0A, 0x0B, 0x0D)
+
+    // MARK: - Obsidian Dark-Slide Export Tokens (DESIGN.md §2)
+
+    /// Obsidian Clay (`#121519` / `--raw-obsidian`) — simulated dark slide backdrop
+    public static let darkCanvasBackground = srgb(0x12, 0x15, 0x19)
+
+    /// Obsidian Surface (`#1b2026` / `--raw-obsidian-alt`)
+    public static let darkSurface = srgb(0x1B, 0x20, 0x26)
+
+    /// Obsidian Elevated (`#222831` / `--raw-obsidian-elevated`) — dark `surface` fill & edge label pills
+    public static let darkElevatedSurface = srgb(0x22, 0x28, 0x31)
+
+    /// Silver White (`#e7ecf2` / `--raw-silver`) — dark `ink` strokes, fills, and unfilled text
+    public static let darkPrimaryText = srgb(0xE7, 0xEC, 0xF2)
+
+    /// Obsidian Strong Border (`#434a56` / `--border-strong-color` in dark mode) — dark `gray` fill/stroke & pill border
+    public static let darkBorderStrong = srgb(0x43, 0x4A, 0x56)
+
+    /// Obsidian Subtle Border (`#262c36` / `--border-subtle-color` in dark mode)
+    public static let darkBorderSubtle = srgb(0x26, 0x2C, 0x36)
 
     // MARK: - Semantic Highlighter & Accent Swatches
 
@@ -65,27 +122,55 @@ public enum CanvasTheme {
         "none", "surface", "accent", "gray", "blue", "green", "yellow", "red", "violet"
     ]
 
-    /// Maps portable JSON color names to the light-mode Neo-Acid canvas palette.
-    public static func palette(_ name: String) -> NSColor {
+    private static let darkBackgroundFillNames: Set<String> = [
+        "none", "surface", "gray"
+    ]
+
+    /// Maps portable JSON color names to the requested Neo-Acid canvas palette.
+    public static func palette(_ name: String, theme: CanvasPNGExportTheme = .light) -> NSColor {
         switch name {
         case "none": return .clear
-        case "surface": return surface
+        case "surface": return theme == .dark ? darkElevatedSurface : surface
         case "accent": return acid
-        case "gray": return gray
+        case "gray": return theme == .dark ? darkBorderStrong : gray
         case "blue": return sky
         case "green": return mint
         case "yellow": return yellow
         case "red": return red
         case "violet": return violet
-        case "ink": return primaryText
-        default: return primaryText
+        case "ink": return theme == .dark ? darkPrimaryText : primaryText
+        default: return theme == .dark ? darkPrimaryText : primaryText
         }
     }
 
-    /// Enforces the Highlighter Ink Rule: light/unfilled surfaces and highlighter
-    /// swatches use Ebony Ink (`#0a0b0d`), while `ink` fills use elevated white (`#ffffff`).
-    public static func textColor(onFill fill: String) -> NSColor {
-        lightFillNames.contains(fill) ? highlighterInk : elevatedSurface
+    /// Enforces the Highlighter Ink Rule across light and dark export themes:
+    /// - Highlighter swatches always pin Ebony Ink (`#0a0b0d`).
+    /// - In light theme, unfilled/surface/gray use Ebony Ink and `ink` fills use white.
+    /// - In dark theme, unfilled/surface/gray use Silver White (`#e7ecf2`) and `ink` fills
+    ///   (which resolve to Silver White) use Ebony Ink (`#0a0b0d`).
+    public static func textColor(onFill fill: String, theme: CanvasPNGExportTheme = .light) -> NSColor {
+        switch theme {
+        case .light:
+            return lightFillNames.contains(fill) ? highlighterInk : elevatedSurface
+        case .dark:
+            return darkBackgroundFillNames.contains(fill) ? darkPrimaryText : highlighterInk
+        }
+    }
+
+    public static func edgeLabelFill(theme: CanvasPNGExportTheme = .light) -> NSColor {
+        theme == .dark ? darkElevatedSurface : elevatedSurface
+    }
+
+    public static func edgeLabelBorder(theme: CanvasPNGExportTheme = .light) -> NSColor {
+        theme == .dark ? darkBorderStrong : borderSubtle
+    }
+
+    public static func edgeLabelText(theme: CanvasPNGExportTheme = .light) -> NSColor {
+        theme == .dark ? darkPrimaryText : primaryText
+    }
+
+    public static func previewBackdrop(theme: CanvasPNGExportTheme) -> NSColor {
+        theme == .dark ? darkCanvasBackground : canvasBackground
     }
 
     private static func srgb(_ red: UInt8, _ green: UInt8, _ blue: UInt8, alpha: CGFloat = 1) -> NSColor {

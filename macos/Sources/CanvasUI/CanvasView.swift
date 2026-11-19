@@ -2579,6 +2579,63 @@ public final class CanvasView: NSView {
         attachmentPreview?.present(on: window)
     }
 
+    private struct PNGExportSelectionFilter: Equatable {
+        let nodeIDs: Set<String>
+        let edgeID: String?
+
+        static let all = PNGExportSelectionFilter(nodeIDs: [], edgeID: nil)
+        var isEmpty: Bool { nodeIDs.isEmpty && edgeID == nil }
+    }
+
+    private func currentPNGExportSelection() -> (filter: PNGExportSelectionFilter, label: String)? {
+        let selectedNodes = orderedSelectedNodeIDs
+        if !selectedNodes.isEmpty {
+            let label = selectedNodes.count == 1
+                ? "Selected item"
+                : "Selected items (\(selectedNodes.count))"
+            return (PNGExportSelectionFilter(nodeIDs: Set(selectedNodes), edgeID: nil), label)
+        }
+        if let edgeID = selectedEdgeID, session.hasConnection(edgeID) {
+            return (PNGExportSelectionFilter(nodeIDs: [], edgeID: edgeID), "Selected connection")
+        }
+        return nil
+    }
+
+    private func resolvePNGExportFilter(for scope: CanvasPNGExportScope) throws -> PNGExportSelectionFilter {
+        switch scope {
+        case .entireCanvas:
+            return .all
+        case .automatic:
+            return currentPNGExportSelection()?.filter ?? .all
+        case .selection:
+            guard let selection = currentPNGExportSelection() else {
+                throw CanvasDocumentError("No items are selected to export.")
+            }
+            return selection.filter
+        }
+    }
+
+    private static func filterSnapshot(
+        nodes: [Node],
+        edges: [EdgeDrawing],
+        with filter: PNGExportSelectionFilter
+    ) -> (nodes: [Node], edges: [EdgeDrawing]) {
+        guard !filter.isEmpty else {
+            return (nodes, edges)
+        }
+        if !filter.nodeIDs.isEmpty {
+            let filteredNodes = nodes.filter { filter.nodeIDs.contains($0.id) }
+            let filteredEdges = edges.filter {
+                filter.nodeIDs.contains($0.source) && filter.nodeIDs.contains($0.target)
+            }
+            return (filteredNodes, filteredEdges)
+        }
+        if let edgeID = filter.edgeID {
+            return ([], edges.filter { $0.id == edgeID })
+        }
+        return (nodes, edges)
+    }
+
     public func beginPNGExport(defaultFilename: String = "canvas.png") {
         guard let window, window.attachedSheet == nil,
               connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil,
@@ -2592,10 +2649,16 @@ public final class CanvasView: NSView {
             NSSound.beep()
             return
         }
-        let bounds = contentWorldBounds()
-        guard !bounds.isNull, bounds.width > 0, bounds.height > 0 else {
+        let fullBounds = contentWorldBounds(scope: .entireCanvas)
+        guard !fullBounds.isNull, fullBounds.width > 0, fullBounds.height > 0 else {
             NSSound.beep()
             return
+        }
+        let selection = currentPNGExportSelection()
+        let selectionBounds: CGRect? = selection.flatMap { sel in
+            let (filteredNodes, filteredEdges) = Self.filterSnapshot(nodes: nodes, edges: edges, with: sel.filter)
+            let b = Self.contentWorldBounds(nodes: filteredNodes, edges: filteredEdges, role: fontRole)
+            return (!b.isNull && b.width > 0 && b.height > 0) ? b : nil
         }
         let chooseDest: (String) -> URL? = { [weak self] suggestedName in
             if let provider = self?.pngExportDestinationProvider {
@@ -2608,12 +2671,19 @@ public final class CanvasView: NSView {
             return savePanel.runModal() == .OK ? savePanel.url : nil
         }
         pngExportSheet = PNGExportSheet(
-            contentWorldBounds: bounds,
+            fullContentWorldBounds: fullBounds,
+            selectionContentWorldBounds: selectionBounds,
+            selectionSummaryTitle: selection?.label,
             defaultFilename: defaultFilename,
+            initialTheme: CanvasPNGExportTheme.loadDefault(),
+            renderPreview: { [weak self] theme, scope in
+                self?.renderPNGPreviewImage(theme: theme, scope: scope)
+            },
             chooseDestination: chooseDest,
-            performExport: { [weak self] sizing, url in
+            performExport: { [weak self] sizing, theme, scope, url in
                 guard let self else { return }
-                try self.exportPNG(to: url, sizing: sizing)
+                try self.exportPNG(to: url, sizing: sizing, theme: theme, scope: scope)
+                theme.saveDefault()
             },
             completion: { [weak self, weak window] in
                 guard let self else { return }
@@ -2682,32 +2752,58 @@ public final class CanvasView: NSView {
         }
     }
 
-    public func contentWorldBounds() -> CGRect {
+    public func contentWorldBounds(scope: CanvasPNGExportScope = .entireCanvas) -> CGRect {
         _ = CanvasTypography.ensureRegistered()
-        return Self.contentWorldBounds(nodes: nodes, edges: edges, role: fontRole)
+        guard let filter = try? resolvePNGExportFilter(for: scope) else {
+            return .null
+        }
+        let (filteredNodes, filteredEdges) = Self.filterSnapshot(nodes: nodes, edges: edges, with: filter)
+        return Self.contentWorldBounds(nodes: filteredNodes, edges: filteredEdges, role: fontRole)
     }
 
     public func exportPNGPlan(
         sizing: CanvasPNGExportSizing = .longestSide(CanvasPNGExportSizing.defaultLongestSide),
-        padding: Double = CanvasPNGExportSizing.defaultPadding
+        padding: Double = CanvasPNGExportSizing.defaultPadding,
+        scope: CanvasPNGExportScope = .automatic
     ) throws -> CanvasPNGExportPlan {
         try flushPendingEditsForExport()
         _ = CanvasTypography.ensureRegistered()
-        let bounds = Self.contentWorldBounds(nodes: nodes, edges: edges, role: fontRole)
+        let filter = try resolvePNGExportFilter(for: scope)
+        let (filteredNodes, filteredEdges) = Self.filterSnapshot(nodes: nodes, edges: edges, with: filter)
+        let bounds = Self.contentWorldBounds(nodes: filteredNodes, edges: filteredEdges, role: fontRole)
         return try CanvasPNGExportPlan.resolve(contentWorldBounds: bounds, sizing: sizing, padding: padding)
     }
 
-    public func exportPNGData(
-        sizing: CanvasPNGExportSizing = .longestSide(CanvasPNGExportSizing.defaultLongestSide),
-        padding: Double = CanvasPNGExportSizing.defaultPadding
-    ) throws -> Data {
-        try flushPendingEditsForExport()
+    private func renderPNGPreviewImage(
+        theme: CanvasPNGExportTheme,
+        scope: CanvasPNGExportScope = .automatic,
+        maxSide: Int = 640
+    ) -> NSImage? {
+        guard let filter = try? resolvePNGExportFilter(for: scope),
+              let cgImage = try? Self.renderPNGCGImage(
+                  from: session.root,
+                  sizing: .longestSide(maxSide),
+                  padding: CanvasPNGExportSizing.defaultPadding,
+                  theme: theme,
+                  filter: filter
+              ) else {
+            return nil
+        }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    private static func renderPNGCGImage(
+        from snapshotRoot: [String: Any],
+        sizing: CanvasPNGExportSizing,
+        padding: Double,
+        theme: CanvasPNGExportTheme,
+        filter: PNGExportSelectionFilter = .all
+    ) throws -> CGImage {
         _ = CanvasTypography.ensureRegistered()
-        let snapshotRoot = session.root
         let snapshotAppearance = snapshotRoot["appearance"] as? [String: Any]
         let snapshotRole = snapshotAppearance?["font"] as? String ?? "sans"
         let snapshotAlign = snapshotAppearance?["align"] as? String
-        let snapshotNodes = (snapshotRoot["nodes"] as? [[String: Any]] ?? []).map { raw in
+        let allNodes = (snapshotRoot["nodes"] as? [[String: Any]] ?? []).map { raw in
             Node(
                 id: raw["id"] as? String ?? "",
                 type: raw["type"] as? String ?? "shape",
@@ -2720,12 +2816,13 @@ public final class CanvasView: NSView {
                 data: raw["data"] as? [String: Any] ?? [:]
             )
         }
-        let index = Dictionary(uniqueKeysWithValues: snapshotNodes.map { ($0.id, $0) })
-        let snapshotEdges = (snapshotRoot["edges"] as? [[String: Any]] ?? []).compactMap { raw -> EdgeDrawing? in
+        let index = Dictionary(uniqueKeysWithValues: allNodes.map { ($0.id, $0) })
+        let allEdges = (snapshotRoot["edges"] as? [[String: Any]] ?? []).compactMap { raw -> EdgeDrawing? in
             guard let source = index[raw["source"] as? String ?? ""],
                   let target = index[raw["target"] as? String ?? ""] else { return nil }
             return Self.makeEdge(raw, source, target, role: snapshotRole)
         }
+        let (snapshotNodes, snapshotEdges) = Self.filterSnapshot(nodes: allNodes, edges: allEdges, with: filter)
         let bounds = Self.contentWorldBounds(nodes: snapshotNodes, edges: snapshotEdges, role: snapshotRole)
         let plan = try CanvasPNGExportPlan.resolve(contentWorldBounds: bounds, sizing: sizing, padding: padding)
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
@@ -2751,16 +2848,34 @@ public final class CanvasView: NSView {
         cgContext.scaleBy(x: plan.scale, y: plan.scale)
         cgContext.translateBy(x: -plan.paddedWorldBounds.minX, y: -plan.paddedWorldBounds.minY)
         for edge in snapshotEdges {
-            Self.drawEdge(edge, role: snapshotRole, isSelected: false)
+            Self.drawEdge(edge, role: snapshotRole, isSelected: false, theme: theme)
         }
         for node in snapshotNodes {
-            Self.drawNode(node, role: snapshotRole, defaultAlign: snapshotAlign, hideCaption: false)
+            Self.drawNode(node, role: snapshotRole, defaultAlign: snapshotAlign, hideCaption: false, theme: theme)
         }
         cgContext.restoreGState()
         NSGraphicsContext.restoreGraphicsState()
         guard let cgImage = cgContext.makeImage() else {
             throw CanvasDocumentError("Could not finalize PNG image.")
         }
+        return cgImage
+    }
+
+    public func exportPNGData(
+        sizing: CanvasPNGExportSizing = .longestSide(CanvasPNGExportSizing.defaultLongestSide),
+        padding: Double = CanvasPNGExportSizing.defaultPadding,
+        theme: CanvasPNGExportTheme = .light,
+        scope: CanvasPNGExportScope = .automatic
+    ) throws -> Data {
+        try flushPendingEditsForExport()
+        let filter = try resolvePNGExportFilter(for: scope)
+        let cgImage = try Self.renderPNGCGImage(
+            from: session.root,
+            sizing: sizing,
+            padding: padding,
+            theme: theme,
+            filter: filter
+        )
         let rep = NSBitmapImageRep(cgImage: cgImage)
         guard let pngData = rep.representation(using: .png, properties: [:]) else {
             throw CanvasDocumentError("Could not encode PNG data.")
@@ -2771,9 +2886,11 @@ public final class CanvasView: NSView {
     public func exportPNG(
         to url: URL,
         sizing: CanvasPNGExportSizing = .longestSide(CanvasPNGExportSizing.defaultLongestSide),
-        padding: Double = CanvasPNGExportSizing.defaultPadding
+        padding: Double = CanvasPNGExportSizing.defaultPadding,
+        theme: CanvasPNGExportTheme = .light,
+        scope: CanvasPNGExportScope = .automatic
     ) throws {
-        let data = try exportPNGData(sizing: sizing, padding: padding)
+        let data = try exportPNGData(sizing: sizing, padding: padding, theme: theme, scope: scope)
         do {
             try data.write(to: url, options: .atomic)
         } catch {
@@ -4101,7 +4218,7 @@ public final class CanvasView: NSView {
     }
 
     private static func contentWorldBounds(nodes: [Node], edges: [EdgeDrawing], role: String) -> CGRect {
-        guard !nodes.isEmpty else { return .null }
+        guard !nodes.isEmpty || !edges.isEmpty else { return .null }
         var bounds = CGRect.null
         for node in nodes {
             let angle = node.rotation * .pi / 180
@@ -4233,7 +4350,13 @@ public final class CanvasView: NSView {
         return kind == "text" ? "left" : "center"
     }
 
-    private static func drawNode(_ node: Node, role fontRole: String, defaultAlign: String? = nil, hideCaption: Bool) {
+    private static func drawNode(
+        _ node: Node,
+        role fontRole: String,
+        defaultAlign: String? = nil,
+        hideCaption: Bool,
+        theme: CanvasPNGExportTheme = .light
+    ) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
         context.translateBy(x: node.center.x, y: node.center.y)
@@ -4244,7 +4367,7 @@ public final class CanvasView: NSView {
             let from = point(data["from"], in: node.box)
             let to = point(data["to"], in: node.box)
             let path = NSBezierPath(); path.move(to: from); path.line(to: to)
-            let color = palette(data["stroke"] as? String ?? "ink")
+            let color = palette(data["stroke"] as? String ?? "ink", theme: theme)
             color.setStroke(); configure(path, data); path.stroke()
             let arrow = data["arrow"] as? String ?? "end"
             if arrow == "end" || arrow == "both" { drawArrow(at: to, from: from, color: color) }
@@ -4255,9 +4378,9 @@ public final class CanvasView: NSView {
             let path = outline(kind, node.box, number(node.data["radius"], defaultRadius))
             let defaultFill = (node.type == "code" || kind == "text") ? "none" : "blue"
             let fill = data["fill"] as? String ?? defaultFill
-            palette(fill).setFill(); path.fill()
+            palette(fill, theme: theme).setFill(); path.fill()
             let defaultStroke = node.type == "code" ? "ink" : (kind == "text" ? "none" : "blue")
-            palette(data["stroke"] as? String ?? defaultStroke).setStroke()
+            palette(data["stroke"] as? String ?? defaultStroke, theme: theme).setStroke()
             configure(path, data); path.stroke()
             if !hideCaption {
                 let text = nodeText(node)
@@ -4266,15 +4389,24 @@ public final class CanvasView: NSView {
                 let style = NSMutableParagraphStyle()
                 style.alignment = node.type == "code" ? .left : alignment(effectiveAlignment(data: data, kind: kind, defaultAlign: defaultAlign))
                 style.lineBreakMode = .byWordWrapping
-                let attrs: [NSAttributedString.Key: Any] = [.font: font(role, data["size"] as? String ?? "m"), .foregroundColor: textColor(on: fill), .paragraphStyle: style]
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: font(role, data["size"] as? String ?? "m"),
+                    .foregroundColor: textColor(on: fill, theme: theme),
+                    .paragraphStyle: style,
+                ]
                 (text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attrs)
             }
         }
         context.restoreGState()
     }
 
-    private static func drawEdge(_ edge: EdgeDrawing, role fontRole: String, isSelected: Bool) {
-        let color = isSelected ? CanvasTheme.selectionCobalt : palette(edge.style["stroke"] as? String ?? "ink")
+    private static func drawEdge(
+        _ edge: EdgeDrawing,
+        role fontRole: String,
+        isSelected: Bool,
+        theme: CanvasPNGExportTheme = .light
+    ) {
+        let color = isSelected ? CanvasTheme.selectionCobalt : palette(edge.style["stroke"] as? String ?? "ink", theme: theme)
         let width = edge.style["width"] as? NSNumber
         let validWidth = width != nil && CFGetTypeID(width!) != CFBooleanGetTypeID() &&
             !["f", "d"].contains(String(cString: width!.objCType)) && [1, 2, 4].contains(width!.intValue)
@@ -4290,13 +4422,16 @@ public final class CanvasView: NSView {
             let size = labelSize(edge.label, role: fontRole)
             let rect = CGRect(x: edge.labelPoint.x - size.width / 2, y: edge.labelPoint.y - size.height / 2, width: size.width, height: size.height)
             let pill = rect.insetBy(dx: -5, dy: -2)
-            CanvasTheme.elevatedSurface.setFill()
+            CanvasTheme.edgeLabelFill(theme: theme).setFill()
             pill.fill()
             let pillBorder = NSBezierPath(rect: pill)
             pillBorder.lineWidth = isSelected ? 1.5 : 1
-            (isSelected ? CanvasTheme.selectionCobalt : CanvasTheme.borderSubtle).setStroke()
+            (isSelected ? CanvasTheme.selectionCobalt : CanvasTheme.edgeLabelBorder(theme: theme)).setStroke()
             pillBorder.stroke()
-            (edge.label as NSString).draw(in: rect, withAttributes: [.font: font(fontRole, "m"), .foregroundColor: CanvasTheme.primaryText])
+            (edge.label as NSString).draw(
+                in: rect,
+                withAttributes: [.font: font(fontRole, "m"), .foregroundColor: CanvasTheme.edgeLabelText(theme: theme)]
+            )
         }
         if isSelected {
             for endpoint in [edge.samples.first ?? edge.end, edge.end] {
@@ -5050,11 +5185,11 @@ private func font(_ role: String, _ size: String, scale: CGFloat = 1.0) -> NSFon
     CanvasTypography.font(role, size, scale: scale)
 }
 private func alignment(_ value: String) -> NSTextAlignment { value == "right" ? .right : value == "center" ? .center : .left }
-private func palette(_ name: String) -> NSColor {
-    CanvasTheme.palette(name)
+private func palette(_ name: String, theme: CanvasPNGExportTheme = .light) -> NSColor {
+    CanvasTheme.palette(name, theme: theme)
 }
-private func textColor(on fill: String) -> NSColor {
-    CanvasTheme.textColor(onFill: fill)
+private func textColor(on fill: String, theme: CanvasPNGExportTheme = .light) -> NSColor {
+    CanvasTheme.textColor(onFill: fill, theme: theme)
 }
 private func configure(_ path: NSBezierPath, _ data: [String: Any]) {
     path.lineWidth = number(data["width"], 2)
