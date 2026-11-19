@@ -15,6 +15,55 @@ public struct CanvasMove: Equatable, Sendable {
     public let id: String
     public let before: CanvasPosition
     public let after: CanvasPosition
+
+    public init(id: String, before: CanvasPosition, after: CanvasPosition) {
+        self.id = id
+        self.before = before
+        self.after = after
+    }
+}
+
+public struct CanvasBatchMove: Equatable, Sendable {
+    public let moves: [CanvasMove]
+
+    public init(moves: [CanvasMove]) {
+        self.moves = moves
+    }
+
+    public var inverse: CanvasBatchMove {
+        CanvasBatchMove(moves: moves.map { CanvasMove(id: $0.id, before: $0.after, after: $0.before) })
+    }
+}
+
+public enum CanvasAlignment: String, CaseIterable, Sendable {
+    case left
+    case centerHorizontal
+    case right
+    case top
+    case centerVertical
+    case bottom
+    case distributeHorizontally
+    case distributeVertically
+
+    public var actionName: String {
+        switch self {
+        case .left: return "Align Left"
+        case .centerHorizontal: return "Align Horizontal Centers"
+        case .right: return "Align Right"
+        case .top: return "Align Top"
+        case .centerVertical: return "Align Vertical Centers"
+        case .bottom: return "Align Bottom"
+        case .distributeHorizontally: return "Distribute Horizontally"
+        case .distributeVertically: return "Distribute Vertically"
+        }
+    }
+
+    public var minimumSelectionCount: Int {
+        switch self {
+        case .distributeHorizontally, .distributeVertically: return 3
+        default: return 2
+        }
+    }
 }
 
 public enum CanvasShapeKind: String, CaseIterable, Sendable {
@@ -304,6 +353,191 @@ public final class CanvasSession {
         candidate["nodes"] = nodes
         root = candidate
         return CanvasMove(id: id, before: before, after: position)
+    }
+
+    /// Visual axis-aligned bounds used for aligning and distributing an item.
+    /// Uses endpoint bounds for standalone lines/arrows and rotated bounds for shapes/code.
+    public func alignmentBounds(of id: String) -> (minX: Double, minY: Double, maxX: Double, maxY: Double)? {
+        if let line = lineGeometry(of: id) {
+            let start = line.point(for: .start)
+            let end = line.point(for: .end)
+            return (
+                minX: min(start.x, end.x),
+                minY: min(start.y, end.y),
+                maxX: max(start.x, end.x),
+                maxY: max(start.y, end.y)
+            )
+        }
+        guard let geo = geometry(of: id) else { return nil }
+        let b = geo.rotatedAxisAlignedBounds
+        return (minX: b.x, minY: b.y, maxX: b.x + b.width, maxY: b.y + b.height)
+    }
+
+    public func canAlignNodes(_ ids: [String], alignment: CanvasAlignment) -> Bool {
+        guard !isReadOnly else { return false }
+        let idSet = Set(ids)
+        let rawNodes = root["nodes"] as? [[String: Any]] ?? []
+        var matched = 0
+        var unlocked = 0
+        for raw in rawNodes {
+            guard let id = raw["id"] as? String, idSet.contains(id) else { continue }
+            matched += 1
+            if !isLocked(id) { unlocked += 1 }
+        }
+        return matched >= alignment.minimumSelectionCount && unlocked > 0
+    }
+
+    @discardableResult
+    public func alignNodes(_ ids: [String], alignment: CanvasAlignment) throws -> CanvasBatchMove? {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard var nodes = root["nodes"] as? [[String: Any]] else { return nil }
+        let idSet = Set(ids)
+        struct AlignItem {
+            let id: String
+            let nodeIndex: Int
+            let position: CanvasPosition
+            let minX: Double
+            let minY: Double
+            let maxX: Double
+            let maxY: Double
+            let locked: Bool
+            var width: Double { maxX - minX }
+            var height: Double { maxY - minY }
+            var midX: Double { (minX + maxX) / 2.0 }
+            var midY: Double { (minY + maxY) / 2.0 }
+        }
+        var items: [AlignItem] = []
+        for (index, raw) in nodes.enumerated() {
+            guard let id = raw["id"] as? String, idSet.contains(id),
+                  let pos = position(of: id),
+                  let bounds = alignmentBounds(of: id) else { continue }
+            items.append(AlignItem(
+                id: id,
+                nodeIndex: index,
+                position: pos,
+                minX: bounds.minX,
+                minY: bounds.minY,
+                maxX: bounds.maxX,
+                maxY: bounds.maxY,
+                locked: isLocked(id)
+            ))
+        }
+        guard items.count >= alignment.minimumSelectionCount,
+              items.contains(where: { !$0.locked }) else { return nil }
+
+        let selectionMinX = items.map(\.minX).min()!
+        let selectionMaxX = items.map(\.maxX).max()!
+        let selectionMidX = (selectionMinX + selectionMaxX) / 2.0
+        let selectionMinY = items.map(\.minY).min()!
+        let selectionMaxY = items.map(\.maxY).max()!
+        let selectionMidY = (selectionMinY + selectionMaxY) / 2.0
+
+        var deltas: [String: (dx: Double, dy: Double)] = [:]
+        switch alignment {
+        case .left:
+            for item in items { deltas[item.id] = (selectionMinX - item.minX, 0) }
+        case .centerHorizontal:
+            for item in items { deltas[item.id] = (selectionMidX - item.midX, 0) }
+        case .right:
+            for item in items { deltas[item.id] = (selectionMaxX - item.maxX, 0) }
+        case .top:
+            for item in items { deltas[item.id] = (0, selectionMinY - item.minY) }
+        case .centerVertical:
+            for item in items { deltas[item.id] = (0, selectionMidY - item.midY) }
+        case .bottom:
+            for item in items { deltas[item.id] = (0, selectionMaxY - item.maxY) }
+        case .distributeHorizontally:
+            let sorted = items.sorted { lhs, rhs in
+                if lhs.minX != rhs.minX { return lhs.minX < rhs.minX }
+                if lhs.midX != rhs.midX { return lhs.midX < rhs.midX }
+                return lhs.nodeIndex < rhs.nodeIndex
+            }
+            let totalSpan = sorted.last!.maxX - sorted.first!.minX
+            let totalWidth = sorted.reduce(0.0) { $0 + $1.width }
+            let gap = (totalSpan - totalWidth) / Double(sorted.count - 1)
+            var cursor = sorted.first!.maxX + gap
+            for idx in 1..<(sorted.count - 1) {
+                let item = sorted[idx]
+                deltas[item.id] = (cursor - item.minX, 0)
+                cursor += item.width + gap
+            }
+        case .distributeVertically:
+            let sorted = items.sorted { lhs, rhs in
+                if lhs.minY != rhs.minY { return lhs.minY < rhs.minY }
+                if lhs.midY != rhs.midY { return lhs.midY < rhs.midY }
+                return lhs.nodeIndex < rhs.nodeIndex
+            }
+            let totalSpan = sorted.last!.maxY - sorted.first!.minY
+            let totalHeight = sorted.reduce(0.0) { $0 + $1.height }
+            let gap = (totalSpan - totalHeight) / Double(sorted.count - 1)
+            var cursor = sorted.first!.maxY + gap
+            for idx in 1..<(sorted.count - 1) {
+                let item = sorted[idx]
+                deltas[item.id] = (0, cursor - item.minY)
+                cursor += item.height + gap
+            }
+        }
+
+        let epsilon = 1e-9
+        var moves: [CanvasMove] = []
+        for item in items where !item.locked {
+            guard let delta = deltas[item.id],
+                  abs(delta.dx) >= epsilon || abs(delta.dy) >= epsilon else { continue }
+            let after = CanvasPosition(x: item.position.x + delta.dx, y: item.position.y + delta.dy)
+            guard after.x.isFinite, after.y.isFinite,
+                  abs(after.x) <= 1_000_000, abs(after.y) <= 1_000_000 else {
+                throw CanvasDocumentError("Node \(item.id) needs finite coordinates within 1000000.")
+            }
+            guard after != item.position else { continue }
+            var node = nodes[item.nodeIndex]
+            node["x"] = after.x
+            node["y"] = after.y
+            nodes[item.nodeIndex] = node
+            moves.append(CanvasMove(id: item.id, before: item.position, after: after))
+        }
+        guard !moves.isEmpty else { return nil }
+        var candidate = root
+        candidate["nodes"] = nodes
+        try CanvasDocument.validate(candidate)
+        root = candidate
+        return CanvasBatchMove(moves: moves)
+    }
+
+    public func applyBatchMove(_ batch: CanvasBatchMove) throws {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard !batch.moves.isEmpty else { return }
+        guard var nodes = root["nodes"] as? [[String: Any]] else {
+            throw CanvasDocumentError("Invalid canvas nodes array.")
+        }
+        var changed = false
+        for move in batch.moves {
+            guard move.after.x.isFinite, move.after.y.isFinite,
+                  abs(move.after.x) <= 1_000_000, abs(move.after.y) <= 1_000_000 else {
+                throw CanvasDocumentError("Node \(move.id) needs finite coordinates within 1000000.")
+            }
+            guard let index = nodes.firstIndex(where: { $0["id"] as? String == move.id }) else {
+                throw CanvasDocumentError("Unknown node ID: \(move.id).")
+            }
+            guard !isLocked(move.id) else {
+                throw CanvasDocumentError("Node \(move.id) is locked.")
+            }
+            if position(of: move.id) != move.after {
+                var node = nodes[index]
+                node["x"] = move.after.x
+                node["y"] = move.after.y
+                nodes[index] = node
+                changed = true
+            }
+        }
+        guard changed else { return }
+        var candidate = root
+        candidate["nodes"] = nodes
+        try CanvasDocument.validate(candidate)
+        root = candidate
     }
     public func geometry(of id: String) -> CanvasGeometry? {
         guard let raw = node(id), let data = raw["data"] as? [String: Any],

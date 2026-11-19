@@ -186,11 +186,13 @@ public final class CanvasView: NSView {
     public let styleInspector = StyleInspectorView()
     public private(set) var isStyleInspectorOpen = false
     public let toolDock = CanvasToolDockView()
+    public let alignBar = CanvasAlignBarView()
     public var isToolDockVisible: Bool = false {
         didSet {
             toolDock.isHidden = !isToolDockVisible
             refreshToolDock()
             positionToolDock()
+            positionAlignBar()
             needsDisplay = true
         }
     }
@@ -404,6 +406,16 @@ public final class CanvasView: NSView {
         guard let id = selectedID else { return false }
         return session.canSendToBack(id)
     }
+    public func canAlign(_ alignment: CanvasAlignment) -> Bool {
+        guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil else { return false }
+        return session.canAlignNodes(orderedSelectedNodeIDs, alignment: alignment)
+    }
+    public var canAlignSelection: Bool {
+        canAlign(.left)
+    }
+    public var canDistributeSelection: Bool {
+        canAlign(.distributeHorizontally)
+    }
     public var canToggleLock: Bool {
         !isReadOnly && !hasGeometryPreview && inlineTextState == nil && drag == nil && selectedID != nil
     }
@@ -496,6 +508,9 @@ public final class CanvasView: NSView {
         styleInspector.onSelectStyle = { [weak self] property, value in
             try self?.applyStyle(property, to: value)
         }
+        styleInspector.onAlign = { [weak self] alignment in
+            self?.alignSelection(alignment)
+        }
         styleInspector.onClose = { [weak self] in
             self?.closeStyleInspector(nil)
         }
@@ -520,6 +535,11 @@ public final class CanvasView: NSView {
             self?.beginShortcutsHelp()
         }
         addSubview(toolDock)
+        alignBar.isHidden = true
+        alignBar.onAlign = { [weak self] alignment in
+            self?.alignSelection(alignment)
+        }
+        addSubview(alignBar)
         statusBanner.isHidden = true
         addSubview(statusBanner)
     }
@@ -606,6 +626,7 @@ public final class CanvasView: NSView {
         positionInlineTextEditor()
         positionStyleInspector()
         positionToolDock()
+        positionAlignBar()
         positionStatusBanner()
     }
 
@@ -931,6 +952,7 @@ public final class CanvasView: NSView {
         self.drag = activeDrag
         if didPreviewMove {
             rebuildEdges()
+            refreshAlignBar()
             needsDisplay = true
         }
     }
@@ -980,9 +1002,95 @@ public final class CanvasView: NSView {
         }
         if !changed.isEmpty {
             registerUndoMoves(changed, to: activeDrag.positions)
+            refreshAlignBar()
         } else {
             syncFromSession()
         }
+    }
+
+    public override func menu(for event: NSEvent) -> NSMenu? {
+        guard inlineTextState == nil, !hasGeometryPreview, window?.attachedSheet == nil,
+              connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil else {
+            return nil
+        }
+        let point = worldPoint(for: event)
+        if let hitNode = nodes.reversed().first(where: { contains(point, node: $0) }) {
+            if !selectedNodeIDs.contains(hitNode.id) {
+                selectSingleNode(hitNode.id)
+                refreshStyleInspector()
+                refreshToolDock()
+                needsDisplay = true
+            }
+        }
+        let menu = NSMenu(title: "Canvas")
+        menu.autoenablesItems = false
+        if orderedSelectedNodeIDs.count >= 2 {
+            let alignItem = NSMenuItem(title: "Align", action: nil, keyEquivalent: "")
+            let alignMenu = NSMenu(title: "Align")
+            alignMenu.autoenablesItems = false
+            let groups: [[CanvasAlignment]] = [
+                [.left, .centerHorizontal, .right],
+                [.top, .centerVertical, .bottom],
+                [.distributeHorizontally, .distributeVertically]
+            ]
+            for (groupIdx, group) in groups.enumerated() {
+                if groupIdx > 0 { alignMenu.addItem(.separator()) }
+                for alignment in group {
+                    let item = NSMenuItem(
+                        title: alignment.actionName,
+                        action: #selector(alignSelectionFromMenu(_:)),
+                        keyEquivalent: ""
+                    )
+                    item.target = self
+                    item.representedObject = alignment.rawValue
+                    item.isEnabled = canAlign(alignment)
+                    alignMenu.addItem(item)
+                }
+            }
+            alignItem.submenu = alignMenu
+            menu.addItem(alignItem)
+            menu.addItem(.separator())
+        }
+        if canCutSelection {
+            let item = NSMenuItem(title: "Cut", action: #selector(cutSelection(_:)), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        if canCopySelection {
+            let item = NSMenuItem(title: "Copy", action: #selector(copySelection(_:)), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        if canPaste {
+            let item = NSMenuItem(title: "Paste", action: #selector(pasteSelection(_:)), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        if canDuplicateSelection {
+            let item = NSMenuItem(title: "Duplicate", action: #selector(duplicateSelection(_:)), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        if canBringToFront || canSendToBack {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            if canBringToFront {
+                let item = NSMenuItem(title: "Bring to Front", action: #selector(bringToFront(_:)), keyEquivalent: "")
+                item.target = self
+                menu.addItem(item)
+            }
+            if canSendToBack {
+                let item = NSMenuItem(title: "Send to Back", action: #selector(sendToBack(_:)), keyEquivalent: "")
+                item.target = self
+                menu.addItem(item)
+            }
+        }
+        if canDeleteSelection {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            let item = NSMenuItem(title: "Delete", action: #selector(deleteSelection(_:)), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+        }
+        return menu.items.isEmpty ? nil : menu
     }
 
     public override func keyUp(with event: NSEvent) {
@@ -1084,6 +1192,36 @@ public final class CanvasView: NSView {
                 }
             }
         }
+        if flags == [.command, .option], !event.modifierFlags.contains(.shift) {
+            switch event.keyCode {
+            case 123:
+                alignSelection(.left)
+                return
+            case 124:
+                alignSelection(.right)
+                return
+            case 126:
+                alignSelection(.top)
+                return
+            case 125:
+                alignSelection(.bottom)
+                return
+            default:
+                break
+            }
+        }
+        if flags == [.command, .control] {
+            let shifted = event.modifierFlags.contains(.shift)
+            let char = event.charactersIgnoringModifiers?.lowercased()
+            if char == "h" || event.keyCode == 4 {
+                alignSelection(shifted ? .distributeHorizontally : .centerHorizontal)
+                return
+            }
+            if char == "v" || event.keyCode == 9 {
+                alignSelection(shifted ? .distributeVertically : .centerVertical)
+                return
+            }
+        }
         if flags.isEmpty {
             if event.keyCode == 49 {
                 if !event.isARepeat {
@@ -1119,6 +1257,7 @@ public final class CanvasView: NSView {
                 }
                 if marqueeGesture != nil {
                     marqueeGesture = nil
+                    refreshAlignBar()
                     needsDisplay = true
                     return
                 }
@@ -1915,6 +2054,51 @@ public final class CanvasView: NSView {
         }
     }
 
+    @objc public func alignSelectionFromMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let alignment = CanvasAlignment(rawValue: raw) else { return }
+        alignSelection(alignment)
+    }
+
+    public func alignSelection(_ alignment: CanvasAlignment) {
+        guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil,
+              window?.attachedSheet == nil, connectionEditor == nil,
+              attachmentPreview == nil, pngExportSheet == nil else {
+            NSSound.beep()
+            return
+        }
+        let selected = orderedSelectedNodeIDs
+        guard session.canAlignNodes(selected, alignment: alignment) else {
+            NSSound.beep()
+            return
+        }
+        do {
+            guard let batch = try session.alignNodes(selected, alignment: alignment) else { return }
+            syncFromSession()
+            registerUndoBatchMove(batch, selectedIDs: selected, actionName: alignment.actionName)
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    private func registerUndoBatchMove(
+        _ batch: CanvasBatchMove,
+        selectedIDs: [String],
+        actionName: String
+    ) {
+        recordUndo(actionName) { target in
+            do {
+                let inverse = batch.inverse
+                try target.session.applyBatchMove(inverse)
+                target.applyNodeSelection(selectedIDs)
+                target.syncFromSession()
+                target.registerUndoBatchMove(inverse, selectedIDs: selectedIDs, actionName: actionName)
+            } catch {
+                NSSound.beep()
+            }
+        }
+    }
+
     @objc public func toggleLock(_ sender: Any? = nil) {
         guard !hasGeometryPreview, inlineTextState == nil, drag == nil, window?.attachedSheet == nil,
               connectionEditor == nil,
@@ -2009,11 +2193,15 @@ public final class CanvasView: NSView {
     private func refreshStyleInspector() {
         refreshToolDock()
         guard isStyleInspectorOpen else { return }
+        let selected = orderedSelectedNodeIDs
         styleInspector.update(
             session: session,
             selectedNodeID: selectedID,
+            selectedNodeCount: selected.count,
             selectedConnectionID: selectedEdgeID,
-            hasGeometryPreview: hasGeometryPreview
+            hasGeometryPreview: hasGeometryPreview,
+            canAlign: session.canAlignNodes(selected, alignment: .left),
+            canDistribute: session.canAlignNodes(selected, alignment: .distributeHorizontally)
         )
         positionStyleInspector()
     }
@@ -2030,6 +2218,7 @@ public final class CanvasView: NSView {
     }
 
     public func refreshToolDock() {
+        refreshAlignBar()
         guard isToolDockVisible else { return }
         toolDock.update(
             activeTool: activeCreationTool,
@@ -2048,6 +2237,30 @@ public final class CanvasView: NSView {
         toolDock.frame.origin = CGPoint(
             x: max(area.minX + 12, floor(area.midX - size.width / 2)),
             y: max(area.minY + 12, area.maxY - size.height - 14)
+        )
+    }
+
+    public func refreshAlignBar() {
+        let selected = orderedSelectedNodeIDs
+        let canAlignNow = !isReadOnly && !hasGeometryPreview && inlineTextState == nil &&
+            !hasActivePointerDrag && marqueeGesture == nil && connectionDrag == nil && creationDrag == nil &&
+            session.canAlignNodes(selected, alignment: .left)
+        let canDistributeNow = canAlignNow && session.canAlignNodes(selected, alignment: .distributeHorizontally)
+        alignBar.isHidden = !canAlignNow
+        if canAlignNow {
+            alignBar.update(canAlign: true, canDistribute: canDistributeNow)
+            positionAlignBar()
+        }
+    }
+
+    public func positionAlignBar() {
+        guard !alignBar.isHidden else { return }
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        let size = alignBar.frame.size
+        let bottomMargin: CGFloat = isToolDockVisible ? (toolDock.frame.height + 22) : 14
+        alignBar.frame.origin = CGPoint(
+            x: max(area.minX + 12, floor(area.midX - size.width / 2)),
+            y: max(area.minY + 12, area.maxY - size.height - bottomMargin)
         )
     }
 
@@ -3209,6 +3422,7 @@ public final class CanvasView: NSView {
         positionInlineTextEditor()
         positionStyleInspector()
         positionToolDock()
+        positionAlignBar()
         positionStatusBanner()
         needsDisplay = true
     }
@@ -4807,7 +5021,7 @@ public final class CanvasView: NSView {
 
     public override func accessibilityChildren() -> [Any]? {
         var children: [Any] = accessibilityCanvasElements()
-        for subview in [thoughtScrollView, styleInspector, toolDock, statusBanner] where !subview.isHidden {
+        for subview in [thoughtScrollView, styleInspector, alignBar, toolDock, statusBanner] where !subview.isHidden {
             children.append(subview)
         }
         return children

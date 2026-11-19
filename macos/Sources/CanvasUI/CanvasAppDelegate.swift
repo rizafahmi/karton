@@ -477,6 +477,12 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         activeCanvas()?.sendToBack(sender)
     }
 
+    @objc public func alignSelection(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let alignment = CanvasAlignment(rawValue: raw) else { return }
+        activeCanvas()?.alignSelection(alignment)
+    }
+
     @objc public func toggleLock(_ sender: Any?) {
         activeCanvas()?.toggleLock(sender)
     }
@@ -672,6 +678,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
                  #selector(insertShape(_:)), #selector(insertLine(_:)),
                  #selector(duplicateSelection(_:)), #selector(deleteSelection(_:)),
                  #selector(bringToFront(_:)), #selector(sendToBack(_:)),
+                 #selector(alignSelection(_:)),
                  #selector(toggleLock(_:)), #selector(showStyleInspector(_:)),
                  #selector(zoomIn(_:)), #selector(zoomOut(_:)),
                  #selector(resetZoom(_:)), #selector(zoomToFit(_:)),
@@ -714,6 +721,12 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         }
         if menuItem.action == #selector(sendToBack(_:)) {
             return canvas.canSendToBack && !sheetOpen
+        }
+        if menuItem.action == #selector(alignSelection(_:)) {
+            guard !sheetOpen,
+                  let raw = menuItem.representedObject as? String,
+                  let alignment = CanvasAlignment(rawValue: raw) else { return false }
+            return canvas.canAlign(alignment)
         }
         if menuItem.action == #selector(editGeometry(_:)) {
             return canvas.canEditGeometry && !canvas.hasGeometryPreview && !sheetOpen
@@ -1011,6 +1024,30 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         back.target = self
         back.keyEquivalentModifierMask = [.command, .shift]
         editMenu.addItem(back)
+        let alignItem = NSMenuItem(title: "Align", action: nil, keyEquivalent: "")
+        let alignMenu = NSMenu(title: "Align")
+        let alignSpecs: [(CanvasAlignment, String, NSEvent.ModifierFlags)] = [
+            (.left, String(UnicodeScalar(NSLeftArrowFunctionKey)!), [.command, .option]),
+            (.centerHorizontal, "h", [.command, .control]),
+            (.right, String(UnicodeScalar(NSRightArrowFunctionKey)!), [.command, .option]),
+            (.top, String(UnicodeScalar(NSUpArrowFunctionKey)!), [.command, .option]),
+            (.centerVertical, "v", [.command, .control]),
+            (.bottom, String(UnicodeScalar(NSDownArrowFunctionKey)!), [.command, .option]),
+            (.distributeHorizontally, "h", [.command, .control, .shift]),
+            (.distributeVertically, "v", [.command, .control, .shift])
+        ]
+        for (index, spec) in alignSpecs.enumerated() {
+            if index == 3 || index == 6 {
+                alignMenu.addItem(.separator())
+            }
+            let item = NSMenuItem(title: spec.0.actionName, action: #selector(alignSelection(_:)), keyEquivalent: spec.1)
+            item.target = self
+            item.keyEquivalentModifierMask = spec.2
+            item.representedObject = spec.0.rawValue
+            alignMenu.addItem(item)
+        }
+        alignItem.submenu = alignMenu
+        editMenu.addItem(alignItem)
         let lock = NSMenuItem(title: "Lock", action: #selector(toggleLock(_:)), keyEquivalent: "l")
         lock.target = self
         editMenu.addItem(lock)

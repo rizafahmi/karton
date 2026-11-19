@@ -16,7 +16,7 @@ rounded exterior self-loop routes, labels and endpoint/side reconnection),
 object/connection selection, selection-preserving Tab traversal, Space tap selection
 toggle and Space-drag panning, marquee and Shift-click/⌘A multi-selection, movement,
 resize/rotation and line endpoint editing, Cut/Copy/Paste (**⌘X** / **⌘C** / **⌘V**),
-duplication (**⌘D**), deletion, front/back stacking, lock/unlock,
+duplication (**⌘D**), deletion, front/back stacking, item alignment & distribution, lock/unlock,
 object/connection/canvas style editing, caption editing
 with automatic box growth (using bundled Neo-Acid and Amatic SC typography with
 CoreText system glyph fallback), read-only attachment source preview/copy, canvas
@@ -96,6 +96,15 @@ For the selected object(s):
   fresh ID while enforcing the 1 MiB attachment and code source quotas.
 - **Edit → Bring to Front** (**⇧⌘]**) and **Edit → Send to Back** (**⇧⌘[**) reorder
   overlapping objects without changing positions, styles, metadata or connections.
+- **Edit → Align** (also available in the contextual floating Align bar above the tool
+  dock, the **Style** inspector when 2+ objects are selected, and the right-click
+  context menu) aligns 2+ selected objects by their visual bounding boxes (**Align
+  Left/Right/Top/Bottom** with **⌥⌘←/→/↑/↓**, **Align Horizontal/Vertical Centers**
+  with **⌃⌘H** / **⌃⌘V**) and distributes 3+ selected objects with equal edge-to-edge
+  gaps (**Distribute Horizontally/Vertically** with **⇧⌃⌘H** / **⇧⌃⌘V**) in one
+  undoable step. Locked objects in a mixed selection stay fixed as reference anchors,
+  and rotated shapes and standalone lines align by their visual edges without altering
+  rotation, line padding, or unknown metadata.
 - **Edit → Delete** (**Delete** / **Forward Delete**) removes the selected unlocked
   object(s) (together with any incident connections) or the selected connection in one
   undoable step.

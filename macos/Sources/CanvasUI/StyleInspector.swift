@@ -42,6 +42,10 @@ public final class StyleInspectorView: NSView {
     private let closeButton: InspectorButton
     private let messageLabel: NSTextField
     private let errorLabel: NSTextField
+    private let alignSectionLabel: NSTextField
+    private let distributeHintLabel: NSTextField
+    private var alignButtons: [CanvasAlignment: NeoAcidAlignButton] = [:]
+    private var showAlignSection: Bool = false
     private var currentTargetKey: String = ""
     private var currentSchema: [CanvasStyleProperty] = []
     private var currentIsConnection: Bool = false
@@ -50,6 +54,7 @@ public final class StyleInspectorView: NSView {
     private var controlsByProperty: [CanvasStyleProperty: InspectorPopUpButton] = [:]
     private var optionsByProperty: [CanvasStyleProperty: [Option]] = [:]
     var onSelectStyle: ((CanvasStyleProperty, CanvasStyleValue) throws -> Void)?
+    var onAlign: ((CanvasAlignment) -> Void)?
     var onClose: (() -> Void)?
 
     public override var isFlipped: Bool { true }
@@ -60,6 +65,8 @@ public final class StyleInspectorView: NSView {
         closeButton = InspectorButton(title: "Close", target: nil, action: nil)
         messageLabel = NSTextField(wrappingLabelWithString: "")
         errorLabel = NSTextField(wrappingLabelWithString: "")
+        alignSectionLabel = NSTextField(labelWithString: "ALIGN")
+        distributeHintLabel = NSTextField(labelWithString: "Distribute (3+ items)")
         super.init(frame: NSRect(x: 0, y: 0, width: 268, height: 120))
         identifier = NSUserInterfaceItemIdentifier("style-inspector")
         setAccessibilityLabel("Style inspector")
@@ -86,9 +93,29 @@ public final class StyleInspectorView: NSView {
         errorLabel.textColor = .systemRed
         errorLabel.isHidden = true
 
+        alignSectionLabel.font = .systemFont(ofSize: 10, weight: .bold)
+        alignSectionLabel.textColor = CanvasTheme.mutedText
+        alignSectionLabel.isHidden = true
+
+        distributeHintLabel.font = .systemFont(ofSize: 11)
+        distributeHintLabel.textColor = CanvasTheme.mutedText
+        distributeHintLabel.isHidden = true
+
         addSubview(titleLabel)
         addSubview(closeButton)
         addSubview(messageLabel)
+        addSubview(alignSectionLabel)
+        addSubview(distributeHintLabel)
+        for alignment in CanvasAlignment.allCases {
+            let button = NeoAcidAlignButton(alignment: alignment, frame: .zero)
+            button.identifier = NSUserInterfaceItemIdentifier("style-align-\(alignment.rawValue)")
+            button.target = self
+            button.action = #selector(alignButtonClicked(_:))
+            button.isHidden = true
+            button.onEscape = { [weak self] in self?.onClose?() }
+            addSubview(button)
+            alignButtons[alignment] = button
+        }
         addSubview(errorLabel)
     }
 
@@ -128,6 +155,14 @@ public final class StyleInspectorView: NSView {
     }
 
     public func focusPrimaryControl() {
+        if showAlignSection {
+            for alignment in CanvasAlignment.allCases {
+                if let button = alignButtons[alignment], !button.isHidden, button.isEnabled {
+                    window?.makeFirstResponder(button)
+                    return
+                }
+            }
+        }
         for property in currentSchema {
             if let control = controlsByProperty[property], control.isEnabled {
                 window?.makeFirstResponder(control)
@@ -155,10 +190,16 @@ public final class StyleInspectorView: NSView {
     func update(
         session: CanvasSession,
         selectedNodeID: String?,
+        selectedNodeCount: Int = 1,
         selectedConnectionID: String?,
-        hasGeometryPreview: Bool
+        hasGeometryPreview: Bool,
+        canAlign: Bool = false,
+        canDistribute: Bool = false
     ) {
-        let targetKey = "\(selectedNodeID ?? "")|\(selectedConnectionID ?? "")"
+        let isMultiSelection = selectedNodeID != nil && selectedNodeCount >= 2
+        let targetKey = isMultiSelection
+            ? "multi:\(selectedNodeCount)"
+            : "\(selectedNodeID ?? "")|\(selectedConnectionID ?? "")"
         let targetChanged = targetKey != currentTargetKey
         currentTargetKey = targetKey
         if targetChanged {
@@ -166,15 +207,36 @@ public final class StyleInspectorView: NSView {
             errorLabel.isHidden = true
         }
 
-        let isConnection = selectedNodeID == nil && selectedConnectionID != nil
-        let isDocument = selectedNodeID == nil && selectedConnectionID == nil
+        let isConnection = !isMultiSelection && selectedNodeID == nil && selectedConnectionID != nil
+        let isDocument = !isMultiSelection && selectedNodeID == nil && selectedConnectionID == nil
         let schema: [CanvasStyleProperty]
         let effective: [CanvasStyleProperty: CanvasStyleValue]
         let title: String
         var blocked = ""
 
-        if let nodeID = selectedNodeID,
-           let raw = (session.root["nodes"] as? [[String: Any]])?.first(where: { $0["id"] as? String == nodeID }) {
+        showAlignSection = isMultiSelection
+        alignSectionLabel.isHidden = !isMultiSelection
+        distributeHintLabel.isHidden = !isMultiSelection
+        for alignment in CanvasAlignment.allCases {
+            guard let button = alignButtons[alignment] else { continue }
+            button.isHidden = !isMultiSelection
+            let allowed = alignment.minimumSelectionCount >= 3 ? canDistribute : canAlign
+            button.isEnabled = isMultiSelection && !hasGeometryPreview && allowed
+        }
+
+        if isMultiSelection {
+            title = "\(selectedNodeCount) Objects"
+            schema = []
+            effective = [:]
+            if hasGeometryPreview {
+                blocked = "Finish the active geometry preview to align objects."
+            } else if session.isReadOnly {
+                blocked = "This canvas is read-only; use Save As to edit."
+            } else if !canAlign {
+                blocked = "Unlock at least one selected object to align."
+            }
+        } else if let nodeID = selectedNodeID,
+                  let raw = (session.root["nodes"] as? [[String: Any]])?.first(where: { $0["id"] as? String == nodeID }) {
             let type = raw["type"] as? String ?? "shape"
             let data = raw["data"] as? [String: Any] ?? [:]
             if type == "shape" {
@@ -317,6 +379,28 @@ public final class StyleInspectorView: NSView {
             messageLabel.frame = NSRect(x: padding, y: y, width: width - padding * 2, height: ceil(size.height))
             y += ceil(size.height) + 8
         }
+        if showAlignSection {
+            alignSectionLabel.frame = NSRect(x: padding, y: y + 2, width: width - padding * 2, height: 14)
+            y += 20
+            let buttonW: CGFloat = 36
+            let buttonH: CGFloat = 30
+            var x = padding
+            let firstRow: [CanvasAlignment] = [.left, .centerHorizontal, .right, .top, .centerVertical, .bottom]
+            for (idx, alignment) in firstRow.enumerated() {
+                if idx == 3 { x += 8 }
+                alignButtons[alignment]?.frame = NSRect(x: x, y: y, width: buttonW, height: buttonH)
+                x += buttonW + 4
+            }
+            y += buttonH + 6
+            let distRow: [CanvasAlignment] = [.distributeHorizontally, .distributeVertically]
+            var dx = padding
+            for alignment in distRow {
+                alignButtons[alignment]?.frame = NSRect(x: dx, y: y, width: buttonW, height: buttonH)
+                dx += buttonW + 4
+            }
+            distributeHintLabel.frame = NSRect(x: dx + 4, y: y + 7, width: width - padding - dx - 4, height: 16)
+            y += buttonH + 8
+        }
         var index = 0
         while index < rowViews.count {
             let view = rowViews[index]
@@ -342,6 +426,12 @@ public final class StyleInspectorView: NSView {
             y += ceil(size.height) + 8
         }
         setFrameSize(NSSize(width: width, height: max(84, y + 8)))
+    }
+
+    @objc private func alignButtonClicked(_ sender: NSButton) {
+        guard let alignBtn = sender as? NeoAcidAlignButton else { return }
+        clearError()
+        onAlign?(alignBtn.alignmentKind)
     }
 
     @objc private func controlChanged(_ sender: NSPopUpButton) {

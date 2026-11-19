@@ -536,6 +536,242 @@ public final class CanvasToolDockView: NSView {
     }
 }
 
+extension CanvasAlignment {
+    public var shortcutHint: String {
+        switch self {
+        case .left: return "⌥⌘←"
+        case .centerHorizontal: return "⌃⌘H"
+        case .right: return "⌥⌘→"
+        case .top: return "⌥⌘↑"
+        case .centerVertical: return "⌃⌘V"
+        case .bottom: return "⌥⌘↓"
+        case .distributeHorizontally: return "⇧⌃⌘H"
+        case .distributeVertically: return "⇧⌃⌘V"
+        }
+    }
+
+    public var tooltipText: String {
+        "\(actionName) (\(shortcutHint))"
+    }
+}
+
+@MainActor
+final class NeoAcidAlignButton: NSButton {
+    let alignmentKind: CanvasAlignment
+    var onEscape: (() -> Void)?
+
+    override var isFlipped: Bool { true }
+
+    init(alignment: CanvasAlignment, frame: NSRect) {
+        self.alignmentKind = alignment
+        super.init(frame: frame)
+        title = alignment.actionName
+        toolTip = alignment.tooltipText
+        isBordered = false
+        setAccessibilityLabel(alignment.tooltipText)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("NeoAcidAlignButton does not support NSCoder")
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53, let onEscape {
+            onEscape()
+            return
+        }
+        if event.modifierFlags.contains(.command) {
+            superview?.keyDown(with: event)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let fill: NSColor
+        if !isEnabled {
+            fill = CanvasTheme.surface.withAlphaComponent(0.6)
+        } else if isHighlighted {
+            fill = CanvasTheme.acid
+        } else {
+            fill = CanvasTheme.elevatedSurface
+        }
+        fill.setFill()
+        bounds.fill()
+
+        let border = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
+        border.lineWidth = isHighlighted ? 1.5 : 1.0
+        (isHighlighted ? CanvasTheme.borderStrong : CanvasTheme.borderSubtle).setStroke()
+        border.stroke()
+
+        let color = isEnabled ? CanvasTheme.highlighterInk : CanvasTheme.mutedText
+        Self.drawGlyph(alignmentKind, in: bounds, color: color)
+    }
+
+    static func drawGlyph(_ alignment: CanvasAlignment, in rect: NSRect, color: NSColor) {
+        let cx = rect.midX
+        let cy = rect.midY
+        color.setStroke()
+        color.setFill()
+
+        let guide = NSBezierPath()
+        guide.lineWidth = 1.8
+
+        switch alignment {
+        case .left:
+            guide.move(to: CGPoint(x: cx - 7, y: cy - 7))
+            guide.line(to: CGPoint(x: cx - 7, y: cy + 7))
+            guide.stroke()
+            NSBezierPath(rect: CGRect(x: cx - 4.5, y: cy - 5, width: 11, height: 3.6)).fill()
+            NSBezierPath(rect: CGRect(x: cx - 4.5, y: cy + 1.4, width: 7.5, height: 3.6)).fill()
+
+        case .centerHorizontal:
+            guide.lineWidth = 1.6
+            guide.move(to: CGPoint(x: cx, y: cy - 7.5))
+            guide.line(to: CGPoint(x: cx, y: cy + 7.5))
+            guide.stroke()
+            NSBezierPath(rect: CGRect(x: cx - 6.5, y: cy - 5, width: 13, height: 3.6)).fill()
+            NSBezierPath(rect: CGRect(x: cx - 4, y: cy + 1.4, width: 8, height: 3.6)).fill()
+
+        case .right:
+            guide.move(to: CGPoint(x: cx + 7, y: cy - 7))
+            guide.line(to: CGPoint(x: cx + 7, y: cy + 7))
+            guide.stroke()
+            NSBezierPath(rect: CGRect(x: cx - 6.5, y: cy - 5, width: 11, height: 3.6)).fill()
+            NSBezierPath(rect: CGRect(x: cx - 3, y: cy + 1.4, width: 7.5, height: 3.6)).fill()
+
+        case .top:
+            guide.move(to: CGPoint(x: cx - 7, y: cy - 7))
+            guide.line(to: CGPoint(x: cx + 7, y: cy - 7))
+            guide.stroke()
+            NSBezierPath(rect: CGRect(x: cx - 5, y: cy - 4.5, width: 3.6, height: 11)).fill()
+            NSBezierPath(rect: CGRect(x: cx + 1.4, y: cy - 4.5, width: 3.6, height: 7.5)).fill()
+
+        case .centerVertical:
+            guide.lineWidth = 1.6
+            guide.move(to: CGPoint(x: cx - 7.5, y: cy))
+            guide.line(to: CGPoint(x: cx + 7.5, y: cy))
+            guide.stroke()
+            NSBezierPath(rect: CGRect(x: cx - 5, y: cy - 6.5, width: 3.6, height: 13)).fill()
+            NSBezierPath(rect: CGRect(x: cx + 1.4, y: cy - 4, width: 3.6, height: 8)).fill()
+
+        case .bottom:
+            guide.move(to: CGPoint(x: cx - 7, y: cy + 7))
+            guide.line(to: CGPoint(x: cx + 7, y: cy + 7))
+            guide.stroke()
+            NSBezierPath(rect: CGRect(x: cx - 5, y: cy - 6.5, width: 3.6, height: 11)).fill()
+            NSBezierPath(rect: CGRect(x: cx + 1.4, y: cy - 3, width: 3.6, height: 7.5)).fill()
+
+        case .distributeHorizontally:
+            guide.move(to: CGPoint(x: cx - 7, y: cy - 7))
+            guide.line(to: CGPoint(x: cx - 7, y: cy + 7))
+            guide.move(to: CGPoint(x: cx + 7, y: cy - 7))
+            guide.line(to: CGPoint(x: cx + 7, y: cy + 7))
+            guide.stroke()
+            NSBezierPath(rect: CGRect(x: cx - 2.2, y: cy - 5, width: 4.4, height: 10)).fill()
+
+        case .distributeVertically:
+            guide.move(to: CGPoint(x: cx - 7, y: cy - 7))
+            guide.line(to: CGPoint(x: cx + 7, y: cy - 7))
+            guide.move(to: CGPoint(x: cx - 7, y: cy + 7))
+            guide.line(to: CGPoint(x: cx + 7, y: cy + 7))
+            guide.stroke()
+            NSBezierPath(rect: CGRect(x: cx - 5, y: cy - 2.2, width: 10, height: 4.4)).fill()
+        }
+    }
+}
+
+@MainActor
+public final class CanvasAlignBarView: NSView {
+    public var onAlign: ((CanvasAlignment) -> Void)?
+
+    private var buttons: [CanvasAlignment: NeoAcidAlignButton] = [:]
+    private var dividerXs: [CGFloat] = []
+
+    public override var isFlipped: Bool { true }
+
+    public override init(frame frameRect: NSRect = .zero) {
+        super.init(frame: frameRect)
+        identifier = NSUserInterfaceItemIdentifier("canvas-align-bar")
+        setAccessibilityRole(.toolbar)
+        setAccessibilityLabel("Align selected items")
+        buildControls()
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("CanvasAlignBarView does not support NSCoder")
+    }
+
+    public override func mouseDown(with event: NSEvent) {}
+    public override func mouseDragged(with event: NSEvent) {}
+    public override func mouseUp(with event: NSEvent) {}
+
+    public func button(for alignment: CanvasAlignment) -> NSButton? {
+        buttons[alignment]
+    }
+
+    private func buildControls() {
+        let groups: [[CanvasAlignment]] = [
+            [.left, .centerHorizontal, .right],
+            [.top, .centerVertical, .bottom],
+            [.distributeHorizontally, .distributeVertically]
+        ]
+        var x: CGFloat = 6
+        let y: CGFloat = 6
+        let buttonSize: CGFloat = 30
+
+        for (groupIdx, group) in groups.enumerated() {
+            if groupIdx > 0 {
+                dividerXs.append(x + 2)
+                x += 8
+            }
+            for alignment in group {
+                let button = NeoAcidAlignButton(
+                    alignment: alignment,
+                    frame: NSRect(x: x, y: y, width: buttonSize, height: buttonSize)
+                )
+                button.identifier = NSUserInterfaceItemIdentifier("align-bar-\(alignment.rawValue)")
+                button.target = self
+                button.action = #selector(handleAlignButton(_:))
+                addSubview(button)
+                buttons[alignment] = button
+                x += buttonSize + 4
+            }
+        }
+        setFrameSize(NSSize(width: x + 2, height: 42))
+    }
+
+    public func update(canAlign: Bool, canDistribute: Bool) {
+        for alignment in CanvasAlignment.allCases {
+            guard let button = buttons[alignment] else { continue }
+            button.isEnabled = alignment.minimumSelectionCount >= 3 ? canDistribute : canAlign
+        }
+        needsDisplay = true
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        CanvasTheme.surface.setFill()
+        bounds.fill()
+        let border = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
+        border.lineWidth = 2
+        CanvasTheme.borderStrong.setStroke()
+        border.stroke()
+        for divX in dividerXs {
+            let div = NSBezierPath()
+            div.move(to: CGPoint(x: divX, y: 8))
+            div.line(to: CGPoint(x: divX, y: bounds.height - 8))
+            div.lineWidth = 1.5
+            CanvasTheme.borderSubtle.setStroke()
+            div.stroke()
+        }
+    }
+
+    @objc private func handleAlignButton(_ sender: NSButton) {
+        guard let alignBtn = sender as? NeoAcidAlignButton else { return }
+        onAlign?(alignBtn.alignmentKind)
+    }
+}
+
 @MainActor
 public final class CanvasStatusBannerView: NSView {
     public enum BannerKind: Equatable {
@@ -715,7 +951,7 @@ public final class CanvasShortcutsSheet: NSObject {
     public init(completion: @escaping () -> Void) {
         self.completion = completion
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 452),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -729,7 +965,7 @@ public final class CanvasShortcutsSheet: NSObject {
     }
 
     private func buildContent() {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 580, height: 420))
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 580, height: 452))
         content.wantsLayer = true
         content.layer?.backgroundColor = CanvasTheme.canvasBackground.cgColor
 
@@ -737,13 +973,13 @@ public final class CanvasShortcutsSheet: NSObject {
         header.identifier = NSUserInterfaceItemIdentifier("shortcuts-header")
         header.font = CanvasTypography.font("heading", "m", scale: 18.0 / 16.0)
         header.textColor = CanvasTheme.primaryText
-        header.frame = NSRect(x: 24, y: 374, width: 532, height: 26)
+        header.frame = NSRect(x: 24, y: 406, width: 532, height: 26)
         content.addSubview(header)
 
         let subtitle = NSTextField(labelWithString: "Single-key shortcuts apply when the canvas is focused outside an active text editor.")
         subtitle.font = CanvasTypography.font("sans", "s", scale: 12.0 / 14.0)
         subtitle.textColor = CanvasTheme.secondaryText
-        subtitle.frame = NSRect(x: 24, y: 350, width: 532, height: 18)
+        subtitle.frame = NSRect(x: 24, y: 382, width: 532, height: 18)
         content.addSubview(subtitle)
 
         let sections: [(String, [(String, String)])] = [
@@ -766,6 +1002,7 @@ public final class CanvasShortcutsSheet: NSObject {
                 ("G then Tab / Arrows", "Edit resize/rotation handles or line endpoints"),
                 ("S", "Open/close floating Style inspector"),
                 ("⌘L / ⇧⌘] / ⇧⌘[", "Lock/unlock or Bring to Front / Send to Back"),
+                ("⌥⌘Arrows / ⌃⌘H·V", "Align edges/centers (⇧⌃⌘H·V distribute)"),
                 ("⌘C / ⌘X / ⌘V / ⌘D", "Copy, Cut, Paste, Duplicate"),
             ]),
             ("DOCUMENT & EXPORT", [
@@ -777,12 +1014,12 @@ public final class CanvasShortcutsSheet: NSObject {
         ]
 
         let colWidth: CGFloat = 258
-        let rowHeight: CGFloat = 140
+        let rowHeight: CGFloat = 156
         for (idx, section) in sections.enumerated() {
             let col = idx % 2
             let row = idx / 2
             let cardX: CGFloat = 24 + CGFloat(col) * (colWidth + 16)
-            let cardY: CGFloat = row == 0 ? 198 : 48
+            let cardY: CGFloat = row == 0 ? 216 : 48
             let card = NSView(frame: NSRect(x: cardX, y: cardY, width: colWidth, height: rowHeight))
             card.wantsLayer = true
             card.layer?.backgroundColor = CanvasTheme.elevatedSurface.cgColor
