@@ -354,7 +354,7 @@ public enum CanvasRecoveryInspection: Equatable, Sendable {
 
 /// Manages private owner-only recovery envelopes under Application Support (or an isolated test directory).
 public final class CanvasRecoveryStore: Sendable {
-    public static let bundleIdentifier = "local.elixircanvas.native"
+    public static let bundleIdentifier = "local.karton.app"
 
     public let directoryURL: URL
     public let draftsDirectoryURL: URL

@@ -80,16 +80,16 @@ func runPolishChecks(repository: URL) throws {
         delegate.closeAllWindows()
     }
 
-    // 3. About Canvas window + standard macOS App/View menus + dynamic version formatting
+    // 3. About Karton window + standard macOS App/View menus + dynamic version formatting + .karton/.json save suggestions
     do {
         let title = CanvasAppDelegate.aboutVersionTitle(for: Bundle.main)
-        try require(title.hasPrefix("Canvas "), "Unexpected About title: \(title)")
+        try require(title.hasPrefix("Karton "), "Unexpected About title: \(title)")
         let delegate = CanvasAppDelegate()
         delegate.installMenu()
-        let appSubmenu = NSApplication.shared.mainMenu?.item(withTitle: "Canvas")?.submenu
+        let appSubmenu = NSApplication.shared.mainMenu?.item(withTitle: "Karton")?.submenu
         let appTitles = appSubmenu?.items.map(\.title) ?? []
         try require(
-            appTitles.contains("Services") && appTitles.contains("Hide Canvas") &&
+            appTitles.contains("Services") && appTitles.contains("Hide Karton") &&
             appTitles.contains("Hide Others") && appTitles.contains("Show All"),
             "App menu missing standard macOS Services/Hide items: \(appTitles)"
         )
@@ -102,6 +102,24 @@ func runPolishChecks(repository: URL) throws {
         try require(delegate.activeAboutWindow != nil, "showAboutPanel did not open custom Neo-Acid About window")
         delegate.closeAllWindows()
         try require(delegate.activeAboutWindow == nil, "closeAllWindows did not close About window")
+
+        // Verify .karton default save suggestion for untitled boards and .json preservation on existing .json files
+        let untitled = try CanvasNativeDocument(untitledDisplayName: "Ideas")
+        try require(
+            untitled.suggestedSaveFilename() == "Ideas.karton",
+            "Untitled document should suggest .karton extension, got \(untitled.suggestedSaveFilename())"
+        )
+        let tmpKartonDir = FileManager.default.temporaryDirectory.appendingPathComponent("karton-ext-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpKartonDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpKartonDir) }
+        let kartonFile = tmpKartonDir.appendingPathComponent("board.karton")
+        try untitled.saveDocumentAs(to: kartonFile)
+        let reopenedKarton = try CanvasNativeDocument(opening: kartonFile)
+        try require(reopenedKarton.suggestedSaveFilename() == "board.karton", "Opened .karton did not keep .karton filename")
+        let legacyJSON = tmpKartonDir.appendingPathComponent("legacy.json")
+        try FileManager.default.copyItem(at: repository.appendingPathComponent("shared/fixtures/v1/document.json"), to: legacyJSON)
+        let reopenedJSON = try CanvasNativeDocument(opening: legacyJSON)
+        try require(reopenedJSON.suggestedSaveFilename() == "legacy.json", "Opened .json did not preserve .json filename")
     }
 
     // 4. Multi-selection shared-property styling in StyleInspectorView + atomic Undo/Redo + Mixed label
@@ -339,7 +357,7 @@ func renderShowcaseArtifacts(repository: URL, outputDir: URL) throws {
     // 1. Render Welcome window (with 3 recent items) at 2x Retina
     let recentStore = CanvasRecentDocumentsStore(defaultsKey: "local.elixircanvas.showcase.\(UUID().uuidString)")
     defer { recentStore.clear() }
-    for rel in ["examples/welcome.json", "examples/kitchensink.json", "shared/fixtures/v2/code-compatibility.json"] {
+    for rel in ["examples/welcome.karton", "examples/kitchensink.karton", "shared/fixtures/v2/code-compatibility.json"] {
         recentStore.record(repository.appendingPathComponent(rel))
     }
     let delegate = CanvasAppDelegate(recentDocumentsStore: recentStore)
@@ -361,8 +379,8 @@ func renderShowcaseArtifacts(repository: URL, outputDir: URL) throws {
     let sources: [(name: String, relPath: String, withOverlays: Bool)] = [
         ("v1-compatibility", "shared/fixtures/v1/compatibility.json", true),
         ("v2-code-compatibility", "shared/fixtures/v2/code-compatibility.json", true),
-        ("welcome-example", "examples/welcome.json", false),
-        ("kitchensink-example", "examples/kitchensink.json", false),
+        ("welcome-example", "examples/welcome.karton", false),
+        ("kitchensink-example", "examples/kitchensink.karton", false),
     ]
 
     for source in sources {
@@ -452,10 +470,10 @@ func renderShowcaseArtifacts(repository: URL, outputDir: URL) throws {
         win.close()
     }
 
-    // 5. Render About Canvas window at 2x
+    // 5. Render About Karton window at 2x
     do {
         let aboutRect = NSRect(x: 0, y: 0, width: 360, height: 278)
-        let aboutView = AboutContentView(frame: aboutRect, versionLabel: "Canvas 1.0 (1)")
+        let aboutView = AboutContentView(frame: aboutRect, versionLabel: "Karton 1.0 (1)")
         let win = NSWindow(
             contentRect: aboutRect,
             styleMask: [.titled, .closable],
@@ -472,7 +490,7 @@ func renderShowcaseArtifacts(repository: URL, outputDir: URL) throws {
 
     // 6. Render single-node Style Inspector (showing 10-swatch Fill row + swatch/glyph popups) at 2x
     do {
-        let welcomeDoc = try CanvasDocument(data: try Data(contentsOf: repository.appendingPathComponent("examples/welcome.json")))
+        let welcomeDoc = try CanvasDocument(data: try Data(contentsOf: repository.appendingPathComponent("examples/welcome.karton")))
         let session = CanvasSession(document: welcomeDoc)
         let view = CanvasView(session: session)
         view.isToolDockVisible = true

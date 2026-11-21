@@ -1323,15 +1323,32 @@ public final class CanvasNativeDocument: NSDocument {
         isClosed = true
     }
 
+    public static let kartonTypeIdentifier = "local.karton.document"
+
+    public static var kartonContentType: UTType {
+        UTType(kartonTypeIdentifier)
+            ?? UTType(filenameExtension: "karton", conformingTo: .json)
+            ?? .json
+    }
+
+    public static var supportedDocumentTypes: [UTType] {
+        var types: [UTType] = [kartonContentType]
+        if !types.contains(.json) {
+            types.append(.json)
+        }
+        return types
+    }
+
     public func suggestedSaveFilename() -> String {
         if let fileURL {
             return fileURL.lastPathComponent
         }
         let cleaned = displayNameTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        if cleaned.lowercased().hasSuffix(".json") {
+        let lowered = cleaned.lowercased()
+        if lowered.hasSuffix(".karton") || lowered.hasSuffix(".json") {
             return cleaned
         }
-        return "\(cleaned.isEmpty ? "Untitled" : cleaned).json"
+        return "\(cleaned.isEmpty ? "Untitled" : cleaned).karton"
     }
 
     public func chooseSaveDestination(suggestedName: String) -> URL? {
@@ -1339,7 +1356,7 @@ public final class CanvasNativeDocument: NSDocument {
             return provider(suggestedName)
         }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.json]
+        panel.allowedContentTypes = Self.supportedDocumentTypes
         panel.canCreateDirectories = true
         panel.nameFieldStringValue = suggestedName
         return panel.runModal() == .OK ? panel.url : nil

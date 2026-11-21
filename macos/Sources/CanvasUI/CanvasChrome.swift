@@ -2191,8 +2191,8 @@ public final class CanvasShortcutsSheet: NSObject {
                 ("⌘C ⌘X ⌘V ⌘D", "Copy, Cut, Paste, Duplicate"),
             ]),
             ("DOCUMENT & EXPORT", [
-                ("⌘N / ⌘O", "New v2 canvas / Open JSON"),
-                ("⌘S / ⇧⌘S", "Save JSON / Save As"),
+                ("⌘N / ⌘O", "New .karton board / Open file"),
+                ("⌘S / ⇧⌘S", "Save .karton or JSON / Save As"),
                 ("⇧⌘E", "Export transparent Keynote PNG"),
                 ("⌘Z / ⇧⌘Z", "Undo / Redo"),
                 ("? / ⌘/", "Show this keyboard reference"),

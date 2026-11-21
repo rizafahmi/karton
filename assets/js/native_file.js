@@ -68,7 +68,7 @@ export function mountNativeFile(workspace) {
     }
     const saveButton = root.querySelector("#save-file")
     if (saveButton && root.dataset.sourceMissing === "true") {
-      const filename = root.dataset.fileName || "untitled.json"
+      const filename = root.dataset.fileName || "untitled.karton"
       const canChooseFile = mode() === "untitled" && supportsNewSave
       saveButton.querySelector("span").textContent = canChooseFile ? "Save" : "Save copy"
       saveButton.title = canChooseFile
@@ -199,7 +199,7 @@ export function mountNativeFile(workspace) {
       try {
         picker = window.showOpenFilePicker({
           multiple: false,
-          types: [{description: "Canvas JSON", accept: {"application/json": [".json"]}}],
+          types: [{description: "Karton Document", accept: {"application/json": [".karton", ".json"]}}],
         })
       } catch (error) {
         reportError(fileError(error), request)
@@ -314,7 +314,7 @@ export function mountNativeFile(workspace) {
 
   const save = async () => {
     if (busy || root.dataset.fileBusy === "true" || mode() === "none") return
-    const request = {generation: generation(), filename: root.dataset.fileName || "untitled.json"}
+    const request = {generation: generation(), filename: root.dataset.fileName || "untitled.karton"}
     const originalMode = mode()
     let selected = selectedFile
     let reply
@@ -328,7 +328,7 @@ export function mountNativeFile(workspace) {
         // Invoke in the original gesture: flushing/blur and server replies may consume activation.
         picker = window.showSaveFilePicker({
           suggestedName: request.filename,
-          types: [{description: "Canvas JSON", accept: {"application/json": [".json"]}}],
+          types: [{description: "Karton Document", accept: {"application/json": [".karton", ".json"]}}],
         }).then(handle => ({handle}), error => ({error}))
       } else if (originalMode === "browser_file") {
         if (!selected?.handle || selected.generation !== request.generation) {

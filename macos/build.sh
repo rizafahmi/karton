@@ -4,8 +4,8 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ARCH=$(uname -m)
 swift build --package-path "$ROOT" -c release -Xswiftc -target -Xswiftc "$ARCH-apple-macosx27.0"
-rm -rf "$ROOT/.build/Elixir Canvas.app"
-APP="$ROOT/.build/Canvas.app"
+rm -rf "$ROOT/.build/Elixir Canvas.app" "$ROOT/.build/Canvas.app"
+APP="$ROOT/.build/Karton.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Fonts"
 cp "$ROOT/.build/release/CanvasApp" "$APP/Contents/MacOS/CanvasApp"
 cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"

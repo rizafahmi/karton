@@ -101,7 +101,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
 
     @objc public func chooseDocument(_ sender: Any?) {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
+        panel.allowedContentTypes = CanvasNativeDocument.supportedDocumentTypes
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         if panel.runModal() == .OK {
@@ -132,12 +132,12 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         window.isRestorable = false
         window.appearance = NSAppearance(named: .aqua)
         window.delegate = self
-        window.title = "Canvas"
+        window.title = "Karton"
         window.backgroundColor = CanvasTheme.canvasBackground
         window.center()
         let content = WelcomeContentView(frame: NSRect(x: 0, y: 0, width: 520, height: windowHeight))
         if !recents.isEmpty {
-            let recentLabel = NSTextField(labelWithString: "RECENT CANVASES")
+            let recentLabel = NSTextField(labelWithString: "RECENT BOARDS")
             recentLabel.font = CanvasTypography.font("mono", "s", scale: 10.0 / 14.0)
             recentLabel.textColor = CanvasTheme.mutedText
             recentLabel.frame = NSRect(x: 32, y: 196, width: 200, height: 16)
@@ -152,11 +152,11 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             }
         }
         let buttonY = windowHeight - 50
-        let new = NeoAcidActionButton(title: "New Canvas", variant: .primary, target: self, action: #selector(newDocument(_:)))
+        let new = NeoAcidActionButton(title: "New Board", variant: .primary, target: self, action: #selector(newDocument(_:)))
         new.identifier = NSUserInterfaceItemIdentifier("welcome-new-canvas")
         new.frame = NSRect(x: 32, y: buttonY, width: 144, height: 34)
         new.keyEquivalent = "\r"
-        let button = NeoAcidActionButton(title: "Open Canvas…", variant: .secondary, target: self, action: #selector(chooseDocument(_:)))
+        let button = NeoAcidActionButton(title: "Open File…", variant: .secondary, target: self, action: #selector(chooseDocument(_:)))
         button.identifier = NSUserInterfaceItemIdentifier("welcome-open-canvas")
         button.frame = NSRect(x: 188, y: buttonY, width: 144, height: 34)
         content.addSubview(new)
@@ -646,7 +646,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             return
         }
         let baseName = (doc.suggestedSaveFilename() as NSString).deletingPathExtension
-        guard let destinationURL = doc.chooseSaveDestination(suggestedName: "\(baseName)-v2.json") else {
+        guard let destinationURL = doc.chooseSaveDestination(suggestedName: "\(baseName)-v2.karton") else {
             return
         }
         do {
@@ -1070,9 +1070,9 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let version = (shortVersion?.isEmpty == false) ? shortVersion! : "1.0"
         if let buildVersion, !buildVersion.isEmpty {
-            return "Canvas \(version) (\(buildVersion))"
+            return "Karton \(version) (\(buildVersion))"
         }
-        return "Canvas \(version)"
+        return "Karton \(version)"
     }
 
     public var activeAboutWindow: NSWindow? {
@@ -1095,7 +1095,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         window.isRestorable = false
         window.appearance = NSAppearance(named: .aqua)
         window.delegate = self
-        window.title = "About Canvas"
+        window.title = "About Karton"
         window.backgroundColor = CanvasTheme.canvasBackground
         window.contentView = AboutContentView(frame: rect, versionLabel: Self.aboutVersionTitle())
         window.center()
@@ -1154,10 +1154,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     public func installMenu() {
         let app = NSApplication.shared
         let main = NSMenu()
-        let appItem = NSMenuItem(title: "Canvas", action: nil, keyEquivalent: "")
+        let appItem = NSMenuItem(title: "Karton", action: nil, keyEquivalent: "")
         main.addItem(appItem)
         let appMenu = NSMenu()
-        let aboutItem = NSMenuItem(title: "About Canvas", action: #selector(showAboutPanel(_:)), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: "About Karton", action: #selector(showAboutPanel(_:)), keyEquivalent: "")
         aboutItem.target = self
         appMenu.addItem(aboutItem)
         appMenu.addItem(.separator())
@@ -1167,13 +1167,13 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         appMenu.addItem(servicesItem)
         app.servicesMenu = servicesMenu
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide Canvas", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: "Hide Karton", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         let hideOthersItem = NSMenuItem(title: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
         hideOthersItem.keyEquivalentModifierMask = [.command, .option]
         appMenu.addItem(hideOthersItem)
         appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit Canvas", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: "Quit Karton", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
 
         let fileItem = NSMenuItem(title: "File", action: nil, keyEquivalent: "")

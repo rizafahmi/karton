@@ -22,16 +22,19 @@ defmodule ElixirCanvas.Document do
   @node_fields ~w(id type x y width height data locked parent)
   @edge_fields ~w(id source source_handle target target_handle path label marker animated data)
 
+  @primary_extension ".karton"
+  @supported_extensions [".karton", ".json"]
+
   def new do
     %__MODULE__{
-      filename: "untitled.json",
+      filename: "untitled#{@primary_extension}",
       persistence: :untitled,
       graph: Graph.new(),
       source: %{"version" => 2, "appearance" => %{"font" => "sans"}}
     }
   end
 
-  @doc "Normalizes an authored, unbacked canvas filename without changing file identity."
+  @doc "Normalizes an authored, unbacked Karton filename without changing file identity."
   def normalize_filename(candidate) when is_binary(candidate) do
     cond do
       !String.valid?(candidate) ->
@@ -42,24 +45,27 @@ defmodule ElixirCanvas.Document do
 
       true ->
         filename = String.trim(candidate)
-        has_extension = String.ends_with?(String.downcase(filename), ".json")
+        lowered = String.downcase(filename)
+
+        matched_ext =
+          Enum.find(@supported_extensions, fn ext -> String.ends_with?(lowered, ext) end)
 
         stem =
-          if has_extension,
-            do: String.slice(filename, 0, String.length(filename) - 5),
+          if matched_ext,
+            do: String.slice(filename, 0, String.length(filename) - String.length(matched_ext)),
             else: filename
 
-        normalized = if has_extension, do: filename, else: filename <> ".json"
+        normalized = if matched_ext, do: filename, else: filename <> @primary_extension
 
         cond do
           String.trim(stem) == "" ->
-            {:error, "Enter a filename before .json."}
+            {:error, "Enter a filename before #{matched_ext || @primary_extension}."}
 
           String.contains?(normalized, ["/", "\\", ".."]) ->
             {:error, "Filename cannot contain /, backslash, or .."}
 
           String.length(normalized) > 120 ->
-            {:error, "Filename must be 120 characters or fewer, including .json."}
+            {:error, "Filename must be 120 characters or fewer, including extension."}
 
           true ->
             {:ok, normalized}

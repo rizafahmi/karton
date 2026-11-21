@@ -4,25 +4,45 @@
 <dict>
     <key>CFBundleDevelopmentRegion</key><string>en</string>
     <key>CFBundleExecutable</key><string>CanvasApp</string>
-    <key>CFBundleIdentifier</key><string>local.elixircanvas.native</string>
-    <key>CFBundleName</key><string>Canvas</string>
-    <key>CFBundleDisplayName</key><string>Canvas</string>
+    <key>CFBundleIdentifier</key><string>local.karton.app</string>
+    <key>CFBundleName</key><string>Karton</string>
+    <key>CFBundleDisplayName</key><string>Karton</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>1.0</string>
     <key>CFBundleVersion</key><string>1</string>
-    <key>NSHumanReadableCopyright</key><string>MIT License · Elixir Canvas</string>
+    <key>NSHumanReadableCopyright</key><string>MIT License · Karton</string>
     <key>LSMinimumSystemVersion</key><string>27.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSRequiresAquaSystemAppearance</key><true/>
-    <key>CFBundleDocumentTypes</key>
+    <key>UTExportedTypeDeclarations</key>
     <array><dict>
-        <key>CFBundleTypeName</key><string>JSON canvas</string>
-        <key>CFBundleTypeRole</key><string>Editor</string>
-        <key>LSHandlerRank</key><string>Alternate</string>
-        <key>NSDocumentClass</key><string>CanvasNativeDocument</string>
-        <key>LSItemContentTypes</key><array><string>public.json</string></array>
+        <key>UTTypeIdentifier</key><string>local.karton.document</string>
+        <key>UTTypeDescription</key><string>Karton Document</string>
+        <key>UTTypeConformsTo</key><array><string>public.json</string></array>
+        <key>UTTypeTagSpecification</key>
+        <dict>
+            <key>public.filename-extension</key><array><string>karton</string></array>
+            <key>public.mime-type</key><array><string>application/json</string></array>
+        </dict>
     </dict></array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key><string>Karton Document</string>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Owner</string>
+            <key>NSDocumentClass</key><string>CanvasNativeDocument</string>
+            <key>LSItemContentTypes</key><array><string>local.karton.document</string></array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key><string>JSON Canvas</string>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Alternate</string>
+            <key>NSDocumentClass</key><string>CanvasNativeDocument</string>
+            <key>LSItemContentTypes</key><array><string>public.json</string></array>
+        </dict>
+    </array>
 </dict>
 </plist>

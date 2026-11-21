@@ -99,7 +99,7 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
       assert %{ok: true, token: token, bytes: bytes, filename: filename} =
                selected_event(view, "version-copy", %{"generation" => generation})
 
-      assert String.ends_with?(filename, "-v2.json")
+      assert String.ends_with?(filename, "-v2.karton")
       assert Jason.decode!(bytes)["version"] == 2
       assert copy_state(view) == before_copy
       assert %{ok: false} = selected_event(view, "version-copy", %{"generation" => generation})
@@ -656,10 +656,10 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
 
     assert has_element?(
              view,
-             "#workspace[data-file-mode=save_copy][data-file-name='Second copy.json'][data-dirty=true]"
+             "#workspace[data-file-mode=save_copy][data-file-name='Second copy.karton'][data-dirty=true]"
            )
 
-    assert %{ok: true, filename: "Second copy.json", bytes: ^bytes} =
+    assert %{ok: true, filename: "Second copy.karton", bytes: ^bytes} =
              selected_event(view, "save", %{"generation" => generation, "mode" => "save_copy"})
 
     assert File.read!(path) == original
@@ -758,7 +758,7 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
 
     assert has_element?(
              view,
-             "#workspace[data-file-name='untitled.json'][data-drawing-font=sans]"
+             "#workspace[data-file-name='untitled.karton'][data-drawing-font=sans]"
            )
 
     assert %{document: document, graph: graph, pending_save: nil} =
@@ -766,7 +766,7 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
 
     assert document == Document.new()
     assert graph == Graph.new()
-    assert page_title(view) == "untitled.json"
+    assert page_title(view) == "untitled.karton"
     assert {:error, _} = CanvasTest.undo(view, board_id(view))
     assert {:error, _} = CanvasTest.redo(view, board_id(view))
     assert CanvasTest.nodes(view, board_id(view)) == []
@@ -928,7 +928,7 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
 
     assert has_element?(
              view,
-             "#workspace[data-file-mode=untitled][data-dirty=true][data-file-name='untitled.json']"
+             "#workspace[data-file-mode=untitled][data-dirty=true][data-file-name='untitled.karton']"
            )
 
     assert :sys.get_state(view.pid).socket.assigns.disk_status == :unchanged
@@ -938,10 +938,10 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
              selected_event(view, "save", %{
                "generation" => generation,
                "mode" => "save_copy",
-               "filename" => "untitled.json"
+               "filename" => "untitled.karton"
              })
 
-    assert {:ok, copy} = Document.open_selected("untitled.json", bytes, :save_copy)
+    assert {:ok, copy} = Document.open_selected("untitled.karton", bytes, :save_copy)
     assert copy.source["appearance"]["font"] == "mono"
 
     assert %{ok: false} =
@@ -1026,14 +1026,14 @@ defmodule ElixirCanvasWeb.CanvasLiveTest do
 
     render_click(view, "toggle-file-menu")
 
-    assert has_element?(view, "#file-menu .about-section", "Elixir Canvas")
+    assert has_element?(view, "#file-menu .about-section", "Karton")
     assert has_element?(view, "#file-menu .tech-stack", "Phoenix LiveView")
     assert has_element?(view, "#file-menu .tech-stack", "Hakushi")
 
     assert has_element?(
              view,
-             "#file-menu a[href='https://github.com/rizafahmi/elixir_canvas']",
-             "github.com/rizafahmi/elixir_canvas"
+             "#file-menu a[href='https://github.com/rizafahmi/karton']",
+             "github.com/rizafahmi/karton"
            )
   end
 

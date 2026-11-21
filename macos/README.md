@@ -1,6 +1,8 @@
-# Native macOS editor
+# Karton — Native macOS editor
 
-This directory contains an independent native canvas editor (`Canvas.app` v1.0) with
+This directory contains **Karton** (`Karton.app` v1.0), an independent native spatial
+thinking and diagramming editor for macOS using portable `.karton` files (conforming to
+`public.json`, with full `.json` open/save compatibility). It provides
 `NSDocument`-backed blank v2 New, v1/v2 Open, and **Open Recent**, explicit Save (**⌘S**),
 Save As (**⇧⌘S**), explicit v1→v2 copy export (**File → Save Version 2 Copy…**),
 confirmed Reload from Disk, coalesced 5s-quiet / 30s-continuous autosave with
@@ -36,14 +38,14 @@ Full Xcode is not required. From the repository root:
 
 ```sh
 sh macos/build.sh
-open "macos/.build/Canvas.app"
+open "macos/.build/Karton.app"
 ```
 
-To install `Canvas.app` locally for personal use (defaults to `~/Applications/Canvas.app`, or set `INSTALL_DIR=/Applications`):
+To install `Karton.app` locally for personal use (defaults to `~/Applications/Karton.app`, or set `INSTALL_DIR=/Applications`):
 
 ```sh
 sh macos/install.sh
-open "$HOME/Applications/Canvas.app"
+open "$HOME/Applications/Karton.app"
 ```
 
 The build assembles the `.app`, ad-hoc signs the complete bundle with the system
@@ -51,10 +53,11 @@ The build assembles the `.app`, ad-hoc signs the complete bundle with the system
 Apple developer account is needed for this local build. Ad-hoc signing is not
 Developer ID signing, notarization, or a distribution guarantee.
 
-Use **File → New** (**⌘N**) or **New Canvas** in the welcome window to start a
-blank version-2 canvas. **File → Open…** (**⌘O**) opens supported v1/v2 JSON files;
-reopening an already-open file activates its existing window rather than creating a
-second writer.
+Use **File → New** (**⌘N**) or **New Board** in the welcome window to start a
+blank version-2 `.karton` board. **File → Open…** (**⌘O**) opens supported v1/v2
+`.karton` and `.json` files (existing `.json` files retain their `.json` path on
+in-place save); reopening an already-open file activates its existing window
+rather than creating a second writer.
 
 Use **Insert → Rectangle / Ellipse / Diamond / Triangle / Text…** or
 **Insert → Line / Arrow** to add content at the current viewport center, including
@@ -253,19 +256,19 @@ sh -c '
   REPO_ROOT=$(pwd)
   TMP_PROOF=$(mktemp -d)
   trap "if [ -d \"$REPO_ROOT/macos/Resources/Fonts.hidden\" ]; then mv \"$REPO_ROOT/macos/Resources/Fonts.hidden\" \"$REPO_ROOT/macos/Resources/Fonts\"; fi; rm -rf \"$TMP_PROOF\"" EXIT
-  otool -L "macos/.build/Canvas.app/Contents/MacOS/CanvasApp"
-  ! strings "macos/.build/Canvas.app/Contents/MacOS/CanvasApp" | grep -F "Sources/CanvasUI/PNGExport.swift"
+  otool -L "macos/.build/Karton.app/Contents/MacOS/CanvasApp"
+  ! strings "macos/.build/Karton.app/Contents/MacOS/CanvasApp" | grep -F "Sources/CanvasUI/PNGExport.swift"
   INSTALL_DIR="$TMP_PROOF/Applications" sh "$REPO_ROOT/macos/install.sh"
-  cp "macos/.build/release/CanvasChecks" "$TMP_PROOF/Applications/Canvas.app/Contents/MacOS/CanvasChecks"
-  codesign --force --sign - "$TMP_PROOF/Applications/Canvas.app"
-  codesign --verify --strict "$TMP_PROOF/Applications/Canvas.app"
+  cp "macos/.build/release/CanvasChecks" "$TMP_PROOF/Applications/Karton.app/Contents/MacOS/CanvasChecks"
+  codesign --force --sign - "$TMP_PROOF/Applications/Karton.app"
+  codesign --verify --strict "$TMP_PROOF/Applications/Karton.app"
   mv "$REPO_ROOT/macos/Resources/Fonts" "$REPO_ROOT/macos/Resources/Fonts.hidden"
-  cp "$REPO_ROOT/shared/fixtures/v1/compatibility.json" "$TMP_PROOF/open-smoke.json"
-  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" ELIXIR_CANVAS_RECOVERY_DIR="$TMP_PROOF/AppRecovery" "$TMP_PROOF/Applications/Canvas.app/Contents/MacOS/CanvasApp" "$TMP_PROOF/open-smoke.json") & PID=$!; sleep 1; kill -0 "$PID"; kill -TERM "$PID"; wait "$PID"
-  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$TMP_PROOF/Applications/Canvas.app/Contents/MacOS/CanvasChecks" --verify-standalone-workflow "$TMP_PROOF/workspace")
-  grep -F "Canvas.app" "$TMP_PROOF/workspace/standalone-receipt.json"
+  cp "$REPO_ROOT/shared/fixtures/v1/compatibility.json" "$TMP_PROOF/open-smoke.karton"
+  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" ELIXIR_CANVAS_RECOVERY_DIR="$TMP_PROOF/AppRecovery" "$TMP_PROOF/Applications/Karton.app/Contents/MacOS/CanvasApp" "$TMP_PROOF/open-smoke.karton") & PID=$!; sleep 1; kill -0 "$PID"; kill -TERM "$PID"; wait "$PID"
+  (cd "$TMP_PROOF" && exec env -i HOME="$HOME" USER="$USER" TMPDIR="$TMPDIR" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$TMP_PROOF/Applications/Karton.app/Contents/MacOS/CanvasChecks" --verify-standalone-workflow "$TMP_PROOF/workspace")
+  grep -F "Karton.app" "$TMP_PROOF/workspace/standalone-receipt.json"
   mv "$REPO_ROOT/macos/Resources/Fonts.hidden" "$REPO_ROOT/macos/Resources/Fonts"
-  mix run -e "{:ok, doc} = ElixirCanvas.Document.open(\"$TMP_PROOF/workspace/standalone-diagram.json\"); true = ElixirCanvas.Document.format_version(doc) == 2"
+  mix run -e "{:ok, doc} = ElixirCanvas.Document.open(\"$TMP_PROOF/workspace/standalone-diagram.karton\"); true = ElixirCanvas.Document.format_version(doc) == 2"
 '
 ```
 The Command Line Tools on the development machine lack XCTest and Swift Testing;

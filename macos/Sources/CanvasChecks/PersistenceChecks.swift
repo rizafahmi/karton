@@ -21,9 +21,9 @@ func checkPersistenceAndRecovery(repository: URL) throws {
     appDelegate.installMenu()
     defer { appDelegate.closeAllWindows() }
     try require(
-        NSApp.mainMenu?.items.first?.title == "Canvas" &&
-            NSApp.mainMenu?.items.first?.submenu?.item(withTitle: "Quit Canvas") != nil,
-        "App menu did not use 'Canvas' / 'Quit Canvas' titles"
+        NSApp.mainMenu?.items.first?.title == "Karton" &&
+            NSApp.mainMenu?.items.first?.submenu?.item(withTitle: "Quit Karton") != nil,
+        "App menu did not use 'Karton' / 'Quit Karton' titles"
     )
 
     // 1. Blank-canvas workflow: New -> add shape + adjacent thought + connection -> inline draft flush on Save -> Undo/Redo across Save -> Reopen.
@@ -1142,13 +1142,13 @@ func runStandaloneWorkflowVerification(in workspaceURL: URL) throws {
     appDelegate.redoMove(nil)
     try require(doc.session.position(of: thoughtID) == movedThoughtPos, "Redo did not restore dragged position")
 
-    let jsonURL = workspaceURL.appendingPathComponent("standalone-diagram.json")
+    let jsonURL = workspaceURL.appendingPathComponent("standalone-diagram.karton")
     doc.saveDestinationProvider = { _ in jsonURL }
     appDelegate.saveDocument(nil)
     try require(
         doc.fileURL?.canonicalFileURL == jsonURL.canonicalFileURL &&
             doc.persistenceState == .saved(hasPendingDraft: false),
-        "First Save did not promote untitled document to standalone-diagram.json"
+        "First Save did not promote untitled document to standalone-diagram.karton"
     )
 
     doc.quietAutosaveInterval = 0.03

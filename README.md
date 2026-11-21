@@ -1,31 +1,41 @@
-# Elixir Canvas
+# Karton
 
-A local-file-first spatial thinking canvas built with Elixir, Phoenix LiveView,
-and Hakushi. The JSON file is the document, not an export from a database.
+A local-file-first spatial thinking and diagramming tool. Portable `.karton` files
+(standard UTF-8 JSON under the hood, with full `.json` compatibility) are the actual
+documents—never locked inside a database or cloud account.
+
+Karton ships in two independent forms sharing the same file contract: a **native macOS
+app** (`Karton.app`, Swift/AppKit) and a **local web app** (Elixir, Phoenix LiveView,
+and Hakushi).
 
 ## Native macOS
 
-An independent native macOS editor (`Canvas.app` v1.0) is available for macOS 27 through
-the [command-line build](macos/README.md). Without Phoenix, it supports `NSDocument`-backed
-blank v2 canvases, v1/v2 Open and `Open Recent`, explicit Save (`⌘S`), Save As (`⇧⌘S`), v1→v2 copy
-export (`File → Save Version 2 Copy…`), confirmed Reload from Disk, coalesced 5s/30s
-autosave with byte-fingerprint conflict detection and an actionable in-window Conflict/Read-Only/Error
-banner, `NSDocument` draft autosaving plus private recovery envelopes, launch recovery restoration,
-toggleable bottom-center Neo-Acid floating icon tool dock with armed click-or-drag
-placement, `?` keyboard reference sheet, `NSAccessibility` element exposure, shape/text and standalone
-line/arrow insertion, adjacent thoughts (`N`), connections (`bezier`, `smooth`,
-`step`, `straight`, and exterior self-loops with labels and reconnection), selection
-and Tab traversal, Space tap/drag pan, marquee and `⌘A` multi-selection, movement,
-resize/rotation and line endpoint editing, Cut/Copy/Paste (`⌘X`/`⌘C`/`⌘V`),
-Duplicate (`⌘D`), Delete, front/back stacking, Lock/Unlock (`⌘L`), object/connection/canvas
-Style inspection (`S`), caption editing with measured box growth, read-only attachment
-preview/copy, canvas zoom/fit, transparent Keynote PNG export (`⇧⌘E`), and Undo/Redo.
+An independent native macOS editor (`Karton.app` v1.0) is available for macOS 27 through
+the [command-line build](macos/README.md). Without Phoenix, it registers `.karton`
+(conforming to `public.json`) as its primary document type while preserving full `.json`
+compatibility. It supports `NSDocument`-backed blank v2 New, v1/v2 Open and `Open Recent`,
+explicit Save (`⌘S`), Save As (`⇧⌘S`), v1→v2 copy export (`File → Save Version 2 Copy…`),
+confirmed Reload from Disk, coalesced 5s/30s autosave with byte-fingerprint conflict
+detection and an actionable in-window Conflict/Read-Only/Error banner, `NSDocument` draft
+autosaving plus private recovery envelopes, launch recovery restoration, toggleable
+bottom-center Neo-Acid floating icon tool dock with armed click-or-drag placement, `?`
+keyboard reference sheet, `NSAccessibility` element exposure, shape/text and standalone
+line/arrow insertion, adjacent thoughts (`N`), connections (`bezier`, `smooth`, `step`,
+`straight`, and exterior self-loops with labels and reconnection), selection and Tab
+traversal, Space tap/drag pan, marquee and `⌘A` multi-selection, movement, resize/rotation
+and line endpoint editing, Cut/Copy/Paste (`⌘X`/`⌘C`/`⌘V`), Duplicate (`⌘D`), Delete,
+front/back stacking, alignment & distribution, Lock/Unlock (`⌘L`), object/multi-selection/
+connection/canvas Style inspection (`S`) with 1-click Neo-Acid swatches, caption editing
+with measured box growth, native UTF-8 text attachment import/preview/Copy Source/`Save Copy…`,
+v2 syntax-highlighted code blocks (`K`, `HighlighterSwift` across 12 curated languages with
+Auto detection, literal BOM/CRLF/Tab editing, Copy Code, Fit to Content, and clipped-export
+guards), canvas zoom/fit, transparent Keynote PNG export (`⇧⌘E`, light & dark slide themes),
+and Undo/Redo.
 See [TASKS.md](TASKS.md#final-milestone-independent-native-macos-editor) and
 [macos/SPEC.md](macos/SPEC.md) for architecture and acceptance proof.
-The [shared code-snippet contract](shared/CODE_SNIPPETS.md) defines the supported
-web version-2 format with an explicit code-node type. New documents use v2;
-existing v1 documents retain their version. Native code nodes are currently
-viewed as plain text only.
+The [shared code-snippet contract](shared/CODE_SNIPPETS.md) defines the shared
+version-2 format with an explicit code-node type. New documents use v2; existing v1
+documents retain their version.
 
 ## Repository layout
 
@@ -62,11 +72,11 @@ mix setup
 mix phx.server
 ```
 
-Open <http://localhost:4000>. The initial document is `examples/welcome.json`.
+Open <http://localhost:4000>. The initial document is `examples/welcome.karton`.
 Saving it edits that actual example file. To start with a different file:
 
 ```sh
-CANVAS_FILE=/absolute/path/to/ideas.json mix phx.server
+CANVAS_FILE=/absolute/path/to/ideas.karton mix phx.server
 ```
 
 Use **New canvas** in the document menu to start an in-memory version-2 `untitled.json`.
@@ -159,13 +169,13 @@ brainstorming boards that you can open from the document menu (**Open…**) or
 launch directly via `CANVAS_FILE`:
 
 ```sh
-CANVAS_FILE=examples/kitchensink.json mix phx.server
+CANVAS_FILE=examples/kitchensink.karton mix phx.server
 ```
 
 | File | Description |
 | --- | --- |
-| [`examples/welcome.json`](examples/welcome.json) | Default startup canvas |
-| [`examples/kitchensink.json`](examples/kitchensink.json) | Interactive tour of all shape kinds, named colors, stroke styles, typography roles, rotations, standalone lines, edge paths, self-loops, and locked objects |
+| [`examples/welcome.karton`](examples/welcome.karton) | Default startup board |
+| [`examples/kitchensink.karton`](examples/kitchensink.karton) | Interactive tour of all shape kinds, named colors, stroke styles, typography roles, rotations, standalone lines, edge paths, self-loops, and locked objects |
 | [`examples/livestream_ideas.json`](examples/livestream_ideas.json) · [`_example.json`](examples/livestream_ideas_example.json) | **Collision Lab** — blank template and worked example for mashing specific constraints with general topics |
 | [`examples/tree_and_twist.json`](examples/tree_and_twist.json) · [`_example.json`](examples/tree_and_twist_example.json) | **Tree & Twist** — blank template and worked example for four-branch decomposition plus constraint twists |
 | [`examples/worst_idea.json`](examples/worst_idea.json) · [`_example.json`](examples/worst_idea_example.json) | **Worst Idea First** — blank template and worked example for inverting deliberately terrible ideas into strong ones |
@@ -580,7 +590,7 @@ automation across browsers.
 
 ## Document format: version 1
 
-See `examples/welcome.json` for a hand-written document. Files use UTF-8 JSON with
+See `examples/welcome.karton` for a hand-written document. Files use UTF-8 JSON with
 three required top-level fields: integer `version: 1`, an ordered `nodes` array,
 and an `edges` array. This is an app-owned format based on Hakushi 0.7's graph
 serialization, not the JSON Canvas standard.

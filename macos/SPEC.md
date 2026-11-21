@@ -1,7 +1,8 @@
-# Native macOS implementation specification
+# Karton — Native macOS implementation specification
 
-Status: design specification; the native app supports `NSDocument`-backed blank v2
-New and v1/v2 Open, explicit Save (`⌘S`), Save As (`⇧⌘S`), v1→v2 copy export
+Status: design specification; `Karton.app` (`local.karton.app`, exporting `.karton`
+conforming to `public.json` with full `.json` compatibility) supports `NSDocument`-backed
+blank v2 New, v1/v2 Open, explicit Save (`⌘S`), Save As (`⇧⌘S`), v1→v2 copy export
 (`File → Save Version 2 Copy…`), confirmed Reload from Disk, coalesced 5s/30s
 autosave with SHA-256 byte-fingerprint conflict detection, `NSDocument` draft
 autosaving paired with private recovery envelopes (including active inline text
@@ -73,7 +74,7 @@ floating icon tool dock, armed pointer click-or-drag creation, `Open Recent`,
 `About`/`Window`/`Help` menus, and `?` (`⌘/`) shortcuts sheet; (2) in-window actionable
 Conflict / Read-Only / Save-Error banner; (3) `NSAccessibilityElement` exposure for
 canvas objects, connections, and selection; and (4) `v1.0` bundle metadata and
-standalone release verification (`~/Applications/Canvas.app`). Native `type: "code"`
+standalone release verification (`~/Applications/Karton.app`). Native `type: "code"`
 authoring with `HighlighterSwift` (`3.1.0`) syntax highlighting and native UTF-8 text
 attachment import (`Insert → Attach Text File…`, drag-and-drop, and `Save Copy…`)
 are implemented and covered by `CanvasChecks`.
@@ -438,7 +439,7 @@ is not evidence that a failed source autosave has succeeded.
 
 No native acceptance criterion below is satisfied by this specification, current
 Mix checks, Node tests, screenshots alone, or an API mock. Use temporary files,
-never edit [examples/welcome.json](../examples/welcome.json) as disposable proof.
+never edit [examples/welcome.karton](../examples/welcome.karton) as disposable proof.
 
 | Scenario | Observable required result |
 | --- | --- |

@@ -2,7 +2,7 @@
 
 ## Trust boundary and intended deployment
 
-Elixir Canvas is a **local-first desktop/workstation tool**, not a hosted
+Karton (formerly Elixir Canvas) is a **local-first desktop/workstation tool**, not a hosted
 multi-user web service.
 
 - The Phoenix server runs without user accounts or authentication and has
@@ -14,7 +14,7 @@ multi-user web service.
 
 ## Built-in file and data safety controls
 
-Within its local-workstation trust boundary, Elixir Canvas enforces several
+Within its local-workstation trust boundary, Karton enforces several
 safety boundaries:
 
 1. **Browser-selected file isolation:** Opening a file through the browser picker
@@ -56,7 +56,7 @@ safety boundaries:
 Please report vulnerabilities that violate the guarantees above, including:
 
 - Cross-site scripting (XSS) or code execution triggered by opening a crafted
-  `.json` canvas file.
+  `.karton` or `.json` board file.
 - Browser-selected file operations (`selected-open`, `selected-reload`,
   `selected-saved`) reading or writing server filesystem paths.
 - Bypassing symlink refusal or overwriting arbitrary files during `create` or
@@ -67,6 +67,6 @@ Please report vulnerabilities that violate the guarantees above, including:
 ## Reporting a vulnerability
 
 Report suspected vulnerabilities privately via
-[GitHub Security Advisories](https://github.com/rizafahmi/elixir_canvas/security/advisories/new)
+[GitHub Security Advisories](https://github.com/rizafahmi/karton/security/advisories/new)
 rather than opening a public issue. Include a minimal reproduction (such as a
 crafted JSON payload or request sequence) and the affected commit hash.

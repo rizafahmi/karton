@@ -61,7 +61,7 @@ defmodule Mix.Tasks.Canvas.Doctor do
     modified_examples = Keyword.get_lazy(overrides, :modified_examples, &git_modified_examples/0)
 
     examples_glob =
-      Keyword.get(overrides, :examples_glob, Path.expand("examples/*.json"))
+      Keyword.get(overrides, :examples_glob, Path.expand("examples/*.{karton,json}"))
 
     assets_check =
       check_assets_freshness(

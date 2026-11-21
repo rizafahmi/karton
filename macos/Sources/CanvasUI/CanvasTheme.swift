@@ -278,7 +278,7 @@ public final class WelcomeContentView: NSView {
         dotBorder.lineWidth = 1
         CanvasTheme.borderStrong.setStroke()
         dotBorder.stroke()
-        let kicker = "LOCAL-FIRST · V1/V2 JSON" as NSString
+        let kicker = "LOCAL-FIRST · .KARTON / JSON" as NSString
         kicker.draw(
             at: CGPoint(x: 96, y: 39),
             withAttributes: [
@@ -287,7 +287,7 @@ public final class WelcomeContentView: NSView {
             ]
         )
 
-        let title = "Canvas" as NSString
+        let title = "Karton" as NSString
         title.draw(
             in: CGRect(x: 32, y: 78, width: bounds.width - 64, height: 30),
             withAttributes: [
@@ -308,7 +308,7 @@ public final class WelcomeContentView: NSView {
         let summaryStyle = NSMutableParagraphStyle()
         summaryStyle.lineSpacing = 2.5
         let summary =
-            "Create a blank version-2 canvas or open an existing JSON document.\nConnected files autosave safely; untitled work recovers across launches."
+            "Create a blank .karton board or open an existing .karton / .json file.\nConnected files autosave safely; untitled work recovers across launches."
             as NSString
         summary.draw(
             in: CGRect(x: 32, y: 138, width: bounds.width - 64, height: 54),
@@ -388,7 +388,7 @@ public final class AboutContentView: NSView {
         let centerStyle = NSMutableParagraphStyle()
         centerStyle.alignment = .center
 
-        let title = "Canvas" as NSString
+        let title = "Karton" as NSString
         title.draw(
             in: CGRect(x: 24, y: 84, width: bounds.width - 48, height: 28),
             withAttributes: [
@@ -398,10 +398,15 @@ public final class AboutContentView: NSView {
             ]
         )
 
-        // Version badge chip (strip redundant "Canvas " prefix below the Canvas title)
-        let displayVersion = versionLabel.hasPrefix("Canvas ")
-            ? "VERSION " + versionLabel.dropFirst("Canvas ".count)
-            : versionLabel
+        // Version badge chip (strip redundant "Karton " / "Canvas " prefix below the heading)
+        let displayVersion: String
+        if versionLabel.hasPrefix("Karton ") {
+            displayVersion = "VERSION " + versionLabel.dropFirst("Karton ".count)
+        } else if versionLabel.hasPrefix("Canvas ") {
+            displayVersion = "VERSION " + versionLabel.dropFirst("Canvas ".count)
+        } else {
+            displayVersion = versionLabel
+        }
         let versionAttrs: [NSAttributedString.Key: Any] = [
             .font: CanvasTypography.font("mono", "s", scale: 10.5 / 14.0),
             .foregroundColor: CanvasTheme.primaryText,
@@ -421,7 +426,7 @@ public final class AboutContentView: NSView {
         let bodyStyle = NSMutableParagraphStyle()
         bodyStyle.alignment = .center
         bodyStyle.lineSpacing = 3
-        let desc = "Local-first spatial thinking for macOS.\nPortable v1/v2 JSON, syntax-highlighted code,\ntext attachments, and Keynote PNG export." as NSString
+        let desc = "Local-first spatial thinking for macOS.\nPortable .karton & JSON files, highlighted code,\ntext attachments, and Keynote PNG export." as NSString
         desc.draw(
             in: CGRect(x: 24, y: 150, width: bounds.width - 48, height: 74),
             withAttributes: [

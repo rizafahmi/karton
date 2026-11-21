@@ -581,13 +581,13 @@ func checkReleaseSlices(repository: URL) throws {
     }
     let topTitles = mainMenu.items.map(\.title)
     try require(
-        topTitles == ["Canvas", "File", "Edit", "Insert", "View", "Window", "Help"],
+        topTitles == ["Karton", "File", "Edit", "Insert", "View", "Window", "Help"],
         "Unexpected top-level menus: \(topTitles)"
     )
     try require(NSApplication.shared.windowsMenu?.title == "Window", "NSApp.windowsMenu not wired")
     try require(NSApplication.shared.helpMenu?.title == "Help", "NSApp.helpMenu not wired")
-    let appSubmenuTitles = mainMenu.item(withTitle: "Canvas")?.submenu?.items.map(\.title) ?? []
-    try require(appSubmenuTitles.contains("About Canvas"), "Missing About Canvas menu item")
+    let appSubmenuTitles = mainMenu.item(withTitle: "Karton")?.submenu?.items.map(\.title) ?? []
+    try require(appSubmenuTitles.contains("About Karton"), "Missing About Karton menu item")
     let fileSubmenu = mainMenu.item(withTitle: "File")?.submenu
     try require(fileSubmenu?.item(withTitle: "Open Recent")?.submenu != nil, "Missing File -> Open Recent submenu")
 

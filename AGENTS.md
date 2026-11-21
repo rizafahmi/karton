@@ -2,9 +2,11 @@
 
 ## Product and trust boundary
 
-Elixir Canvas is a local-file-first spatial thinking canvas built with Elixir,
-Phoenix LiveView, and Hakushi. JSON files are the actual documents, not database
-exports. There is no database in the current application.
+Karton (internal Elixir app `ElixirCanvas`) is a local-file-first spatial thinking
+board with a local Phoenix LiveView + Hakushi web editor and an independent native
+macOS AppKit editor (`Karton.app` under `macos/`). Portable `.karton` files
+(conforming to `public.json`, with full `.json` compatibility) are the actual
+documents, not database exports. There is no database in the current application.
 
 The server is local and unauthenticated, with access to the machine's filesystem;
 it is not a hosted multi-user service. Keep this trust boundary explicit.
@@ -389,7 +391,7 @@ Minimize token usage during verification by using the lightest sufficient proof:
    - Check only the specific changed control, never the full [README manual QA checklist](README.md#manual-browser-verification).
 
 When exercising saves in tests or the editor, always use temporary canvases:
-[examples/welcome.json](examples/welcome.json) is a real editable source document,
+[examples/welcome.karton](examples/welcome.karton) is a real editable source document,
 not a disposable fixture. Narrow-layout checks are not mobile interaction testing.
 
 ## Completion evidence

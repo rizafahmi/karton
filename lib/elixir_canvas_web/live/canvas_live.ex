@@ -14,7 +14,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    path = System.get_env("CANVAS_FILE") || Path.expand("examples/welcome.json")
+    path = System.get_env("CANVAS_FILE") || Path.expand("examples/welcome.karton")
     if connected?(socket), do: Process.send_after(self(), :check_file, 1_000)
 
     socket =
@@ -667,8 +667,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
         token = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
         generation = socket.assigns.generation
 
-        filename =
-          String.replace_suffix(copy_filename(document.filename), "-copy.json", "-v2.json")
+        filename = version_copy_filename(document.filename)
 
         pending = %{intent: :version_copy, token: token, generation: generation}
 
@@ -683,13 +682,25 @@ defmodule ElixirCanvasWeb.CanvasLive do
 
   defp copy_filename(filename) do
     extension = Path.extname(filename)
+    lowered = String.downcase(extension)
+
+    if lowered in [".karton", ".json"] do
+      Path.rootname(filename, extension) <> "-copy" <> lowered
+    else
+      filename <> "-copy.karton"
+    end
+  end
+
+  defp version_copy_filename(filename) do
+    extension = Path.extname(filename)
+    lowered = String.downcase(extension)
 
     stem =
-      if String.downcase(extension) == ".json",
+      if lowered in [".karton", ".json"],
         do: Path.rootname(filename, extension),
         else: filename
 
-    stem <> "-copy.json"
+    stem <> "-v2.karton"
   end
 
   defp copy_error(socket, reason) do
@@ -831,7 +842,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
         id="canvas-file-input"
         class="sr-only"
         type="file"
-        accept=".json,application/json"
+        accept=".karton,.json,application/json"
         aria-label="Canvas JSON file"
         tabindex="-1"
         phx-update="ignore"
@@ -1165,7 +1176,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
         >
           <label class="field-label" for="document-filename">Canvas filename</label>
           <p id="document-filename-help" class="menu-footnote">
-            Up to 120 characters including .json; no /, backslash, .. or control characters.
+            Up to 120 characters including .karton or .json; no /, backslash, .. or control characters.
             Naming does not save a file.
           </p>
           <input type="hidden" name="generation" value={@generation} />
@@ -1212,7 +1223,7 @@ defmodule ElixirCanvasWeb.CanvasLive do
               <input
                 id="new-file-path"
                 name="path"
-                placeholder="/path/to/ideas.json"
+                placeholder="/path/to/ideas.karton"
                 autocomplete="off"
                 spellcheck="false"
                 required
@@ -1265,9 +1276,9 @@ defmodule ElixirCanvasWeb.CanvasLive do
         </p>
         <p class="menu-footnote">Local JSON. No account, no hidden database.</p>
         <div class="menu-section about-section">
-          <p class="about-title">Elixir Canvas</p>
+          <p class="about-title">Karton</p>
           <p class="menu-footnote about-copy">
-            A local-file-first spatial thinking canvas. Your JSON file is the actual document—never locked inside a database or cloud account.
+            A local-file-first spatial thinking board. Your .karton (JSON) file is the actual document—never locked inside a database or cloud account.
           </p>
           <ul class="tech-stack" aria-label="Tech stack">
             <li>Elixir</li>
@@ -1276,12 +1287,12 @@ defmodule ElixirCanvasWeb.CanvasLive do
             <li>Neo-Acid CSS</li>
           </ul>
           <a
-            href="https://github.com/rizafahmi/elixir_canvas"
+            href="https://github.com/rizafahmi/karton"
             target="_blank"
             rel="noopener noreferrer"
             class="action-link about-github"
           >
-            github.com/rizafahmi/elixir_canvas ↗
+            github.com/rizafahmi/karton ↗
           </a>
         </div>
       </section>

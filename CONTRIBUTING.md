@@ -1,7 +1,8 @@
-# Contributing to Elixir Canvas
+# Contributing to Karton
 
-Elixir Canvas is a local-file-first spatial thinking canvas built with Elixir,
-Phoenix LiveView, and Hakushi. JSON files are the actual documents, not exports
+Karton is a local-file-first spatial thinking board with an independent native macOS
+app (`macos/`, Swift/AppKit) and a local web app built with Elixir, Phoenix LiveView,
+and Hakushi. Portable `.karton` (JSON) files are the actual documents, not exports
 from a database.
 
 ## Prerequisites and setup
@@ -82,7 +83,7 @@ Native setup/check commands will be supplied when the native app is implemented.
 4. **Keep dependencies minimal.** Reuse the existing Elixir, Phoenix LiveView,
    Hakushi, and vanilla CSS stack. Discuss new dependencies or build steps
    before adding them.
-5. **Do not use `examples/welcome.json` as a disposable test fixture.** Always
+5. **Do not use `examples/welcome.karton` as a disposable test fixture.** Always
    test saves against temporary copies (see [README: Manual browser verification](README.md#manual-browser-verification)).
 
 ## Verification before opening a pull request

@@ -15,11 +15,12 @@ defmodule ElixirCanvas.DocumentTest do
 
   test "candidate filenames normalize only the filename and reject unsafe or empty stems" do
     for {candidate, expected} <- [
-          {"  My canvas  ", "My canvas.json"},
+          {"  My canvas  ", "My canvas.karton"},
+          {"  Board.KARTON  ", "Board.KARTON"},
           {"  日本語.JSON  ", "日本語.JSON"},
           {"notes.Json", "notes.Json"},
-          {String.duplicate("a", 115), String.duplicate("a", 115) <> ".json"},
-          {String.duplicate("é", 115), String.duplicate("é", 115) <> ".json"}
+          {String.duplicate("a", 113), String.duplicate("a", 113) <> ".karton"},
+          {String.duplicate("é", 113), String.duplicate("é", 113) <> ".karton"}
         ] do
       assert {:ok, ^expected} = Document.normalize_filename(candidate)
     end
@@ -27,6 +28,9 @@ defmodule ElixirCanvas.DocumentTest do
     for candidate <- [
           "",
           "   ",
+          ".karton",
+          ".KARTON",
+          " .karton ",
           ".json",
           ".JSON",
           " .json ",
@@ -43,8 +47,8 @@ defmodule ElixirCanvas.DocumentTest do
           "a\u007Fb",
           "a\u0085b",
           "a\u009Fb",
-          String.duplicate("a", 116),
-          String.duplicate("é", 116),
+          String.duplicate("a", 114),
+          String.duplicate("é", 114),
           String.duplicate("a", 116) <> ".JSON"
         ] do
       assert {:error, _reason} = Document.normalize_filename(candidate)
@@ -98,7 +102,7 @@ defmodule ElixirCanvas.DocumentTest do
 
     assert document.graph == Graph.new()
     assert document.path == nil
-    assert document.filename == "untitled.json"
+    assert document.filename == "untitled.karton"
     assert document.persistence == :untitled
     assert document.revision == nil
     assert document.source == %{"version" => 2, "appearance" => %{"font" => "sans"}}

@@ -7,7 +7,7 @@ const deferred = () => { let resolve; const promise = new Promise(done => { reso
 
 function fixture({flush = () => ({ok: true, settled: Promise.resolve()}), unsaved = () => false, picker, mode = 'untitled', reply = () => ({ok: false}), downloadError} = {}) {
   const calls = [], downloads = [], input = {addEventListener() {}, removeEventListener() {}}
-  const root = {dataset: {generation: '1', editVersion: '0', fileMode: mode, fileName: 'untitled.json', fileBusy: 'false'}, querySelector: selector => selector === '#canvas-file-input' ? input : null, querySelectorAll: () => [], append() {}}
+  const root = {dataset: {generation: '1', editVersion: '0', fileMode: mode, fileName: 'untitled.karton', fileBusy: 'false'}, querySelector: selector => selector === '#canvas-file-input' ? input : null, querySelectorAll: () => [], append() {}}
   globalThis.document = {activeElement: null, createElement: () => ({remove() {}, click() { if (downloadError) throw downloadError; downloads.push({href: this.href, filename: this.download}) }})}
   class Handle { getFile() {} createWritable() {} queryPermission() {} requestPermission() {} }
   globalThis.window = {isSecureContext: true, FileSystemFileHandle: Handle, ...(picker ? {showSaveFilePicker: picker} : {})}
@@ -140,7 +140,7 @@ test('separate v2 copy waits for edits, downloads the new name, and never promot
   assert.equal(downloads[0].filename, 'untitled-v2.json')
   assert.deepEqual(calls.map(call => call.event), ['version-copy', 'selected-version-copy-downloaded'])
   assert.equal(root.dataset.fileMode, 'browser_file')
-  assert.equal(root.dataset.fileName, 'untitled.json')
+  assert.equal(root.dataset.fileName, 'untitled.karton')
   assert.equal(root.dataset.generation, '1')
 })
 
