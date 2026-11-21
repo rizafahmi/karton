@@ -1289,9 +1289,19 @@ public final class CanvasView: NSView {
             return nil
         }
         let point = worldPoint(for: event)
+        var hitCanvasItem = false
         if let hitNode = nodes.reversed().first(where: { contains(point, node: $0) }) {
+            hitCanvasItem = true
             if !selectedNodeIDs.contains(hitNode.id) {
                 selectSingleNode(hitNode.id)
+                refreshStyleInspector()
+                refreshToolDock()
+                needsDisplay = true
+            }
+        } else if let hitEdge = edges.reversed().first(where: { contains(point, edge: $0) }) {
+            hitCanvasItem = true
+            if selectedEdgeID != hitEdge.id {
+                selectSingleConnection(hitEdge.id)
                 refreshStyleInspector()
                 refreshToolDock()
                 needsDisplay = true
@@ -1299,6 +1309,8 @@ public final class CanvasView: NSView {
         }
         let menu = NSMenu(title: "Canvas")
         menu.autoenablesItems = false
+
+        // Context-specific primary actions
         if canCopyCodeSelection {
             if canEditCodeSelection {
                 let editItem = NSMenuItem(title: "Edit Code Source…", action: #selector(editCodeFromMenu(_:)), keyEquivalent: "")
@@ -1314,7 +1326,39 @@ public final class CanvasView: NSView {
                 menu.addItem(fitItem)
             }
             menu.addItem(.separator())
+        } else if canPreviewAttachment {
+            let previewItem = NSMenuItem(title: "Preview Attachment…", action: #selector(previewAttachmentFromMenu(_:)), keyEquivalent: "")
+            previewItem.target = self
+            menu.addItem(previewItem)
+            menu.addItem(.separator())
+        } else if canEditTextSelection {
+            let editTextItem = NSMenuItem(title: "Edit Text…", action: #selector(editTextFromMenu(_:)), keyEquivalent: "")
+            editTextItem.target = self
+            menu.addItem(editTextItem)
+            menu.addItem(.separator())
+        } else if canEditConnectionSelection {
+            let editConnItem = NSMenuItem(title: "Edit Connection…", action: #selector(editConnectionFromMenu(_:)), keyEquivalent: "")
+            editConnItem.target = self
+            menu.addItem(editConnItem)
+            menu.addItem(.separator())
         }
+
+        if hitCanvasItem {
+            if canInsertConnection || canInsertAdjacentThought {
+                if canInsertConnection {
+                    let connectItem = NSMenuItem(title: "Connect…", action: #selector(insertConnectionFromMenu(_:)), keyEquivalent: "")
+                    connectItem.target = self
+                    menu.addItem(connectItem)
+                }
+                if canInsertAdjacentThought {
+                    let thoughtItem = NSMenuItem(title: "Adjacent Thought", action: #selector(insertAdjacentThoughtFromMenu(_:)), keyEquivalent: "")
+                    thoughtItem.target = self
+                    menu.addItem(thoughtItem)
+                }
+                menu.addItem(.separator())
+            }
+        }
+
         if orderedSelectedNodeIDs.count >= 2 {
             let alignItem = NSMenuItem(title: "Align", action: nil, keyEquivalent: "")
             let alignMenu = NSMenu(title: "Align")
@@ -1342,6 +1386,7 @@ public final class CanvasView: NSView {
             menu.addItem(alignItem)
             menu.addItem(.separator())
         }
+
         if canCutSelection {
             let item = NSMenuItem(title: "Cut", action: #selector(cutSelection(_:)), keyEquivalent: "")
             item.target = self
@@ -1375,13 +1420,61 @@ public final class CanvasView: NSView {
                 menu.addItem(item)
             }
         }
-        if canDeleteSelection {
+        if canToggleLock {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
+            let lockItem = NSMenuItem(
+                title: isSelectedNodeLocked ? "Unlock" : "Lock",
+                action: #selector(toggleLock(_:)),
+                keyEquivalent: ""
+            )
+            lockItem.target = self
+            menu.addItem(lockItem)
+        }
+        if !hitCanvasItem {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            let fitItem = NSMenuItem(title: "Zoom to Fit", action: #selector(zoomToFit(_:)), keyEquivalent: "")
+            fitItem.target = self
+            menu.addItem(fitItem)
+            let actualItem = NSMenuItem(title: "Actual Size", action: #selector(resetZoom(_:)), keyEquivalent: "")
+            actualItem.target = self
+            menu.addItem(actualItem)
+        }
+        if !menu.items.isEmpty { menu.addItem(.separator()) }
+        let styleItem = NSMenuItem(
+            title: hitCanvasItem ? "Style…" : "Canvas Style…",
+            action: #selector(showStyleInspector(_:)),
+            keyEquivalent: ""
+        )
+        styleItem.target = self
+        menu.addItem(styleItem)
+
+        if canDeleteSelection {
+            menu.addItem(.separator())
             let item = NSMenuItem(title: "Delete", action: #selector(deleteSelection(_:)), keyEquivalent: "")
             item.target = self
             menu.addItem(item)
         }
         return menu.items.isEmpty ? nil : menu
+    }
+
+    @objc private func editTextFromMenu(_ sender: Any?) {
+        beginTextEditing()
+    }
+
+    @objc private func previewAttachmentFromMenu(_ sender: Any?) {
+        beginAttachmentPreview()
+    }
+
+    @objc private func editConnectionFromMenu(_ sender: Any?) {
+        beginConnection(focusLabel: true)
+    }
+
+    @objc private func insertConnectionFromMenu(_ sender: Any?) {
+        beginConnection()
+    }
+
+    @objc private func insertAdjacentThoughtFromMenu(_ sender: Any?) {
+        beginAdjacentThought()
     }
 
     public override func keyUp(with event: NSEvent) {
@@ -2590,7 +2683,8 @@ public final class CanvasView: NSView {
 
     public func refreshAlignBar() {
         let selected = orderedSelectedNodeIDs
-        let canAlignNow = !isReadOnly && !hasGeometryPreview && inlineTextState == nil &&
+        // Hide the floating align bar when Style Inspector is already open (it hosts the same Align section).
+        let canAlignNow = !isStyleInspectorOpen && !isReadOnly && !hasGeometryPreview && inlineTextState == nil &&
             !hasActivePointerDrag && marqueeGesture == nil && connectionDrag == nil && creationDrag == nil &&
             session.canAlignNodes(selected, alignment: .left)
         let canDistributeNow = canAlignNow && session.canAlignNodes(selected, alignment: .distributeHorizontally)

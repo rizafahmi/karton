@@ -358,6 +358,11 @@ public final class CanvasNativeDocument: NSDocument {
         "\(displayNameTitle) — \(persistenceState.statusSummary)"
     }
 
+    public var windowSubtitle: String {
+        let version = (session.root["version"] as? Int) ?? 2
+        return "v\(version) · \(persistenceState.statusSummary)"
+    }
+
     private func handleSessionDidMutate() {
         let changeType: NSDocument.ChangeType
         if sharedUndoManager.isUndoing {

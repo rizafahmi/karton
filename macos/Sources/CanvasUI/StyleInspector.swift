@@ -3,8 +3,66 @@ import CanvasCore
 
 @MainActor
 public final class StyleInspectorView: NSView {
-    private final class InspectorButton: NSButton {
+    private final class NeoAcidSwatchButton: NSButton {
+        let colorName: String
+        var isSelectedSwatch: Bool = false {
+            didSet { if oldValue != isSelectedSwatch { needsDisplay = true } }
+        }
         var onEscape: (() -> Void)?
+        private var isHovered: Bool = false {
+            didSet { if oldValue != isHovered { needsDisplay = true } }
+        }
+
+        override var isFlipped: Bool { true }
+        override var focusRingType: NSFocusRingType {
+            get { .none }
+            set {}
+        }
+
+        init(colorName: String) {
+            self.colorName = colorName
+            super.init(frame: .zero)
+            self.title = colorName.capitalized
+            self.toolTip = "Fill: \(colorName.capitalized)"
+            self.isBordered = false
+            self.setAccessibilityLabel("Fill color \(colorName.capitalized)")
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("NeoAcidSwatchButton does not support NSCoder")
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            for area in trackingAreas { removeTrackingArea(area) }
+            addTrackingArea(NSTrackingArea(
+                rect: .zero,
+                options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            ))
+        }
+
+        override func mouseEntered(with event: NSEvent) { isHovered = true }
+        override func mouseExited(with event: NSEvent) { isHovered = false }
+
+        override func resetCursorRects() {
+            super.resetCursorRects()
+            if isEnabled { addCursorRect(bounds, cursor: .pointingHand) }
+        }
+
+        override func becomeFirstResponder() -> Bool {
+            let ok = super.becomeFirstResponder()
+            needsDisplay = true
+            return ok
+        }
+
+        override func resignFirstResponder() -> Bool {
+            let ok = super.resignFirstResponder()
+            needsDisplay = true
+            return ok
+        }
+
         override func keyDown(with event: NSEvent) {
             if event.keyCode == 53 {
                 onEscape?()
@@ -16,20 +74,42 @@ public final class StyleInspectorView: NSView {
             }
             super.keyDown(with: event)
         }
-    }
 
-    private final class InspectorPopUpButton: NSPopUpButton {
-        var onEscape: (() -> Void)?
-        override func keyDown(with event: NSEvent) {
-            if event.keyCode == 53 {
-                onEscape?()
-                return
+        override func draw(_ dirtyRect: NSRect) {
+            let isFocused = window?.firstResponder === self
+            let inset: CGFloat = (isSelectedSwatch || isFocused) ? 2.5 : 1.0
+            let box = bounds.insetBy(dx: inset, dy: inset)
+
+            if colorName == "none" {
+                CanvasTheme.elevatedSurface.setFill()
+                box.fill()
+                let slash = NSBezierPath()
+                slash.move(to: CGPoint(x: box.minX + 2, y: box.maxY - 2))
+                slash.line(to: CGPoint(x: box.maxX - 2, y: box.minY + 2))
+                slash.lineWidth = 1.8
+                CanvasTheme.red.withAlphaComponent(isEnabled ? 1.0 : 0.45).setStroke()
+                slash.stroke()
+            } else {
+                CanvasTheme.palette(colorName).withAlphaComponent(isEnabled ? 1.0 : 0.45).setFill()
+                box.fill()
             }
-            if event.modifierFlags.contains(.command) {
-                superview?.keyDown(with: event)
-                return
+
+            let innerBorder = NSBezierPath(rect: box.insetBy(dx: 0.5, dy: 0.5))
+            innerBorder.lineWidth = 1.0
+            (isEnabled ? CanvasTheme.borderStrong : CanvasTheme.borderSubtle).setStroke()
+            innerBorder.stroke()
+
+            if isFocused || isSelectedSwatch {
+                let ring = NSBezierPath(rect: bounds.insetBy(dx: 1.0, dy: 1.0))
+                ring.lineWidth = 2.0
+                (isFocused ? CanvasTheme.selectionCobalt : CanvasTheme.borderStrong).setStroke()
+                ring.stroke()
+            } else if isHovered && isEnabled {
+                let ring = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
+                ring.lineWidth = 1.5
+                CanvasTheme.borderStrong.setStroke()
+                ring.stroke()
             }
-            super.keyDown(with: event)
         }
     }
 
@@ -39,7 +119,7 @@ public final class StyleInspectorView: NSView {
     }
 
     private let titleLabel: NSTextField
-    private let closeButton: InspectorButton
+    private let closeButton: NeoAcidActionButton
     private let messageLabel: NSTextField
     private let errorLabel: NSTextField
     private let alignSectionLabel: NSTextField
@@ -51,7 +131,8 @@ public final class StyleInspectorView: NSView {
     private var currentIsConnection: Bool = false
     private var currentIsDocument: Bool = false
     private var rowViews: [NSView] = []
-    private var controlsByProperty: [CanvasStyleProperty: InspectorPopUpButton] = [:]
+    private var controlsByProperty: [CanvasStyleProperty: NeoAcidPopUpButton] = [:]
+    private var fillSwatchButtons: [NeoAcidSwatchButton] = []
     private var optionsByProperty: [CanvasStyleProperty: [Option]] = [:]
     var onSelectStyle: ((CanvasStyleProperty, CanvasStyleValue) throws -> Void)?
     var onAlign: ((CanvasAlignment) -> Void)?
@@ -62,7 +143,7 @@ public final class StyleInspectorView: NSView {
 
     public init() {
         titleLabel = NSTextField(labelWithString: "Style")
-        closeButton = InspectorButton(title: "Close", target: nil, action: nil)
+        closeButton = NeoAcidActionButton(title: "Close", variant: .subtle, target: nil, action: nil)
         messageLabel = NSTextField(wrappingLabelWithString: "")
         errorLabel = NSTextField(wrappingLabelWithString: "")
         alignSectionLabel = NSTextField(labelWithString: "ALIGN")
@@ -70,34 +151,33 @@ public final class StyleInspectorView: NSView {
         super.init(frame: NSRect(x: 0, y: 0, width: 268, height: 120))
         identifier = NSUserInterfaceItemIdentifier("style-inspector")
         setAccessibilityLabel("Style inspector")
+        CanvasFloatingElevation.apply(to: self)
 
         titleLabel.identifier = NSUserInterfaceItemIdentifier("style-title")
-        titleLabel.font = .systemFont(ofSize: 14, weight: .bold)
+        titleLabel.font = CanvasTypography.font("heading", "s", scale: 13.0 / 12.0)
         titleLabel.textColor = CanvasTheme.primaryText
 
         closeButton.identifier = NSUserInterfaceItemIdentifier("style-close")
         closeButton.target = self
         closeButton.action = #selector(closeClicked(_:))
-        closeButton.bezelStyle = .rounded
-        closeButton.font = .systemFont(ofSize: 12, weight: .medium)
         closeButton.setAccessibilityLabel("Close Style inspector")
         closeButton.onEscape = { [weak self] in self?.onClose?() }
 
         messageLabel.identifier = NSUserInterfaceItemIdentifier("style-message")
-        messageLabel.font = .systemFont(ofSize: 12)
+        messageLabel.font = CanvasTypography.font("sans", "s", scale: 11.5 / 14.0)
         messageLabel.textColor = CanvasTheme.secondaryText
         messageLabel.isHidden = true
 
         errorLabel.identifier = NSUserInterfaceItemIdentifier("style-error")
-        errorLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        errorLabel.font = CanvasTypography.font("sans", "s", scale: 11.5 / 14.0)
         errorLabel.textColor = .systemRed
         errorLabel.isHidden = true
 
-        alignSectionLabel.font = .systemFont(ofSize: 10, weight: .bold)
+        alignSectionLabel.font = CanvasTypography.font("mono", "s", scale: 10.0 / 14.0)
         alignSectionLabel.textColor = CanvasTheme.mutedText
         alignSectionLabel.isHidden = true
 
-        distributeHintLabel.font = .systemFont(ofSize: 11)
+        distributeHintLabel.font = CanvasTypography.font("sans", "s", scale: 10.5 / 14.0)
         distributeHintLabel.textColor = CanvasTheme.mutedText
         distributeHintLabel.isHidden = true
 
@@ -299,8 +379,10 @@ public final class StyleInspectorView: NSView {
 
     private func rebuildControls(schema: [CanvasStyleProperty], isConnection: Bool, isDocument: Bool) {
         for view in rowViews { view.removeFromSuperview() }
+        for swatch in fillSwatchButtons { swatch.removeFromSuperview() }
         rowViews.removeAll()
         controlsByProperty.removeAll()
+        fillSwatchButtons.removeAll()
         optionsByProperty.removeAll()
         currentSchema = schema
         currentIsConnection = isConnection
@@ -313,14 +395,14 @@ public final class StyleInspectorView: NSView {
             if !isTextCategory && !addedAppearanceHeader {
                 addedAppearanceHeader = true
                 let sectionLabel = NSTextField(labelWithString: "APPEARANCE")
-                sectionLabel.font = .systemFont(ofSize: 10, weight: .bold)
+                sectionLabel.font = CanvasTypography.font("mono", "s", scale: 10.0 / 14.0)
                 sectionLabel.textColor = CanvasTheme.mutedText
                 addSubview(sectionLabel)
                 rowViews.append(sectionLabel)
             } else if isTextCategory && !addedTextHeader {
                 addedTextHeader = true
                 let sectionLabel = NSTextField(labelWithString: "TEXT")
-                sectionLabel.font = .systemFont(ofSize: 10, weight: .bold)
+                sectionLabel.font = CanvasTypography.font("mono", "s", scale: 10.0 / 14.0)
                 sectionLabel.textColor = CanvasTheme.mutedText
                 addSubview(sectionLabel)
                 rowViews.append(sectionLabel)
@@ -328,21 +410,34 @@ public final class StyleInspectorView: NSView {
 
             let propLabel = Self.label(for: property, isDocument: isDocument)
             let label = NSTextField(labelWithString: propLabel)
-            label.font = .systemFont(ofSize: 12, weight: .medium)
+            label.font = CanvasTypography.font("sans", "m", scale: 12.0 / 16.0)
             label.textColor = CanvasTheme.primaryText
             addSubview(label)
             rowViews.append(label)
 
-            let popup = InspectorPopUpButton(frame: .zero, pullsDown: false)
+            let popup = NeoAcidPopUpButton(frame: .zero, pullsDown: false)
             popup.identifier = NSUserInterfaceItemIdentifier("style-\(property.rawValue)")
             popup.target = self
             popup.action = #selector(controlChanged(_:))
-            popup.font = .systemFont(ofSize: 12)
+            popup.font = CanvasTypography.font("sans", "m", scale: 12.0 / 16.0)
             popup.setAccessibilityLabel(propLabel)
+            popup.forwardCommandKeyToSuperview = true
             popup.onEscape = { [weak self] in self?.onClose?() }
             addSubview(popup)
             rowViews.append(popup)
             controlsByProperty[property] = popup
+
+            if property == .fill {
+                for colorName in CanvasSession.supportedColors {
+                    let swatch = NeoAcidSwatchButton(colorName: colorName)
+                    swatch.identifier = NSUserInterfaceItemIdentifier("style-fill-swatch-\(colorName)")
+                    swatch.target = self
+                    swatch.action = #selector(fillSwatchClicked(_:))
+                    swatch.onEscape = { [weak self] in self?.onClose?() }
+                    addSubview(swatch)
+                    fillSwatchButtons.append(swatch)
+                }
+            }
         }
     }
 
@@ -371,6 +466,9 @@ public final class StyleInspectorView: NSView {
                 popup.removeAllItems()
                 popup.addItems(withTitles: desiredTitles)
             }
+            for (idx, option) in options.enumerated() {
+                popup.item(at: idx)?.image = Self.glyph(for: property, option: option)
+            }
             optionsByProperty[property] = options
             if isMixed {
                 popup.selectItem(at: 0)
@@ -378,6 +476,20 @@ public final class StyleInspectorView: NSView {
                 popup.selectItem(at: index)
             }
             popup.isEnabled = enabled
+            popup.needsDisplay = true
+
+            if property == .fill {
+                let selectedFillName: String?
+                if !isMixed, case .string(let name) = value {
+                    selectedFillName = name
+                } else {
+                    selectedFillName = nil
+                }
+                for swatch in fillSwatchButtons {
+                    swatch.isEnabled = enabled
+                    swatch.isSelectedSwatch = (swatch.colorName == selectedFillName)
+                }
+            }
         }
     }
 
@@ -386,7 +498,7 @@ public final class StyleInspectorView: NSView {
         let width: CGFloat = 268
         let padding: CGFloat = 12
         titleLabel.frame = NSRect(x: padding, y: 9, width: 170, height: 18)
-        closeButton.frame = NSRect(x: width - padding - 60, y: 5, width: 60, height: 26)
+        closeButton.frame = NSRect(x: width - padding - 56, y: 6, width: 56, height: 24)
 
         var y: CGFloat = 44
         if !messageLabel.isHidden {
@@ -395,10 +507,10 @@ public final class StyleInspectorView: NSView {
             y += ceil(size.height) + 6
         }
         if showAlignSection {
-            alignSectionLabel.frame = NSRect(x: padding, y: y + 2, width: width - padding * 2, height: 14)
-            y += 18
+            alignSectionLabel.frame = NSRect(x: padding, y: y + 1, width: width - padding * 2, height: 14)
+            y += 17
             let buttonW: CGFloat = 36
-            let buttonH: CGFloat = 28
+            let buttonH: CGFloat = 26
             var x = padding
             let firstRow: [CanvasAlignment] = [.left, .centerHorizontal, .right, .top, .centerVertical, .bottom]
             for (idx, alignment) in firstRow.enumerated() {
@@ -406,31 +518,42 @@ public final class StyleInspectorView: NSView {
                 alignButtons[alignment]?.frame = NSRect(x: x, y: y, width: buttonW, height: buttonH)
                 x += buttonW + 4
             }
-            y += buttonH + 5
+            y += buttonH + 4
             let distRow: [CanvasAlignment] = [.distributeHorizontally, .distributeVertically]
             var dx = padding
             for alignment in distRow {
                 alignButtons[alignment]?.frame = NSRect(x: dx, y: y, width: buttonW, height: buttonH)
                 dx += buttonW + 4
             }
-            distributeHintLabel.frame = NSRect(x: dx + 4, y: y + 6, width: width - padding - dx - 4, height: 16)
+            distributeHintLabel.frame = NSRect(x: dx + 4, y: y + 5, width: width - padding - dx - 4, height: 16)
             y += buttonH + 8
         }
-        let rowStep: CGFloat = (currentSchema.count >= 7 || showAlignSection) ? 28 : 30
+        let rowStep: CGFloat = (currentSchema.count >= 7 || showAlignSection) ? 27 : 29
         var index = 0
         while index < rowViews.count {
             let view = rowViews[index]
             if let field = view as? NSTextField,
                field.stringValue == "APPEARANCE" || field.stringValue == "TEXT" {
                 field.frame = NSRect(x: padding, y: y + 1, width: width - padding * 2, height: 14)
-                y += 18
+                y += 17
                 index += 1
             } else if index + 1 < rowViews.count {
                 let label = rowViews[index]
                 let control = rowViews[index + 1]
-                label.frame = NSRect(x: padding, y: y + 3, width: 108, height: 18)
-                control.frame = NSRect(x: padding + 112, y: y, width: width - padding * 2 - 112, height: 24)
+                label.frame = NSRect(x: padding, y: y + 3, width: 104, height: 18)
+                control.frame = NSRect(x: padding + 108, y: y, width: width - padding * 2 - 108, height: 24)
                 y += rowStep
+                if control.identifier?.rawValue == "style-fill", !fillSwatchButtons.isEmpty {
+                    let count = CGFloat(fillSwatchButtons.count)
+                    let gap: CGFloat = 3
+                    let swatchW = floor((width - padding * 2 - gap * (count - 1)) / count)
+                    var sx = padding
+                    for swatch in fillSwatchButtons {
+                        swatch.frame = NSRect(x: sx, y: y - 1, width: swatchW, height: 21)
+                        sx += swatchW + gap
+                    }
+                    y += 26
+                }
                 index += 2
             } else {
                 index += 1
@@ -442,6 +565,50 @@ public final class StyleInspectorView: NSView {
             y += ceil(size.height) + 6
         }
         setFrameSize(NSSize(width: width, height: max(84, y + 6)))
+    }
+
+    @objc private func fillSwatchClicked(_ sender: NSButton) {
+        guard let swatch = sender as? NeoAcidSwatchButton else { return }
+        do {
+            clearError()
+            try onSelectStyle?(.fill, .string(swatch.colorName))
+        } catch {
+            showError(error.localizedDescription)
+            NSSound.beep()
+        }
+    }
+
+    private static func glyph(for property: CanvasStyleProperty, option: Option) -> NSImage? {
+        if option.value == nil {
+            if property == .fill || property == .stroke {
+                return CanvasStyleGlyphs.mixedColorSwatch()
+            }
+            return nil
+        }
+        switch (property, option.value) {
+        case (.fill, .string(let name)), (.stroke, .string(let name)):
+            return CanvasStyleGlyphs.colorSwatch(name: name)
+        case (.stroke, .omitted):
+            return CanvasStyleGlyphs.colorSwatch(name: "ink")
+        case (.width, .int(let w)):
+            return CanvasStyleGlyphs.strokeWidthGlyph(w)
+        case (.dash, .bool(let dashed)):
+            return CanvasStyleGlyphs.strokeDashGlyph(dashed: dashed)
+        case (.radius, .int(let r)):
+            return CanvasStyleGlyphs.cornerRadiusGlyph(rounded: r > 0)
+        case (.arrow, .string(let mode)):
+            return CanvasStyleGlyphs.arrowGlyph(mode)
+        case (.path, .string(let path)):
+            return CanvasStyleGlyphs.pathGlyph(path)
+        case (.marker, .string(let marker)):
+            return CanvasStyleGlyphs.markerGlyph(marker)
+        case (.align, .string(let align)):
+            return CanvasStyleGlyphs.alignGlyph(align)
+        case (.paperBackground, .string(let paper)):
+            return CanvasStyleGlyphs.paperGlyph(paper)
+        default:
+            return nil
+        }
     }
 
     @objc private func alignButtonClicked(_ sender: NSButton) {

@@ -80,10 +80,28 @@ func runPolishChecks(repository: URL) throws {
         delegate.closeAllWindows()
     }
 
-    // 3. About Canvas dynamic version formatting (reads bundle metadata, never hardcoded-only)
+    // 3. About Canvas window + standard macOS App/View menus + dynamic version formatting
     do {
         let title = CanvasAppDelegate.aboutVersionTitle(for: Bundle.main)
         try require(title.hasPrefix("Canvas "), "Unexpected About title: \(title)")
+        let delegate = CanvasAppDelegate()
+        delegate.installMenu()
+        let appSubmenu = NSApplication.shared.mainMenu?.item(withTitle: "Canvas")?.submenu
+        let appTitles = appSubmenu?.items.map(\.title) ?? []
+        try require(
+            appTitles.contains("Services") && appTitles.contains("Hide Canvas") &&
+            appTitles.contains("Hide Others") && appTitles.contains("Show All"),
+            "App menu missing standard macOS Services/Hide items: \(appTitles)"
+        )
+        let viewSubmenu = NSApplication.shared.mainMenu?.item(withTitle: "View")?.submenu
+        try require(
+            viewSubmenu?.item(withTitle: "Show Style Inspector") != nil,
+            "View menu missing Show Style Inspector item"
+        )
+        delegate.showAboutPanel(nil)
+        try require(delegate.activeAboutWindow != nil, "showAboutPanel did not open custom Neo-Acid About window")
+        delegate.closeAllWindows()
+        try require(delegate.activeAboutWindow == nil, "closeAllWindows did not close About window")
     }
 
     // 4. Multi-selection shared-property styling in StyleInspectorView + atomic Undo/Redo + Mixed label
@@ -121,9 +139,24 @@ func runPolishChecks(repository: URL) throws {
         try require(
             popup(.radius) == nil &&
             popup(.fill)?.titleOfSelectedItem == "Mixed" &&
-            popup(.stroke)?.titleOfSelectedItem == "Ink",
-            "Multi-selection Style inspector did not compute property intersection and Mixed/shared values"
+            popup(.fill)?.selectedItem?.image != nil &&
+            popup(.stroke)?.titleOfSelectedItem == "Ink" &&
+            popup(.stroke)?.selectedItem?.image != nil &&
+            view.alignBar.isHidden,
+            "Multi-selection Style inspector did not compute property intersection, swatch icons, or hide duplicate alignBar"
         )
+        // Quick 1-click swatch button in Style inspector updates unlocked nodes atomically too
+        guard let violetSwatch = inspector.subviews.first(where: { $0.identifier?.rawValue == "style-fill-swatch-violet" }) as? NSButton else {
+            throw CheckFailure(description: "Missing 1-click Neo-Acid fill swatch button in StyleInspectorView")
+        }
+        violetSwatch.performClick(nil)
+        try require(
+            session.effectiveNodeStyle(of: "r1")?[.fill] == .string("violet") &&
+            session.effectiveNodeStyle(of: "r2")?[.fill] == .string("violet") &&
+            session.effectiveNodeStyle(of: "r3")?[.fill] == .string("red"),
+            "1-click Fill swatch button did not style multi-selection atomically"
+        )
+        view.undoMove(nil)
         // Choosing "Green" fill updates unlocked r1 & r2 in ONE transaction while leaving locked r3 red!
         let revBefore = session.revision
         let fillPopup = popup(.fill)!
@@ -184,17 +217,18 @@ func runPolishChecks(repository: URL) throws {
 
         let dockF = view.toolDock.frame
         let zoomF = view.zoomControl.frame
-        let alignF = view.alignBar.frame
         let bannerF = view.statusBanner.frame
         let styleF = view.styleInspector.frame
 
         try require(!dockF.intersects(zoomF), "Tool dock overlapped zoom control at 720x520: \(dockF) vs \(zoomF)")
-        try require(!dockF.intersects(alignF), "Tool dock overlapped align bar at 720x520: \(dockF) vs \(alignF)")
+        try require(view.alignBar.isHidden, "Floating align bar should stay hidden while Style inspector is open")
         try require(!bannerF.intersects(styleF), "Status banner overlapped style inspector at 720x520: \(bannerF) vs \(styleF)")
         try require(!dockF.intersects(styleF), "Tool dock overlapped style inspector at 720x520: \(dockF) vs \(styleF)")
 
         // Code editor overlay fits cleanly inside narrow 720x520 between banner and dock
         view.closeStyleInspector(nil)
+        try require(!view.alignBar.isHidden, "Floating align bar should reappear when Style inspector closes on multi-selection")
+        try require(!dockF.intersects(view.alignBar.frame), "Tool dock overlapped align bar at 720x520")
         view.beginNewCodeBlock()
         view.positionAllOverlays()
         if let codeF = view.activeCodeEditor?.frame {
@@ -414,6 +448,52 @@ func renderShowcaseArtifacts(repository: URL, outputDir: URL) throws {
         view.positionAllOverlays()
         try saveBitmap(scroll, scale: 2.0, to: "03-code-editor-narrow-720x520-2x.png")
         view.cancelCodeEditor()
+        win.orderOut(nil)
+        win.close()
+    }
+
+    // 5. Render About Canvas window at 2x
+    do {
+        let aboutRect = NSRect(x: 0, y: 0, width: 360, height: 278)
+        let aboutView = AboutContentView(frame: aboutRect, versionLabel: "Canvas 1.0 (1)")
+        let win = NSWindow(
+            contentRect: aboutRect,
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        win.appearance = NSAppearance(named: .aqua)
+        win.isReleasedWhenClosed = false
+        win.contentView = aboutView
+        try saveBitmap(aboutView, scale: 2.0, to: "04-about-2x.png")
+        win.orderOut(nil)
+        win.close()
+    }
+
+    // 6. Render single-node Style Inspector (showing 10-swatch Fill row + swatch/glyph popups) at 2x
+    do {
+        let welcomeDoc = try CanvasDocument(data: try Data(contentsOf: repository.appendingPathComponent("examples/welcome.json")))
+        let session = CanvasSession(document: welcomeDoc)
+        let view = CanvasView(session: session)
+        view.isToolDockVisible = true
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
+        scroll.documentView = view
+        let win = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        win.appearance = NSAppearance(named: .aqua)
+        win.isReleasedWhenClosed = false
+        win.contentView = scroll
+        view.zoomToFit(nil)
+        if let firstNodeID = (session.root["nodes"] as? [[String: Any]])?.first?["id"] as? String {
+            view.selectNode(firstNodeID)
+        }
+        view.showStyleInspector(nil)
+        view.positionAllOverlays()
+        try saveBitmap(scroll, scale: 2.0, to: "05-style-inspector-single-2x.png")
         win.orderOut(nil)
         win.close()
     }

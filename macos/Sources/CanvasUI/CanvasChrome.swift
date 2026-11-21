@@ -97,11 +97,839 @@ public enum CanvasDockIconGlyph: String, Equatable, Sendable {
 }
 
 @MainActor
+enum CanvasFloatingElevation {
+    static func apply(to view: NSView) {
+        view.wantsLayer = true
+        view.layer?.masksToBounds = false
+        view.layer?.shadowColor = CanvasTheme.borderStrong.cgColor
+        view.layer?.shadowOpacity = 0.16
+        view.layer?.shadowOffset = CGSize(width: 3, height: -3)
+        view.layer?.shadowRadius = 0
+    }
+}
+
+@MainActor
+public final class NeoAcidActionButton: NSButton {
+    public enum Variant {
+        case primary
+        case secondary
+        case subtle
+    }
+
+    public var variant: Variant {
+        didSet { needsDisplay = true }
+    }
+    public var onEscape: (() -> Void)?
+    private var isHovered: Bool = false {
+        didSet { if oldValue != isHovered { needsDisplay = true } }
+    }
+
+    public override var isFlipped: Bool { true }
+    public override var focusRingType: NSFocusRingType {
+        get { .none }
+        set {}
+    }
+
+    public init(
+        title: String,
+        variant: Variant = .secondary,
+        target: AnyObject? = nil,
+        action: Selector? = nil
+    ) {
+        self.variant = variant
+        super.init(frame: .zero)
+        self.title = title
+        self.target = target
+        self.action = action
+        self.isBordered = false
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("NeoAcidActionButton does not support NSCoder")
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    public override func mouseEntered(with event: NSEvent) { isHovered = true }
+    public override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    public override func resetCursorRects() {
+        super.resetCursorRects()
+        if isEnabled {
+            addCursorRect(bounds, cursor: .pointingHand)
+        }
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+           let onEscape {
+            onEscape()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        let isFocused = window?.firstResponder === self
+        let fill: NSColor
+        let borderColor: NSColor
+        let borderWidth: CGFloat
+
+        if !isEnabled {
+            fill = CanvasTheme.surface.withAlphaComponent(0.75)
+            borderColor = CanvasTheme.borderSubtle
+            borderWidth = 1.0
+        } else {
+            switch variant {
+            case .primary:
+                if isHighlighted {
+                    fill = CanvasTheme.acid.blended(withFraction: 0.18, of: CanvasTheme.highlighterInk) ?? CanvasTheme.acid
+                } else if isHovered {
+                    fill = CanvasTheme.acid.blended(withFraction: 0.08, of: CanvasTheme.elevatedSurface) ?? CanvasTheme.acid
+                } else {
+                    fill = CanvasTheme.acid
+                }
+                borderColor = CanvasTheme.borderStrong
+                borderWidth = 1.75
+            case .secondary:
+                if isHighlighted {
+                    fill = CanvasTheme.acid.withAlphaComponent(0.6)
+                } else if isHovered {
+                    fill = CanvasTheme.surface
+                } else {
+                    fill = CanvasTheme.elevatedSurface
+                }
+                borderColor = CanvasTheme.borderStrong
+                borderWidth = 1.5
+            case .subtle:
+                if isHighlighted {
+                    fill = CanvasTheme.acid.withAlphaComponent(0.45)
+                } else if isHovered {
+                    fill = CanvasTheme.elevatedSurface
+                } else {
+                    fill = CanvasTheme.surface
+                }
+                borderColor = (isHovered || isHighlighted) ? CanvasTheme.borderStrong : CanvasTheme.borderSubtle
+                borderWidth = (isHovered || isHighlighted) ? 1.25 : 1.0
+            }
+        }
+
+        fill.setFill()
+        bounds.fill()
+
+        let strokeRect = bounds.insetBy(dx: isFocused ? 1.0 : borderWidth / 2.0, dy: isFocused ? 1.0 : borderWidth / 2.0)
+        let border = NSBezierPath(rect: strokeRect)
+        if isFocused {
+            border.lineWidth = 2.0
+            CanvasTheme.selectionCobalt.setStroke()
+        } else {
+            border.lineWidth = borderWidth
+            borderColor.setStroke()
+        }
+        border.stroke()
+
+        let textColor = isEnabled ? CanvasTheme.highlighterInk : CanvasTheme.mutedText
+        let font: NSFont = variant == .primary
+            ? CanvasTypography.font("sans", "l", scale: 12.5 / 24.0)
+            : CanvasTypography.font("sans", "m", scale: 12.0 / 16.0)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraph,
+        ]
+        let label = title as NSString
+        let size = label.size(withAttributes: attrs)
+        let textRect = CGRect(
+            x: 8,
+            y: floor((bounds.height - size.height) / 2.0),
+            width: max(0, bounds.width - 16),
+            height: size.height + 2
+        )
+        label.draw(in: textRect, withAttributes: attrs)
+    }
+}
+
+@MainActor
+public final class NeoAcidRecentRowButton: NSButton {
+    public let filenameTitle: String
+    public let directorySubtitle: String
+    private var isHovered: Bool = false {
+        didSet { if oldValue != isHovered { needsDisplay = true } }
+    }
+
+    public override var isFlipped: Bool { true }
+    public override var focusRingType: NSFocusRingType {
+        get { .none }
+        set {}
+    }
+
+    public init(url: URL, target: AnyObject?, action: Selector?) {
+        self.filenameTitle = url.lastPathComponent
+        let parent = (url.deletingLastPathComponent().path as NSString).abbreviatingWithTildeInPath
+        self.directorySubtitle = parent
+        super.init(frame: .zero)
+        self.title = url.lastPathComponent
+        self.toolTip = url.path
+        self.target = target
+        self.action = action
+        self.isBordered = false
+        setAccessibilityLabel("Open recent canvas \(url.lastPathComponent)")
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("NeoAcidRecentRowButton does not support NSCoder")
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    public override func mouseEntered(with event: NSEvent) { isHovered = true }
+    public override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    public override func resetCursorRects() {
+        super.resetCursorRects()
+        if isEnabled { addCursorRect(bounds, cursor: .pointingHand) }
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        let isFocused = window?.firstResponder === self
+        let fill: NSColor
+        if isHighlighted {
+            fill = CanvasTheme.acid.withAlphaComponent(0.55)
+        } else if isHovered {
+            fill = CanvasTheme.surface
+        } else {
+            fill = CanvasTheme.elevatedSurface
+        }
+        fill.setFill()
+        bounds.fill()
+
+        let border = NSBezierPath(rect: bounds.insetBy(dx: isFocused ? 1.0 : 0.5, dy: isFocused ? 1.0 : 0.5))
+        if isFocused {
+            border.lineWidth = 2.0
+            CanvasTheme.selectionCobalt.setStroke()
+        } else if isHovered || isHighlighted {
+            border.lineWidth = 1.25
+            CanvasTheme.borderStrong.setStroke()
+        } else {
+            border.lineWidth = 1.0
+            CanvasTheme.borderSubtle.setStroke()
+        }
+        border.stroke()
+
+        // Small Neo-Acid document square marker
+        let marker = CGRect(x: 10, y: floor((bounds.height - 8) / 2), width: 8, height: 8)
+        (isHovered ? CanvasTheme.acid : CanvasTheme.surface).setFill()
+        marker.fill()
+        let markerBorder = NSBezierPath(rect: marker)
+        markerBorder.lineWidth = 1.0
+        CanvasTheme.borderStrong.setStroke()
+        markerBorder.stroke()
+
+        let nameStyle = NSMutableParagraphStyle()
+        nameStyle.lineBreakMode = .byTruncatingMiddle
+        let nameAttrs: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.font("sans", "l", scale: 12.0 / 24.0),
+            .foregroundColor: CanvasTheme.primaryText,
+            .paragraphStyle: nameStyle,
+        ]
+        let pathStyle = NSMutableParagraphStyle()
+        pathStyle.alignment = .right
+        pathStyle.lineBreakMode = .byTruncatingHead
+        let pathAttrs: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.font("mono", "s", scale: 10.0 / 14.0),
+            .foregroundColor: CanvasTheme.mutedText,
+            .paragraphStyle: pathStyle,
+        ]
+
+        let nameText = filenameTitle as NSString
+        let pathText = directorySubtitle as NSString
+        let nameMeasured = min(bounds.width * 0.54, ceil(nameText.size(withAttributes: nameAttrs).width) + 4)
+        let nameRect = CGRect(
+            x: 26,
+            y: floor((bounds.height - 16) / 2),
+            width: nameMeasured,
+            height: 17
+        )
+        nameText.draw(in: nameRect, withAttributes: nameAttrs)
+
+        let pathX = nameRect.maxX + 10
+        let pathW = max(0, bounds.width - pathX - 10)
+        if pathW > 36 {
+            let pathRect = CGRect(
+                x: pathX,
+                y: floor((bounds.height - 14) / 2) + 0.5,
+                width: pathW,
+                height: 15
+            )
+            pathText.draw(in: pathRect, withAttributes: pathAttrs)
+        }
+    }
+}
+
+@MainActor
+public final class NeoAcidCheckboxButton: NSButton {
+    public var onEscape: (() -> Void)?
+    private var isHovered: Bool = false {
+        didSet { if oldValue != isHovered { needsDisplay = true } }
+    }
+
+    public override var isFlipped: Bool { true }
+    public override var focusRingType: NSFocusRingType {
+        get { .none }
+        set {}
+    }
+
+    public init(title: String, target: AnyObject? = nil, action: Selector? = nil) {
+        super.init(frame: .zero)
+        setButtonType(.switch)
+        self.title = title
+        self.target = target
+        self.action = action
+        self.isBordered = false
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("NeoAcidCheckboxButton does not support NSCoder")
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    public override func mouseEntered(with event: NSEvent) { isHovered = true }
+    public override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    public override func resetCursorRects() {
+        super.resetCursorRects()
+        if isEnabled { addCursorRect(bounds, cursor: .pointingHand) }
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+           let onEscape {
+            onEscape()
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        let isFocused = window?.firstResponder === self
+        let checked = state == .on
+        let boxSize: CGFloat = 15
+        let boxY = floor((bounds.height - boxSize) / 2.0)
+        let boxRect = CGRect(x: 2, y: boxY, width: boxSize, height: boxSize)
+
+        let boxFill: NSColor
+        if !isEnabled {
+            boxFill = CanvasTheme.surface
+        } else if checked {
+            boxFill = CanvasTheme.acid
+        } else if isHovered {
+            boxFill = CanvasTheme.surface
+        } else {
+            boxFill = CanvasTheme.elevatedSurface
+        }
+        boxFill.setFill()
+        boxRect.fill()
+
+        let boxBorder = NSBezierPath(rect: boxRect.insetBy(dx: 0.75, dy: 0.75))
+        boxBorder.lineWidth = isFocused ? 2.0 : 1.5
+        (isFocused ? CanvasTheme.selectionCobalt : (isEnabled ? CanvasTheme.borderStrong : CanvasTheme.borderSubtle)).setStroke()
+        boxBorder.stroke()
+
+        if checked {
+            let check = NSBezierPath()
+            check.move(to: CGPoint(x: boxRect.minX + 3.5, y: boxRect.midY + 0.5))
+            check.line(to: CGPoint(x: boxRect.minX + 6.5, y: boxRect.maxY - 3.8))
+            check.line(to: CGPoint(x: boxRect.maxX - 3.2, y: boxRect.minY + 3.8))
+            check.lineWidth = 2.0
+            check.lineCapStyle = .round
+            check.lineJoinStyle = .round
+            CanvasTheme.highlighterInk.setStroke()
+            check.stroke()
+        }
+
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.font("sans", "m", scale: 12.0 / 16.0),
+            .foregroundColor: isEnabled ? CanvasTheme.primaryText : CanvasTheme.mutedText,
+        ]
+        let label = title as NSString
+        let size = label.size(withAttributes: attrs)
+        let labelRect = CGRect(
+            x: boxRect.maxX + 7,
+            y: floor((bounds.height - size.height) / 2.0),
+            width: max(0, bounds.width - boxRect.maxX - 8),
+            height: size.height + 2
+        )
+        label.draw(in: labelRect, withAttributes: attrs)
+    }
+}
+
+@MainActor
+public final class NeoAcidPopUpButton: NSPopUpButton {
+    public var onEscape: (() -> Void)?
+    public var forwardCommandKeyToSuperview: Bool = false
+    private var isHovered: Bool = false {
+        didSet { if oldValue != isHovered { needsDisplay = true } }
+    }
+
+    public override var isFlipped: Bool { true }
+    public override var focusRingType: NSFocusRingType {
+        get { .none }
+        set {}
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    public override func mouseEntered(with event: NSEvent) { isHovered = true }
+    public override func mouseExited(with event: NSEvent) { isHovered = false }
+
+    public override func resetCursorRects() {
+        super.resetCursorRects()
+        if isEnabled { addCursorRect(bounds, cursor: .pointingHand) }
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    public override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53 && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+           let onEscape {
+            onEscape()
+            return
+        }
+        if forwardCommandKeyToSuperview && event.modifierFlags.contains(.command) {
+            superview?.keyDown(with: event)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        let isFocused = window?.firstResponder === self
+        let fill: NSColor
+        if !isEnabled {
+            fill = CanvasTheme.surface.withAlphaComponent(0.75)
+        } else if isHighlighted {
+            fill = CanvasTheme.acid.withAlphaComponent(0.45)
+        } else if isHovered {
+            fill = CanvasTheme.surface
+        } else {
+            fill = CanvasTheme.elevatedSurface
+        }
+        fill.setFill()
+        bounds.fill()
+
+        let strokeInset: CGFloat = isFocused ? 1.0 : 0.75
+        let border = NSBezierPath(rect: bounds.insetBy(dx: strokeInset, dy: strokeInset))
+        if isFocused {
+            border.lineWidth = 2.0
+            CanvasTheme.selectionCobalt.setStroke()
+        } else if isHovered || isHighlighted {
+            border.lineWidth = 1.5
+            CanvasTheme.borderStrong.setStroke()
+        } else {
+            border.lineWidth = 1.0
+            CanvasTheme.borderSubtle.setStroke()
+        }
+        border.stroke()
+
+        var textX: CGFloat = 8
+        if let image = selectedItem?.image {
+            let imgSize = image.size
+            let drawW = min(16, imgSize.width)
+            let drawH = min(14, imgSize.height)
+            let imgRect = CGRect(
+                x: textX,
+                y: floor((bounds.height - drawH) / 2.0),
+                width: drawW,
+                height: drawH
+            )
+            image.draw(in: imgRect, from: .zero, operation: .sourceOver, fraction: isEnabled ? 1.0 : 0.45, respectFlipped: true, hints: nil)
+            textX = imgRect.maxX + 6
+        }
+
+        let currentTitle = selectedItem?.title ?? ""
+        let isMixed = currentTitle == "Mixed"
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        let textColor: NSColor
+        if !isEnabled {
+            textColor = CanvasTheme.mutedText
+        } else if isMixed {
+            textColor = CanvasTheme.mutedText
+        } else {
+            textColor = CanvasTheme.primaryText
+        }
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.font("sans", "m", scale: 12.0 / 16.0),
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraph,
+        ]
+        let label = currentTitle as NSString
+        let size = label.size(withAttributes: attrs)
+        let textWidth = max(0, bounds.width - textX - 22)
+        let textRect = CGRect(
+            x: textX,
+            y: floor((bounds.height - size.height) / 2.0),
+            width: textWidth,
+            height: size.height + 2
+        )
+        label.draw(in: textRect, withAttributes: attrs)
+
+        // Crisp double-chevron indicator on the right
+        let cx = bounds.maxX - 11
+        let cy = bounds.midY
+        let chevrons = NSBezierPath()
+        chevrons.move(to: CGPoint(x: cx - 3, y: cy - 1.5))
+        chevrons.line(to: CGPoint(x: cx, y: cy - 4.5))
+        chevrons.line(to: CGPoint(x: cx + 3, y: cy - 1.5))
+        chevrons.move(to: CGPoint(x: cx - 3, y: cy + 1.5))
+        chevrons.line(to: CGPoint(x: cx, y: cy + 4.5))
+        chevrons.line(to: CGPoint(x: cx + 3, y: cy + 1.5))
+        chevrons.lineWidth = 1.4
+        chevrons.lineCapStyle = .round
+        chevrons.lineJoinStyle = .round
+        (isEnabled ? CanvasTheme.secondaryText : CanvasTheme.mutedText).setStroke()
+        chevrons.stroke()
+    }
+}
+
+@MainActor
+enum CanvasStyleGlyphs {
+    static func colorSwatch(name: String) -> NSImage {
+        let size = NSSize(width: 14, height: 14)
+        return NSImage(size: size, flipped: true) { rect in
+            let box = rect.insetBy(dx: 1, dy: 1)
+            if name == "none" {
+                CanvasTheme.elevatedSurface.setFill()
+                box.fill()
+                let slash = NSBezierPath()
+                slash.move(to: CGPoint(x: box.minX + 1.5, y: box.maxY - 1.5))
+                slash.line(to: CGPoint(x: box.maxX - 1.5, y: box.minY + 1.5))
+                slash.lineWidth = 1.6
+                CanvasTheme.red.setStroke()
+                slash.stroke()
+            } else {
+                CanvasTheme.palette(name).setFill()
+                box.fill()
+            }
+            let border = NSBezierPath(rect: box.insetBy(dx: 0.5, dy: 0.5))
+            border.lineWidth = 1.0
+            CanvasTheme.borderStrong.setStroke()
+            border.stroke()
+            return true
+        }
+    }
+
+    static func mixedColorSwatch() -> NSImage {
+        let size = NSSize(width: 14, height: 14)
+        return NSImage(size: size, flipped: true) { rect in
+            let box = rect.insetBy(dx: 1, dy: 1)
+            let halfW = box.width / 2
+            let halfH = box.height / 2
+            CanvasTheme.acid.setFill()
+            CGRect(x: box.minX, y: box.minY, width: halfW, height: halfH).fill()
+            CanvasTheme.sky.setFill()
+            CGRect(x: box.minX + halfW, y: box.minY, width: halfW, height: halfH).fill()
+            CanvasTheme.violet.setFill()
+            CGRect(x: box.minX, y: box.minY + halfH, width: halfW, height: halfH).fill()
+            CanvasTheme.mint.setFill()
+            CGRect(x: box.minX + halfW, y: box.minY + halfH, width: halfW, height: halfH).fill()
+            let border = NSBezierPath(rect: box.insetBy(dx: 0.5, dy: 0.5))
+            border.lineWidth = 1.0
+            CanvasTheme.borderStrong.setStroke()
+            border.stroke()
+            return true
+        }
+    }
+
+    static func strokeWidthGlyph(_ width: Int) -> NSImage {
+        NSImage(size: NSSize(width: 16, height: 12), flipped: true) { rect in
+            let line = NSBezierPath()
+            line.move(to: CGPoint(x: 1, y: rect.midY))
+            line.line(to: CGPoint(x: rect.width - 1, y: rect.midY))
+            line.lineWidth = CGFloat(max(1, min(4, width)))
+            line.lineCapStyle = .butt
+            CanvasTheme.primaryText.setStroke()
+            line.stroke()
+            return true
+        }
+    }
+
+    static func strokeDashGlyph(dashed: Bool) -> NSImage {
+        NSImage(size: NSSize(width: 16, height: 12), flipped: true) { rect in
+            let line = NSBezierPath()
+            line.move(to: CGPoint(x: 1, y: rect.midY))
+            line.line(to: CGPoint(x: rect.width - 1, y: rect.midY))
+            line.lineWidth = 2.0
+            if dashed {
+                let pattern: [CGFloat] = [3.5, 2.5]
+                line.setLineDash(pattern, count: pattern.count, phase: 0)
+            }
+            CanvasTheme.primaryText.setStroke()
+            line.stroke()
+            return true
+        }
+    }
+
+    static func cornerRadiusGlyph(rounded: Bool) -> NSImage {
+        NSImage(size: NSSize(width: 14, height: 14), flipped: true) { rect in
+            let box = rect.insetBy(dx: 2, dy: 2)
+            let path = rounded
+                ? NSBezierPath(roundedRect: box, xRadius: 3.5, yRadius: 3.5)
+                : NSBezierPath(rect: box)
+            path.lineWidth = 1.6
+            CanvasTheme.primaryText.setStroke()
+            path.stroke()
+            return true
+        }
+    }
+
+    static func arrowGlyph(_ mode: String) -> NSImage {
+        NSImage(size: NSSize(width: 16, height: 12), flipped: true) { rect in
+            let cy = rect.midY
+            let path = NSBezierPath()
+            path.move(to: CGPoint(x: 2, y: cy))
+            path.line(to: CGPoint(x: 14, y: cy))
+            if mode == "end" || mode == "both" {
+                path.move(to: CGPoint(x: 10.5, y: cy - 3.5))
+                path.line(to: CGPoint(x: 14, y: cy))
+                path.line(to: CGPoint(x: 10.5, y: cy + 3.5))
+            }
+            if mode == "both" {
+                path.move(to: CGPoint(x: 5.5, y: cy - 3.5))
+                path.line(to: CGPoint(x: 2, y: cy))
+                path.line(to: CGPoint(x: 5.5, y: cy + 3.5))
+            }
+            path.lineWidth = 1.6
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            CanvasTheme.primaryText.setStroke()
+            path.stroke()
+            return true
+        }
+    }
+
+    static func pathGlyph(_ style: String) -> NSImage {
+        NSImage(size: NSSize(width: 16, height: 12), flipped: true) { _ in
+            let path = NSBezierPath()
+            switch style {
+            case "straight":
+                path.move(to: CGPoint(x: 2, y: 10))
+                path.line(to: CGPoint(x: 14, y: 2))
+            case "step":
+                path.move(to: CGPoint(x: 2, y: 10))
+                path.line(to: CGPoint(x: 8, y: 10))
+                path.line(to: CGPoint(x: 8, y: 2))
+                path.line(to: CGPoint(x: 14, y: 2))
+            case "smooth":
+                path.move(to: CGPoint(x: 2, y: 10))
+                path.line(to: CGPoint(x: 6, y: 10))
+                path.curve(to: CGPoint(x: 8, y: 8), controlPoint1: CGPoint(x: 7.5, y: 10), controlPoint2: CGPoint(x: 8, y: 9.5))
+                path.line(to: CGPoint(x: 8, y: 4))
+                path.curve(to: CGPoint(x: 10, y: 2), controlPoint1: CGPoint(x: 8, y: 2.5), controlPoint2: CGPoint(x: 8.5, y: 2))
+                path.line(to: CGPoint(x: 14, y: 2))
+            default: // bezier
+                path.move(to: CGPoint(x: 2, y: 10))
+                path.curve(to: CGPoint(x: 14, y: 2), controlPoint1: CGPoint(x: 8, y: 10), controlPoint2: CGPoint(x: 8, y: 2))
+            }
+            path.lineWidth = 1.6
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            CanvasTheme.primaryText.setStroke()
+            path.stroke()
+            return true
+        }
+    }
+
+    static func markerGlyph(_ marker: String) -> NSImage {
+        NSImage(size: NSSize(width: 16, height: 12), flipped: true) { rect in
+            let cy = rect.midY
+            let line = NSBezierPath()
+            line.move(to: CGPoint(x: 1.5, y: cy))
+            line.line(to: CGPoint(x: marker == "dot" ? 11 : 13.5, y: cy))
+            line.lineWidth = 1.6
+            line.lineCapStyle = .round
+            CanvasTheme.primaryText.setStroke()
+            line.stroke()
+            if marker == "arrow" {
+                let head = NSBezierPath()
+                head.move(to: CGPoint(x: 10, y: cy - 3.5))
+                head.line(to: CGPoint(x: 14, y: cy))
+                head.line(to: CGPoint(x: 10, y: cy + 3.5))
+                head.lineWidth = 1.6
+                head.lineCapStyle = .round
+                head.lineJoinStyle = .round
+                head.stroke()
+            } else if marker == "dot" {
+                CanvasTheme.primaryText.setFill()
+                NSBezierPath(ovalIn: CGRect(x: 10, y: cy - 2.5, width: 5, height: 5)).fill()
+            }
+            return true
+        }
+    }
+
+    static func alignGlyph(_ align: String) -> NSImage {
+        NSImage(size: NSSize(width: 14, height: 12), flipped: true) { _ in
+            CanvasTheme.primaryText.setStroke()
+            let rows: [(CGFloat, CGFloat)] = [(2.5, 11), (6.0, 7.5), (9.5, 9.5)]
+            for (y, w) in rows {
+                let x: CGFloat
+                switch align {
+                case "center": x = (14 - w) / 2
+                case "right": x = 14 - 1.5 - w
+                default: x = 1.5
+                }
+                let line = NSBezierPath()
+                line.move(to: CGPoint(x: x, y: y))
+                line.line(to: CGPoint(x: x + w, y: y))
+                line.lineWidth = 1.5
+                line.lineCapStyle = .round
+                line.stroke()
+            }
+            return true
+        }
+    }
+
+    static func paperGlyph(_ pattern: String) -> NSImage {
+        NSImage(size: NSSize(width: 14, height: 14), flipped: true) { rect in
+            let box = rect.insetBy(dx: 1, dy: 1)
+            CanvasTheme.canvasBackground.setFill()
+            box.fill()
+            CanvasTheme.mutedText.setFill()
+            CanvasTheme.mutedText.setStroke()
+            switch pattern {
+            case "dots":
+                for x in [4.5, 9.5] {
+                    for y in [4.5, 9.5] {
+                        NSBezierPath(ovalIn: CGRect(x: x - 1, y: y - 1, width: 2, height: 2)).fill()
+                    }
+                }
+            case "lines":
+                let p = NSBezierPath()
+                for c in [5.0, 9.0] {
+                    p.move(to: CGPoint(x: box.minX + 1, y: c))
+                    p.line(to: CGPoint(x: box.maxX - 1, y: c))
+                    p.move(to: CGPoint(x: c, y: box.minY + 1))
+                    p.line(to: CGPoint(x: c, y: box.maxY - 1))
+                }
+                p.lineWidth = 0.8
+                p.stroke()
+            case "cross":
+                let p = NSBezierPath()
+                for (x, y) in [(5.0, 5.0), (9.0, 9.0)] {
+                    p.move(to: CGPoint(x: x - 1.5, y: y))
+                    p.line(to: CGPoint(x: x + 1.5, y: y))
+                    p.move(to: CGPoint(x: x, y: y - 1.5))
+                    p.line(to: CGPoint(x: x, y: y + 1.5))
+                }
+                p.lineWidth = 1.0
+                p.stroke()
+            default:
+                break
+            }
+            let border = NSBezierPath(rect: box.insetBy(dx: 0.5, dy: 0.5))
+            border.lineWidth = 1.0
+            CanvasTheme.borderStrong.setStroke()
+            border.stroke()
+            return true
+        }
+    }
+}
+
+@MainActor
 private final class NeoAcidDockButton: NSButton {
     var isActiveTool: Bool = false {
         didSet { needsDisplay = true }
     }
     var iconGlyph: CanvasDockIconGlyph? {
+        didSet { needsDisplay = true }
+    }
+    var usesMonospaceTitle: Bool = false {
         didSet { needsDisplay = true }
     }
     private var isHovered: Bool = false {
@@ -194,8 +1022,11 @@ private final class NeoAcidDockButton: NSButton {
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
+        let titleFont: NSFont = usesMonospaceTitle
+            ? CanvasTypography.font("mono", "s", scale: 11.0 / 14.0)
+            : CanvasTypography.font("sans", "s", scale: 11.5 / 14.0)
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: CanvasTypography.font("sans", "s", scale: 11.5 / 14.0),
+            .font: titleFont,
             .foregroundColor: strokeColor,
             .paragraphStyle: paragraph,
         ]
@@ -219,157 +1050,176 @@ private final class NeoAcidDockButton: NSButton {
         switch glyph {
         case .select:
             let path = NSBezierPath()
-            path.move(to: CGPoint(x: cx - 5, y: cy - 8))
-            path.line(to: CGPoint(x: cx - 5, y: cy + 7))
-            path.line(to: CGPoint(x: cx - 1, y: cy + 3.5))
-            path.line(to: CGPoint(x: cx + 2.5, y: cy + 9))
-            path.line(to: CGPoint(x: cx + 4.5, y: cy + 7.8))
-            path.line(to: CGPoint(x: cx + 1, y: cy + 2.2))
-            path.line(to: CGPoint(x: cx + 6, y: cy + 2.2))
+            path.move(to: CGPoint(x: cx - 5.2, y: cy - 8.2))
+            path.line(to: CGPoint(x: cx - 5.2, y: cy + 6.4))
+            path.line(to: CGPoint(x: cx - 1.4, y: cy + 3.0))
+            path.line(to: CGPoint(x: cx + 1.8, y: cy + 8.2))
+            path.line(to: CGPoint(x: cx + 3.9, y: cy + 7.1))
+            path.line(to: CGPoint(x: cx + 0.8, y: cy + 2.0))
+            path.line(to: CGPoint(x: cx + 5.8, y: cy + 2.0))
             path.close()
+            path.lineJoinStyle = .miter
             path.fill()
 
         case .rectangle:
-            let path = NSBezierPath(rect: CGRect(x: cx - 8, y: cy - 6, width: 16, height: 12))
-            path.lineWidth = 1.8
+            let path = NSBezierPath(rect: CGRect(x: cx - 7.5, y: cy - 5.5, width: 15, height: 11))
+            path.lineWidth = 1.75
+            path.lineJoinStyle = .miter
             path.stroke()
 
         case .ellipse:
-            let path = NSBezierPath(ovalIn: CGRect(x: cx - 8, y: cy - 6, width: 16, height: 12))
-            path.lineWidth = 1.8
+            let path = NSBezierPath(ovalIn: CGRect(x: cx - 7.5, y: cy - 5.5, width: 15, height: 11))
+            path.lineWidth = 1.75
             path.stroke()
 
         case .diamond:
             let path = NSBezierPath()
-            path.move(to: CGPoint(x: cx, y: cy - 8))
-            path.line(to: CGPoint(x: cx + 8, y: cy))
-            path.line(to: CGPoint(x: cx, y: cy + 8))
-            path.line(to: CGPoint(x: cx - 8, y: cy))
+            path.move(to: CGPoint(x: cx, y: cy - 7.5))
+            path.line(to: CGPoint(x: cx + 7.5, y: cy))
+            path.line(to: CGPoint(x: cx, y: cy + 7.5))
+            path.line(to: CGPoint(x: cx - 7.5, y: cy))
             path.close()
-            path.lineWidth = 1.8
+            path.lineWidth = 1.75
+            path.lineJoinStyle = .round
             path.stroke()
 
         case .triangle:
             let path = NSBezierPath()
-            path.move(to: CGPoint(x: cx, y: cy - 7.5))
-            path.line(to: CGPoint(x: cx + 8.5, y: cy + 7.5))
-            path.line(to: CGPoint(x: cx - 8.5, y: cy + 7.5))
+            path.move(to: CGPoint(x: cx, y: cy - 7.0))
+            path.line(to: CGPoint(x: cx + 7.8, y: cy + 6.8))
+            path.line(to: CGPoint(x: cx - 7.8, y: cy + 6.8))
             path.close()
-            path.lineWidth = 1.8
+            path.lineWidth = 1.75
+            path.lineJoinStyle = .round
             path.stroke()
 
         case .text:
             let path = NSBezierPath()
-            path.move(to: CGPoint(x: cx - 6.5, y: cy - 6.5))
-            path.line(to: CGPoint(x: cx + 6.5, y: cy - 6.5))
-            path.move(to: CGPoint(x: cx - 6.5, y: cy - 6.5))
-            path.line(to: CGPoint(x: cx - 6.5, y: cy - 4))
-            path.move(to: CGPoint(x: cx + 6.5, y: cy - 6.5))
-            path.line(to: CGPoint(x: cx + 6.5, y: cy - 4))
+            path.move(to: CGPoint(x: cx - 6.0, y: cy - 4.0))
+            path.line(to: CGPoint(x: cx - 6.0, y: cy - 6.5))
+            path.line(to: CGPoint(x: cx + 6.0, y: cy - 6.5))
+            path.line(to: CGPoint(x: cx + 6.0, y: cy - 4.0))
             path.move(to: CGPoint(x: cx, y: cy - 6.5))
-            path.line(to: CGPoint(x: cx, y: cy + 7))
-            path.move(to: CGPoint(x: cx - 3, y: cy + 7))
-            path.line(to: CGPoint(x: cx + 3, y: cy + 7))
-            path.lineWidth = 1.8
+            path.line(to: CGPoint(x: cx, y: cy + 6.8))
+            path.move(to: CGPoint(x: cx - 3.0, y: cy + 6.8))
+            path.line(to: CGPoint(x: cx + 3.0, y: cy + 6.8))
+            path.lineWidth = 1.75
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
             path.stroke()
 
         case .line:
             let path = NSBezierPath()
-            path.move(to: CGPoint(x: cx - 6.5, y: cy + 6.5))
-            path.line(to: CGPoint(x: cx + 6.5, y: cy - 6.5))
-            path.lineWidth = 1.8
+            path.move(to: CGPoint(x: cx - 6.2, y: cy + 6.2))
+            path.line(to: CGPoint(x: cx + 6.2, y: cy - 6.2))
+            path.lineWidth = 1.75
+            path.lineCapStyle = .round
             path.stroke()
-            NSBezierPath(ovalIn: CGRect(x: cx - 8.5, y: cy + 4.5, width: 4, height: 4)).fill()
-            NSBezierPath(ovalIn: CGRect(x: cx + 4.5, y: cy - 8.5, width: 4, height: 4)).fill()
+            NSBezierPath(ovalIn: CGRect(x: cx - 8.2, y: cy + 4.2, width: 4, height: 4)).fill()
+            NSBezierPath(ovalIn: CGRect(x: cx + 4.2, y: cy - 8.2, width: 4, height: 4)).fill()
 
         case .arrow:
             let path = NSBezierPath()
-            path.move(to: CGPoint(x: cx - 7, y: cy + 7))
-            path.line(to: CGPoint(x: cx + 6.5, y: cy - 6.5))
-            path.move(to: CGPoint(x: cx + 0.5, y: cy - 6.5))
-            path.line(to: CGPoint(x: cx + 6.5, y: cy - 6.5))
-            path.line(to: CGPoint(x: cx + 6.5, y: cy - 0.5))
-            path.lineWidth = 1.8
+            path.move(to: CGPoint(x: cx - 6.5, y: cy + 6.5))
+            path.line(to: CGPoint(x: cx + 6.2, y: cy - 6.2))
+            path.move(to: CGPoint(x: cx + 0.5, y: cy - 6.2))
+            path.line(to: CGPoint(x: cx + 6.2, y: cy - 6.2))
+            path.line(to: CGPoint(x: cx + 6.2, y: cy - 0.5))
+            path.lineWidth = 1.75
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
             path.stroke()
 
         case .code:
             let path = NSBezierPath()
-            path.move(to: CGPoint(x: cx - 4.5, y: cy - 5))
-            path.line(to: CGPoint(x: cx - 9, y: cy))
-            path.line(to: CGPoint(x: cx - 4.5, y: cy + 5))
-            path.move(to: CGPoint(x: cx + 4.5, y: cy - 5))
-            path.line(to: CGPoint(x: cx + 9, y: cy))
-            path.line(to: CGPoint(x: cx + 4.5, y: cy + 5))
-            path.move(to: CGPoint(x: cx + 2, y: cy - 6.5))
-            path.line(to: CGPoint(x: cx - 2, y: cy + 6.5))
+            path.move(to: CGPoint(x: cx - 4.5, y: cy - 4.6))
+            path.line(to: CGPoint(x: cx - 8.6, y: cy))
+            path.line(to: CGPoint(x: cx - 4.5, y: cy + 4.6))
+            path.move(to: CGPoint(x: cx + 4.5, y: cy - 4.6))
+            path.line(to: CGPoint(x: cx + 8.6, y: cy))
+            path.line(to: CGPoint(x: cx + 4.5, y: cy + 4.6))
+            path.move(to: CGPoint(x: cx + 1.8, y: cy - 6.2))
+            path.line(to: CGPoint(x: cx - 1.8, y: cy + 6.2))
             path.lineWidth = 1.7
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
             path.stroke()
 
         case .connect:
-            let n1 = NSBezierPath(rect: CGRect(x: cx - 8, y: cy - 7, width: 6, height: 6))
-            let n2 = NSBezierPath(rect: CGRect(x: cx + 2, y: cy + 1, width: 6, height: 6))
+            let n1 = NSBezierPath(rect: CGRect(x: cx - 7.5, y: cy - 6.5, width: 5.5, height: 5.5))
+            let n2 = NSBezierPath(rect: CGRect(x: cx + 2.0, y: cy + 1.0, width: 5.5, height: 5.5))
             n1.lineWidth = 1.6
             n2.lineWidth = 1.6
             n1.stroke()
             n2.stroke()
             let route = NSBezierPath()
-            route.move(to: CGPoint(x: cx - 2, y: cy - 4))
-            route.line(to: CGPoint(x: cx + 5, y: cy - 4))
-            route.line(to: CGPoint(x: cx + 5, y: cy + 1))
+            route.move(to: CGPoint(x: cx - 2.0, y: cy - 3.75))
+            route.line(to: CGPoint(x: cx + 4.75, y: cy - 3.75))
+            route.line(to: CGPoint(x: cx + 4.75, y: cy + 1.0))
             route.lineWidth = 1.6
+            route.lineCapStyle = .round
+            route.lineJoinStyle = .round
             route.stroke()
 
         case .thought:
-            let box = NSBezierPath(rect: CGRect(x: cx - 8, y: cy - 5, width: 10, height: 10))
+            let box = NSBezierPath(rect: CGRect(x: cx - 7.5, y: cy - 5.0, width: 9.5, height: 10.0))
             box.lineWidth = 1.6
             box.stroke()
             let plus = NSBezierPath()
             plus.move(to: CGPoint(x: cx + 5.5, y: cy - 3.5))
             plus.line(to: CGPoint(x: cx + 5.5, y: cy + 3.5))
-            plus.move(to: CGPoint(x: cx + 2, y: cy))
-            plus.line(to: CGPoint(x: cx + 9, y: cy))
-            plus.lineWidth = 1.8
+            plus.move(to: CGPoint(x: cx + 2.0, y: cy))
+            plus.line(to: CGPoint(x: cx + 9.0, y: cy))
+            plus.lineWidth = 1.75
+            plus.lineCapStyle = .round
             plus.stroke()
 
         case .style:
             let path = NSBezierPath()
-            path.move(to: CGPoint(x: cx - 8, y: cy - 4))
-            path.line(to: CGPoint(x: cx + 8, y: cy - 4))
-            path.move(to: CGPoint(x: cx - 8, y: cy + 4))
-            path.line(to: CGPoint(x: cx + 8, y: cy + 4))
+            path.move(to: CGPoint(x: cx - 7.5, y: cy - 4.0))
+            path.line(to: CGPoint(x: cx + 7.5, y: cy - 4.0))
+            path.move(to: CGPoint(x: cx - 7.5, y: cy + 4.0))
+            path.line(to: CGPoint(x: cx + 7.5, y: cy + 4.0))
             path.lineWidth = 1.6
+            path.lineCapStyle = .round
             path.stroke()
-            NSBezierPath(ovalIn: CGRect(x: cx - 4, y: cy - 6.5, width: 5, height: 5)).fill()
-            NSBezierPath(ovalIn: CGRect(x: cx + 1, y: cy + 1.5, width: 5, height: 5)).fill()
+            NSBezierPath(ovalIn: CGRect(x: cx - 4.0, y: cy - 6.5, width: 5, height: 5)).fill()
+            NSBezierPath(ovalIn: CGRect(x: cx + 0.5, y: cy + 1.5, width: 5, height: 5)).fill()
 
         case .exportPNG:
             let tray = NSBezierPath()
-            tray.move(to: CGPoint(x: cx - 7, y: cy + 1))
-            tray.line(to: CGPoint(x: cx - 7, y: cy + 7))
-            tray.line(to: CGPoint(x: cx + 7, y: cy + 7))
-            tray.line(to: CGPoint(x: cx + 7, y: cy + 1))
-            tray.move(to: CGPoint(x: cx, y: cy + 3))
-            tray.line(to: CGPoint(x: cx, y: cy - 7))
-            tray.move(to: CGPoint(x: cx - 4, y: cy - 3))
-            tray.line(to: CGPoint(x: cx, y: cy - 7))
-            tray.line(to: CGPoint(x: cx + 4, y: cy - 3))
-            tray.lineWidth = 1.8
+            tray.move(to: CGPoint(x: cx - 6.8, y: cy + 1.5))
+            tray.line(to: CGPoint(x: cx - 6.8, y: cy + 6.8))
+            tray.line(to: CGPoint(x: cx + 6.8, y: cy + 6.8))
+            tray.line(to: CGPoint(x: cx + 6.8, y: cy + 1.5))
+            tray.move(to: CGPoint(x: cx, y: cy + 2.8))
+            tray.line(to: CGPoint(x: cx, y: cy - 6.8))
+            tray.move(to: CGPoint(x: cx - 3.8, y: cy - 3.0))
+            tray.line(to: CGPoint(x: cx, y: cy - 6.8))
+            tray.line(to: CGPoint(x: cx + 3.8, y: cy - 3.0))
+            tray.lineWidth = 1.75
+            tray.lineCapStyle = .round
+            tray.lineJoinStyle = .round
             tray.stroke()
 
         case .help:
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.alignment = .center
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: CanvasTypography.font("mono", "m", scale: 14.0 / 16.0),
-                .foregroundColor: color,
-                .paragraphStyle: paragraph,
-            ]
-            let q = "?" as NSString
-            let size = q.size(withAttributes: attrs)
-            q.draw(
-                in: CGRect(x: rect.minX, y: floor((rect.height - size.height) / 2), width: rect.width, height: size.height + 2),
-                withAttributes: attrs
+            let q = NSBezierPath()
+            q.move(to: CGPoint(x: cx - 3.2, y: cy - 3.8))
+            q.curve(
+                to: CGPoint(x: cx + 3.4, y: cy - 3.6),
+                controlPoint1: CGPoint(x: cx - 3.2, y: cy - 7.8),
+                controlPoint2: CGPoint(x: cx + 3.4, y: cy - 7.8)
             )
+            q.curve(
+                to: CGPoint(x: cx, y: cy + 1.8),
+                controlPoint1: CGPoint(x: cx + 3.4, y: cy - 0.6),
+                controlPoint2: CGPoint(x: cx, y: cy - 0.8)
+            )
+            q.lineWidth = 1.75
+            q.lineCapStyle = .round
+            q.lineJoinStyle = .round
+            q.stroke()
+            NSBezierPath(ovalIn: CGRect(x: cx - 1.15, y: cy + 4.4, width: 2.3, height: 2.3)).fill()
         }
     }
 }
@@ -398,6 +1248,7 @@ public final class CanvasToolDockView: NSView {
         identifier = NSUserInterfaceItemIdentifier("canvas-tool-dock")
         setAccessibilityRole(.toolbar)
         setAccessibilityLabel("Canvas tools")
+        CanvasFloatingElevation.apply(to: self)
         buildControls()
     }
 
@@ -837,6 +1688,7 @@ public final class CanvasAlignBarView: NSView {
         identifier = NSUserInterfaceItemIdentifier("canvas-align-bar")
         setAccessibilityRole(.toolbar)
         setAccessibilityLabel("Align selected items")
+        CanvasFloatingElevation.apply(to: self)
         buildControls()
     }
 
@@ -932,6 +1784,7 @@ public final class CanvasZoomControlView: NSView {
         identifier = NSUserInterfaceItemIdentifier("canvas-zoom-control")
         setAccessibilityRole(.group)
         setAccessibilityLabel("Canvas zoom controls")
+        CanvasFloatingElevation.apply(to: self)
         buildControls()
     }
 
@@ -955,6 +1808,7 @@ public final class CanvasZoomControlView: NSView {
 
         resetButton.identifier = NSUserInterfaceItemIdentifier("zoom-control-reset")
         resetButton.title = "100%"
+        resetButton.usesMonospaceTitle = true
         resetButton.toolTip = "Actual Size (⌘0) · Press ⇧1 to Zoom to Fit"
         resetButton.target = self
         resetButton.action = #selector(handleResetZoom(_:))
@@ -982,7 +1836,8 @@ public final class CanvasZoomControlView: NSView {
             resetButton.setAccessibilityLabel("Zoom level \(percent) percent, click for actual size")
             resetButton.needsDisplay = true
         }
-        resetButton.isActiveTool = (percent != 100)
+        // Keep zoom readout visually calm so Acid Lime remains reserved for active tools.
+        resetButton.isActiveTool = false
         zoomOutButton.isEnabled = zoomScale > 0.105
         zoomInButton.isEnabled = zoomScale < 3.995
         if compact != isCompact {
@@ -1057,6 +1912,7 @@ public final class CanvasStatusBannerView: NSView {
         identifier = NSUserInterfaceItemIdentifier("canvas-status-banner")
         setAccessibilityRole(.group)
         setAccessibilityLabel("Document status banner")
+        CanvasFloatingElevation.apply(to: self)
         isHidden = true
 
         titleLabel.identifier = NSUserInterfaceItemIdentifier("banner-title")
@@ -1227,6 +2083,47 @@ public final class CanvasStatusBannerView: NSView {
 }
 
 @MainActor
+private final class NeoAcidKeycapView: NSView {
+    private let text: String
+    private let font: NSFont
+
+    override var isFlipped: Bool { true }
+
+    init(frame: NSRect, text: String, font: NSFont) {
+        self.text = text
+        self.font = font
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("NeoAcidKeycapView does not support NSCoder")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        CanvasTheme.surface.setFill()
+        bounds.fill()
+        let border = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
+        border.lineWidth = 1.0
+        CanvasTheme.borderSubtle.setStroke()
+        border.stroke()
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: CanvasTheme.primaryText,
+            .paragraphStyle: paragraph,
+        ]
+        let ns = text as NSString
+        let size = ns.size(withAttributes: attrs)
+        ns.draw(
+            in: CGRect(x: 0, y: floor((bounds.height - size.height) / 2.0), width: bounds.width, height: size.height + 2),
+            withAttributes: attrs
+        )
+    }
+}
+
+@MainActor
 public final class CanvasShortcutsSheet: NSObject {
     public let panel: NSPanel
     private let completion: () -> Void
@@ -1303,13 +2200,13 @@ public final class CanvasShortcutsSheet: NSObject {
         ]
 
         let colWidth: CGFloat = 338
-        let rowHeight: CGFloat = 180
-        let keyColWidth: CGFloat = 108
+        let rowHeight: CGFloat = 186
+        let keyColWidth: CGFloat = 122
         for (idx, section) in sections.enumerated() {
             let col = idx % 2
             let row = idx / 2
             let cardX: CGFloat = 24 + CGFloat(col) * (colWidth + 16)
-            let cardY: CGFloat = row == 0 ? 240 : 48
+            let cardY: CGFloat = row == 0 ? 246 : 52
             let card = NSView(frame: NSRect(x: cardX, y: cardY, width: colWidth, height: rowHeight))
             card.wantsLayer = true
             card.layer?.backgroundColor = CanvasTheme.elevatedSurface.cgColor
@@ -1317,36 +2214,39 @@ public final class CanvasShortcutsSheet: NSObject {
             card.layer?.borderWidth = 1.5
 
             let sectionTitle = NSTextField(labelWithString: section.0)
-            sectionTitle.font = CanvasTypography.font("mono", "s", scale: 10.5 / 14.0)
+            sectionTitle.font = CanvasTypography.font("mono", "s", scale: 10.0 / 14.0)
             sectionTitle.textColor = CanvasTheme.mutedText
             sectionTitle.frame = NSRect(x: 12, y: rowHeight - 25, width: colWidth - 24, height: 16)
             card.addSubview(sectionTitle)
 
-            var itemY = rowHeight - 48
+            var itemY = rowHeight - 50
             for (keys, desc) in section.1 {
-                let keyLabel = NSTextField(labelWithString: keys)
-                keyLabel.font = CanvasTypography.font("mono", "s", scale: 10.5 / 14.0)
-                keyLabel.textColor = CanvasTheme.primaryText
-                keyLabel.lineBreakMode = .byTruncatingTail
-                keyLabel.frame = NSRect(x: 12, y: itemY, width: keyColWidth, height: 16)
-                card.addSubview(keyLabel)
+                let keyFont = CanvasTypography.font("mono", "s", scale: 9.8 / 14.0)
+                let measuredKeyW = ceil((keys as NSString).size(withAttributes: [.font: keyFont]).width) + 12
+                let chipW = min(keyColWidth, max(26, measuredKeyW))
+                let chip = NeoAcidKeycapView(
+                    frame: NSRect(x: 12, y: itemY - 2, width: chipW, height: 18),
+                    text: keys,
+                    font: keyFont
+                )
+                card.addSubview(chip)
 
                 let descLabel = NSTextField(labelWithString: desc)
                 descLabel.font = CanvasTypography.font("sans", "s", scale: 11.0 / 14.0)
                 descLabel.textColor = CanvasTheme.secondaryText
                 descLabel.lineBreakMode = .byTruncatingTail
-                descLabel.frame = NSRect(x: 12 + keyColWidth + 6, y: itemY, width: colWidth - 30 - keyColWidth, height: 16)
+                descLabel.frame = NSRect(x: 12 + keyColWidth + 8, y: itemY - 1, width: colWidth - 32 - keyColWidth, height: 16)
                 card.addSubview(descLabel)
 
-                itemY -= 22
+                itemY -= 23
             }
             content.addSubview(card)
         }
 
-        let closeButton = NSButton(title: "Done", target: self, action: #selector(closeSheet(_:)))
+        let closeButton = NeoAcidActionButton(title: "Done", variant: .primary, target: self, action: #selector(closeSheet(_:)))
         closeButton.identifier = NSUserInterfaceItemIdentifier("shortcuts-close")
         closeButton.keyEquivalent = "\r"
-        closeButton.frame = NSRect(x: sheetWidth - 24 - 80, y: 12, width: 80, height: 28)
+        closeButton.frame = NSRect(x: sheetWidth - 24 - 84, y: 12, width: 84, height: 30)
         content.addSubview(closeButton)
 
         let cancelButton = NSButton(title: "Close", target: self, action: #selector(closeSheet(_:)))

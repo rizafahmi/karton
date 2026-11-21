@@ -88,28 +88,6 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
         }
     }
 
-    private final class EditorControlButton: NSButton {
-        var onEscape: (() -> Void)?
-        override func keyDown(with event: NSEvent) {
-            if event.keyCode == 53 && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
-                onEscape?()
-                return
-            }
-            super.keyDown(with: event)
-        }
-    }
-
-    private final class EditorLanguagePopUp: NSPopUpButton {
-        var onEscape: (() -> Void)?
-        override func keyDown(with event: NSEvent) {
-            if event.keyCode == 53 && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
-                onEscape?()
-                return
-            }
-            super.keyDown(with: event)
-        }
-    }
-
     public struct DraftResult {
         public let source: String
         public let language: String?
@@ -123,15 +101,15 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
 
     private let titleLabel = NSTextField(labelWithString: "Code Snippet")
     private let languageLabel = NSTextField(labelWithString: "Language")
-    private let languagePopUp = EditorLanguagePopUp(frame: .zero, pullsDown: false)
+    private let languagePopUp = NeoAcidPopUpButton(frame: .zero, pullsDown: false)
     private let metaLabel = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView(frame: .zero)
     public let sourceTextView = CodeSourceTextView(frame: .zero)
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
-    private let copyButton = EditorControlButton(title: "Copy Code", target: nil, action: nil)
-    private let fitCheckbox = EditorControlButton(checkboxWithTitle: "Fit to content", target: nil, action: nil)
-    private let cancelButton = EditorControlButton(title: "Cancel", target: nil, action: nil)
-    private let finishButton = EditorControlButton(title: "Finish", target: nil, action: nil)
+    private let copyButton = NeoAcidActionButton(title: "Copy Code", variant: .subtle)
+    private let fitCheckbox = NeoAcidCheckboxButton(title: "Fit to content")
+    private let cancelButton = NeoAcidActionButton(title: "Cancel", variant: .secondary)
+    private let finishButton = NeoAcidActionButton(title: "Finish", variant: .primary)
     private var languageOptionIDs: [String] = []
     private let pasteboard: NSPasteboard
     private let draftUndoManager = UndoManager()
@@ -180,6 +158,7 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
         identifier = NSUserInterfaceItemIdentifier("code-snippet-editor")
         setAccessibilityRole(.group)
         setAccessibilityLabel(targetNodeID == nil ? "New code snippet editor" : "Code snippet editor")
+        CanvasFloatingElevation.apply(to: self)
 
         buildUI(initialSource: initialSource, initialStoredLanguage: initialStoredLanguage)
         refreshMetadataAndValidation()
@@ -195,11 +174,11 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
         titleLabel.font = CanvasTypography.font("heading", "s", scale: 13.0 / 12.0)
         titleLabel.textColor = CanvasTheme.primaryText
 
-        languageLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        languageLabel.font = CanvasTypography.font("sans", "m", scale: 12.0 / 16.0)
         languageLabel.textColor = CanvasTheme.secondaryText
 
         languagePopUp.identifier = NSUserInterfaceItemIdentifier("code-editor-language")
-        languagePopUp.font = .systemFont(ofSize: 12)
+        languagePopUp.font = CanvasTypography.font("sans", "m", scale: 12.0 / 16.0)
         languagePopUp.target = self
         languagePopUp.action = #selector(languageChanged(_:))
         languagePopUp.setAccessibilityLabel("Code language")
@@ -258,15 +237,13 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
         scrollView.documentView = sourceTextView
 
         errorLabel.identifier = NSUserInterfaceItemIdentifier("code-editor-error")
-        errorLabel.font = .systemFont(ofSize: 12, weight: .medium)
+        errorLabel.font = CanvasTypography.font("sans", "s", scale: 12.0 / 14.0)
         errorLabel.textColor = .systemRed
         errorLabel.isHidden = true
 
         copyButton.identifier = NSUserInterfaceItemIdentifier("code-editor-copy")
         copyButton.target = self
         copyButton.action = #selector(copyCodeClicked(_:))
-        copyButton.bezelStyle = .rounded
-        copyButton.font = .systemFont(ofSize: 12, weight: .medium)
         copyButton.setAccessibilityLabel("Copy literal code")
         copyButton.onEscape = { [weak self] in self?.attemptFinish() }
 
@@ -274,23 +251,18 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
         fitCheckbox.target = self
         fitCheckbox.action = #selector(fitToggled(_:))
         fitCheckbox.state = .off // Always ephemeral & unchecked per editor session.
-        fitCheckbox.font = .systemFont(ofSize: 12)
         fitCheckbox.setAccessibilityLabel("Fit box to content on finish")
         fitCheckbox.onEscape = { [weak self] in self?.attemptFinish() }
 
         cancelButton.identifier = NSUserInterfaceItemIdentifier("code-editor-cancel")
         cancelButton.target = self
         cancelButton.action = #selector(cancelClicked(_:))
-        cancelButton.bezelStyle = .rounded
-        cancelButton.font = .systemFont(ofSize: 12, weight: .medium)
         cancelButton.setAccessibilityLabel("Cancel code edit")
         cancelButton.onEscape = { [weak self] in self?.attemptFinish() }
 
         finishButton.identifier = NSUserInterfaceItemIdentifier("code-editor-finish")
         finishButton.target = self
         finishButton.action = #selector(finishClicked(_:))
-        finishButton.bezelStyle = .rounded
-        finishButton.font = .systemFont(ofSize: 12, weight: .semibold)
         finishButton.setAccessibilityLabel("Finish code edit")
         finishButton.onEscape = { [weak self] in self?.attemptFinish() }
 

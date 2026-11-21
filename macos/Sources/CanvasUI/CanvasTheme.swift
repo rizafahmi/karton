@@ -330,3 +330,125 @@ public final class WelcomeContentView: NSView {
         divider.stroke()
     }
 }
+
+public final class AboutContentView: NSView {
+    private let versionLabel: String
+
+    public override var isFlipped: Bool { true }
+
+    public init(frame: NSRect, versionLabel: String) {
+        self.versionLabel = versionLabel
+        super.init(frame: frame)
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("AboutContentView does not support NSCoder")
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        CanvasTheme.canvasBackground.setFill()
+        bounds.fill()
+
+        let footerHeight: CGFloat = 44
+        let bodyHeight = bounds.height - footerHeight
+
+        // Subtle Neo-Acid dot grid in body
+        CanvasTheme.mutedText.withAlphaComponent(0.28).setFill()
+        var x: CGFloat = 20
+        while x < bounds.width {
+            var y: CGFloat = 20
+            while y < bodyHeight {
+                NSBezierPath(ovalIn: CGRect(x: x - 0.75, y: y - 0.75, width: 1.5, height: 1.5)).fill()
+                y += 20
+            }
+            x += 20
+        }
+
+        // 48×48 Neo-Acid brand badge centered
+        let badgeSize: CGFloat = 48
+        let badge = CGRect(x: floor((bounds.width - badgeSize) / 2), y: 24, width: badgeSize, height: badgeSize)
+        CanvasTheme.acid.setFill()
+        badge.fill()
+        let badgeBorder = NSBezierPath(rect: badge.insetBy(dx: 1, dy: 1))
+        badgeBorder.lineWidth = 2
+        CanvasTheme.borderStrong.setStroke()
+        badgeBorder.stroke()
+
+        let scale = badgeSize / 36.0
+        let glyph = NSBezierPath()
+        glyph.appendRect(CGRect(x: badge.minX + 8 * scale, y: badge.minY + 8 * scale, width: 8 * scale, height: 8 * scale))
+        glyph.appendRect(CGRect(x: badge.minX + 20 * scale, y: badge.minY + 20 * scale, width: 8 * scale, height: 8 * scale))
+        glyph.move(to: CGPoint(x: badge.minX + 16 * scale, y: badge.minY + 12 * scale))
+        glyph.line(to: CGPoint(x: badge.minX + 24 * scale, y: badge.minY + 12 * scale))
+        glyph.line(to: CGPoint(x: badge.minX + 24 * scale, y: badge.minY + 20 * scale))
+        glyph.lineWidth = 2.2
+        CanvasTheme.highlighterInk.setStroke()
+        glyph.stroke()
+
+        let centerStyle = NSMutableParagraphStyle()
+        centerStyle.alignment = .center
+
+        let title = "Canvas" as NSString
+        title.draw(
+            in: CGRect(x: 24, y: 84, width: bounds.width - 48, height: 28),
+            withAttributes: [
+                .font: CanvasTypography.font("heading", "m", scale: 20.0 / 16.0),
+                .foregroundColor: CanvasTheme.primaryText,
+                .paragraphStyle: centerStyle,
+            ]
+        )
+
+        // Version badge chip (strip redundant "Canvas " prefix below the Canvas title)
+        let displayVersion = versionLabel.hasPrefix("Canvas ")
+            ? "VERSION " + versionLabel.dropFirst("Canvas ".count)
+            : versionLabel
+        let versionAttrs: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.font("mono", "s", scale: 10.5 / 14.0),
+            .foregroundColor: CanvasTheme.primaryText,
+            .paragraphStyle: centerStyle,
+        ]
+        let versionStr = displayVersion as NSString
+        let vw = ceil(versionStr.size(withAttributes: versionAttrs).width) + 20
+        let vChip = CGRect(x: floor((bounds.width - vw) / 2), y: 116, width: vw, height: 22)
+        CanvasTheme.elevatedSurface.setFill()
+        vChip.fill()
+        let vBorder = NSBezierPath(rect: vChip.insetBy(dx: 0.75, dy: 0.75))
+        vBorder.lineWidth = 1.25
+        CanvasTheme.borderStrong.setStroke()
+        vBorder.stroke()
+        versionStr.draw(in: CGRect(x: vChip.minX, y: vChip.minY + 4, width: vChip.width, height: 16), withAttributes: versionAttrs)
+
+        let bodyStyle = NSMutableParagraphStyle()
+        bodyStyle.alignment = .center
+        bodyStyle.lineSpacing = 3
+        let desc = "Local-first spatial thinking for macOS.\nPortable v1/v2 JSON, syntax-highlighted code,\ntext attachments, and Keynote PNG export." as NSString
+        desc.draw(
+            in: CGRect(x: 24, y: 150, width: bounds.width - 48, height: 74),
+            withAttributes: [
+                .font: CanvasTypography.font("sans", "m", scale: 12.5 / 16.0),
+                .foregroundColor: CanvasTheme.secondaryText,
+                .paragraphStyle: bodyStyle,
+            ]
+        )
+
+        let footer = CGRect(x: 0, y: bodyHeight, width: bounds.width, height: footerHeight)
+        CanvasTheme.surface.setFill()
+        footer.fill()
+        let divider = NSBezierPath()
+        divider.move(to: CGPoint(x: 0, y: bodyHeight))
+        divider.line(to: CGPoint(x: bounds.width, y: bodyHeight))
+        divider.lineWidth = 1.5
+        CanvasTheme.borderStrong.setStroke()
+        divider.stroke()
+
+        let foot = "NEO-ACID × LEVER  ·  NATIVE APPKIT" as NSString
+        foot.draw(
+            in: CGRect(x: 20, y: bodyHeight + 14, width: bounds.width - 40, height: 16),
+            withAttributes: [
+                .font: CanvasTypography.font("mono", "s", scale: 10.0 / 14.0),
+                .foregroundColor: CanvasTheme.mutedText,
+                .paragraphStyle: centerStyle,
+            ]
+        )
+    }
+}

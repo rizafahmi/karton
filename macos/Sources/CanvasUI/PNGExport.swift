@@ -365,9 +365,9 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
     private let selectionSummaryTitle: String
     private let defaultFilename: String
     private let previewView = PNGExportPreviewView()
-    private let scopePopup = NSPopUpButton()
-    private let themePopup = NSPopUpButton()
-    private let modePopup = NSPopUpButton()
+    private let scopePopup = NeoAcidPopUpButton()
+    private let themePopup = NeoAcidPopUpButton()
+    private let modePopup = NeoAcidPopUpButton()
     private let longestLabel = NSTextField(labelWithString: "Longest side (px)")
     private let longestField = SubmitTextField()
     private let widthLabel = NSTextField(labelWithString: "Width (px)")
@@ -420,10 +420,14 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         )
         panel.title = "Export Transparent PNG"
         panel.appearance = NSAppearance(named: .aqua)
+        panel.backgroundColor = CanvasTheme.canvasBackground
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layer?.backgroundColor = CanvasTheme.canvasBackground.cgColor
         super.init()
 
         let titleField = NSTextField(labelWithString: "Export PNG for Keynote")
-        titleField.font = .systemFont(ofSize: 15, weight: .bold)
+        titleField.font = CanvasTypography.font("heading", "s", scale: 15.0 / 12.0)
+        titleField.textColor = CanvasTheme.primaryText
         titleField.frame = NSRect(x: 24, y: 456 + scopeRowOffset, width: 472, height: 22)
         panel.contentView?.addSubview(titleField)
 
@@ -434,8 +438,10 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
 
         if hasSelection {
             let scopeLabel = NSTextField(labelWithString: "Export scope")
+            scopeLabel.font = CanvasTypography.font("sans", "m", scale: 12.5 / 16.0)
+            scopeLabel.textColor = CanvasTheme.primaryText
             scopeLabel.frame = NSRect(x: 24, y: 291, width: 132, height: 22)
-            scopePopup.frame = NSRect(x: 164, y: 286, width: 332, height: 32)
+            scopePopup.frame = NSRect(x: 164, y: 288, width: 332, height: 28)
             scopePopup.identifier = NSUserInterfaceItemIdentifier("export-png-scope")
             scopePopup.setAccessibilityLabel("Export scope")
             scopePopup.addItems(withTitles: [
@@ -450,8 +456,10 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         }
 
         let themeLabel = NSTextField(labelWithString: "Slide theme")
+        themeLabel.font = CanvasTypography.font("sans", "m", scale: 12.5 / 16.0)
+        themeLabel.textColor = CanvasTheme.primaryText
         themeLabel.frame = NSRect(x: 24, y: 251, width: 132, height: 22)
-        themePopup.frame = NSRect(x: 164, y: 246, width: 332, height: 32)
+        themePopup.frame = NSRect(x: 164, y: 248, width: 332, height: 28)
         themePopup.identifier = NSUserInterfaceItemIdentifier("export-png-theme")
         themePopup.setAccessibilityLabel("Slide theme")
         for theme in CanvasPNGExportTheme.allCases {
@@ -464,8 +472,10 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         panel.contentView?.addSubview(themePopup)
 
         let modeLabel = NSTextField(labelWithString: "Sizing mode")
+        modeLabel.font = CanvasTypography.font("sans", "m", scale: 12.5 / 16.0)
+        modeLabel.textColor = CanvasTheme.primaryText
         modeLabel.frame = NSRect(x: 24, y: 211, width: 132, height: 22)
-        modePopup.frame = NSRect(x: 164, y: 206, width: 332, height: 32)
+        modePopup.frame = NSRect(x: 164, y: 208, width: 332, height: 28)
         modePopup.identifier = NSUserInterfaceItemIdentifier("export-png-mode")
         modePopup.setAccessibilityLabel("Sizing mode")
         modePopup.addItems(withTitles: [
@@ -477,6 +487,8 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         panel.contentView?.addSubview(modeLabel)
         panel.contentView?.addSubview(modePopup)
 
+        longestLabel.font = CanvasTypography.font("sans", "m", scale: 12.5 / 16.0)
+        longestLabel.textColor = CanvasTheme.primaryText
         longestLabel.frame = NSRect(x: 24, y: 169, width: 132, height: 22)
         configureField(
             longestField,
@@ -488,6 +500,8 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         panel.contentView?.addSubview(longestLabel)
         panel.contentView?.addSubview(longestField)
 
+        widthLabel.font = CanvasTypography.font("sans", "m", scale: 12.5 / 16.0)
+        widthLabel.textColor = CanvasTheme.primaryText
         widthLabel.frame = NSRect(x: 24, y: 169, width: 132, height: 22)
         configureField(
             widthField,
@@ -496,6 +510,8 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
             value: "\(initialWidth)",
             frame: NSRect(x: 164, y: 166, width: 120, height: 28)
         )
+        heightLabel.font = CanvasTypography.font("sans", "m", scale: 12.5 / 16.0)
+        heightLabel.textColor = CanvasTheme.primaryText
         heightLabel.frame = NSRect(x: 300, y: 169, width: 76, height: 22)
         configureField(
             heightField,
@@ -510,24 +526,24 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
         panel.contentView?.addSubview(heightField)
 
         summaryLabel.identifier = NSUserInterfaceItemIdentifier("export-png-summary")
-        summaryLabel.font = .systemFont(ofSize: 12)
-        summaryLabel.textColor = .secondaryLabelColor
+        summaryLabel.font = CanvasTypography.font("mono", "s", scale: 11.0 / 14.0)
+        summaryLabel.textColor = CanvasTheme.secondaryText
         summaryLabel.frame = NSRect(x: 24, y: 112, width: 472, height: 44)
         panel.contentView?.addSubview(summaryLabel)
 
         errorLabel.identifier = NSUserInterfaceItemIdentifier("export-png-error")
-        errorLabel.font = .systemFont(ofSize: 12)
+        errorLabel.font = CanvasTypography.font("sans", "s", scale: 12.0 / 14.0)
         errorLabel.textColor = .systemRed
         errorLabel.frame = NSRect(x: 24, y: 62, width: 472, height: 44)
         errorLabel.isHidden = true
         panel.contentView?.addSubview(errorLabel)
 
-        let cancelBtn = NSButton(title: "Cancel", target: self, action: #selector(cancelExport))
+        let cancelBtn = NeoAcidActionButton(title: "Cancel", variant: .secondary, target: self, action: #selector(cancelExport))
         cancelBtn.identifier = NSUserInterfaceItemIdentifier("export-png-cancel")
         cancelBtn.frame = NSRect(x: 264, y: 20, width: 92, height: 32)
         cancelBtn.keyEquivalent = "\u{1b}"
 
-        let exportBtn = NSButton(title: "Export PNG…", target: self, action: #selector(confirmExport))
+        let exportBtn = NeoAcidActionButton(title: "Export PNG…", variant: .primary, target: self, action: #selector(confirmExport))
         exportBtn.identifier = NSUserInterfaceItemIdentifier("export-png-confirm")
         exportBtn.frame = NSRect(x: 364, y: 20, width: 132, height: 32)
         exportBtn.keyEquivalent = "\r"
