@@ -17,12 +17,13 @@ resize/rotation and line endpoint editing, Cut/Copy/Paste (`⌘X`/`⌘C`/`⌘V`)
 duplication (`⌘D`), deletion, front/back stacking, lock/unlock,
 object/connection/canvas style editing, captions with measured box growth (using
 bundled Neo-Acid and Amatic SC faces with CoreText system cascade fallback),
-read-only attachment source preview/copy, canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`),
-transparent Keynote PNG export (`File → Export PNG…`, `⇧⌘E`) and Undo/Redo.
-On 2026-11-10, native v2 code-snippet authoring/highlighting was deferred to the
-next phase of development (existing v2 `code` nodes are preserved, rendered as
-plain text in `Monaspace Neon`, transformed/styled/connected/duplicated with
-quota enforcement, and exported to PNG).
+read-only attachment source preview/copy/`Save Copy…` plus native UTF-8 text
+attachment import (`Insert → Attach Text File…` and single-file drag-and-drop),
+canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`, floating zoom control), transparent
+Keynote PNG export (`File → Export PNG…`, `⇧⌘E`), Undo/Redo, and native v2
+code-snippet authoring and `HighlighterSwift` (`3.1.0`) syntax highlighting across
+all 12 curated languages with conservative Auto detection, literal BOM/CRLF/Tab
+editing, Copy Code, Fit to Content, and clipped-source export guards.
 
 ## 1. Approval boundary and outcome
 
@@ -40,14 +41,12 @@ Approved product direction:
 - Independent native UI following Apple Human Interface Guidelines, no webview,
   Phoenix server, BEAM, or bundled web runtime.
 - Share JSON contracts/fixtures, not runtime code; preserve v1 and v2 files
-  (including existing v2 `type: "code"` nodes; native code-snippet authoring and
-  syntax highlighting are deferred to the next phase of development). Retain
+  (including full native v2 `type: "code"` authoring and `HighlighterSwift` syntax
+  highlighting, plus embedded UTF-8 text attachments). Retain
   metadata, authored geometry, semantic font roles, and named colors.
 - Transparent high-resolution PNG export for Keynote; no full web parity implied.
 
-Everything labeled proposed below is a recommendation awaiting adoption. Native
-code-snippet authoring and syntax highlighting were deferred to the next phase
-of development on 2026-11-10. Public
+Everything labeled proposed below is a recommendation awaiting adoption. Public
 packaging, signing/notarization, an update service, accounts, cloud storage,
 multiplayer, and a database are not requirements of the first personal release.
 
@@ -62,8 +61,8 @@ open the same file in the web editor → export a transparent PNG for Keynote.
 | Language and UI | Swift; AppKit document/window lifecycle, custom canvas and inspectors | Approved 2026-11-05; AppKit inspectors replace the SwiftUI choice |
 | Drawing/export | Core Graphics drawing and native text layout shared between canvas and PNG, not screenshots | Approved 2026-11-05 |
 | Deployment | macOS 27 for the first personal build; older OS/Intel support requires an explicit target and proof | Approved 2026-11-05 |
-| Project | Swift Package plus command-line `.app` bundling under `macos/`; no root build orchestrator or new third-party dependency | Approved 2026-11-05, replacing Xcode-project choice |
-| Editable content | Existing v1 shapes/lines/connections plus v2 `code` preservation/plain-text rendering (native code authoring/highlighting deferred to next phase 2026-11-10); preserve/preview/export/duplicate/remove existing attachments, no new attachment import | Approved 2026-11-05; updated 2026-11-10 |
+| Project | Swift Package plus command-line `.app` bundling under `macos/`; `HighlighterSwift` (`3.1.0`) pinned for native code highlighting | Approved 2026-11-05; updated 2026-11-21 |
+| Editable content | Existing v1 shapes/lines/connections, full v2 `code` authoring and `HighlighterSwift` syntax highlighting, and embedded UTF-8 text attachment import/preview/Copy Source/`Save Copy…`/duplicate/remove with 256 KiB / 1 MiB quotas | Approved 2026-11-05; implemented and verified 2026-11-21 |
 | Autosave | Coalesced completed transactions; request after 5 seconds quiet or within 30 seconds of continuous committed edits while active | Approved 2026-11-05; implemented and verified via `CanvasNativeDocument` (`NSDocument`) 2026-11-10 |
 | Recovery | Native untitled recovery (`NSDocument.autosavedContentsFileURL`) plus private app-owned storage for uncovered metadata and active text drafts; retain until saved elsewhere or explicitly discarded | Approved 2026-11-05; implemented and verified 2026-11-10 |
 | PNG | Default 2,048-pixel longest side, proportional other dimension, 32 world-unit padding; configurable size, at most 8,192 pixels per side and 16,777,216 pixels total | Approved 2026-11-05; implemented and verified with Keynote light/dark slides 2026-11-10 |
@@ -75,7 +74,9 @@ floating icon tool dock, armed pointer click-or-drag creation, `Open Recent`,
 Conflict / Read-Only / Save-Error banner; (3) `NSAccessibilityElement` exposure for
 canvas objects, connections, and selection; and (4) `v1.0` bundle metadata and
 standalone release verification (`~/Applications/Canvas.app`). Native `type: "code"`
-authoring and `HighlighterSwift` syntax highlighting are deferred to `v0.2`.
+authoring with `HighlighterSwift` (`3.1.0`) syntax highlighting and native UTF-8 text
+attachment import (`Insert → Attach Text File…`, drag-and-drop, and `Save Copy…`)
+are implemented and covered by `CanvasChecks`.
 ## 3. Proposed canvas interaction contract
 
 ### Window and command surface
@@ -280,9 +281,9 @@ for delivery; archived platform descriptions do not prove modern storage paths.
 ## 5. Proposed compatibility and editing surface
 
 The [canonical version-1 contract](../README.md#document-format-version-1) remains
-authoritative for existing v1 files. The web editor implements the
+authoritative for existing v1 files. Both the web and native editors implement the
 [shared v2 contract](../shared/CODE_SNIPPETS.md): the common schema plus explicit
-`type: "code"` nodes. The native app shows code as plain text only.
+`type: "code"` nodes with syntax highlighting and dedicated multiline editing.
 
 The native codec must retain v1 support and source version on ordinary saves.
 New canvases use v2. Code nodes cannot be added/pasted into v1; v2 never silently
@@ -302,7 +303,7 @@ must implement that policy without a hidden migration or source replacement.
 | Locked nodes | Render/select/inspect; prohibit ordinary geometry/text/style/delete operations on locked objects; provide explicit undoable lock/unlock |
 | Appearance/paper | Render document roles and named colors through native mappings; expose default typography and documented paper controls without rewriting omitted defaults |
 | Embedded attachments | Render caption card, preserve content/unknown fields exactly, read-only literal source preview and export of embedded UTF-8; no editing of embedded source, execution, markup rendering, or filesystem linking |
-| Attachment authoring | Duplicate/remove existing attachments with existing quotas enforced; new native file/drop import is outside the approved initial scope |
+| Attachment authoring | Import single local UTF-8 text files (`Insert → Attach Text File…` or drag-and-drop), preview literally, Copy Source, `Save Copy…`, duplicate, and remove with 256 KiB / 1 MiB quotas enforced |
 | Unknown metadata | Preserve recursively on retained objects; edit only selected properties; do not confuse unknown metadata with an unsupported node type |
 | Unsupported version/type/required rendering semantics | Reject with a clear explanation before editing; do not partially load and later autosave a lossy document |
 | Known read-only file | Open visibly read-only if fully renderable; Save As may produce a separately editable document only after capability validation |
@@ -340,19 +341,17 @@ retention but refuses connector-style editing visibly and atomically for a mixed
 selection; it is not replaced with a fresh object. Preserve `animated` when the
 user changes dash. Do not introduce new persisted routing or native UI fields.
 
-### Code snippets: shared contract delivered, native authoring/highlighting deferred to next phase
+### Code snippets: shared contract delivered and implemented natively
 
-On 2026-11-10, native code-snippet creation, source editing, and syntax
-highlighting were deferred to the next phase of development ([TASKS: Code snippets](../TASKS.md#later)).
-The current native editor validates, preserves, renders (as plain text in
-`Monaspace Neon`), transforms, styles, connects, duplicates/deletes (with 256 KiB /
-1 MiB quota enforcement), and exports existing v2 `type: "code"` nodes.
-When native snippet authoring is scheduled in the next phase, blocks remain
-dedicated `type: "code"` nodes, not simply a mono-font shape or attachment preview:
-syntax highlighting, automatic language detection plus manual override, literal
-Copy code, Enter newline, Tab/Shift-Tab indent/unindent, Escape finishes editing,
-and canvas-shortcut isolation. Paste plain source only into an open snippet
-editor; no canvas-paste conversion and no code execution.
+Native v2 code-snippet creation (`K`, tool dock Code button, `Insert → Code Block…`),
+source editing, and `HighlighterSwift` (`3.1.0`) syntax highlighting are implemented
+and verified (`CodeHighlighter.swift`, `CodeSnippetEditor.swift`, `CanvasCodeSnippet.swift`).
+Blocks remain dedicated `type: "code"` nodes, not simply a mono-font shape or attachment
+preview: syntax highlighting across all 12 curated languages, conservative Auto detection
+plus manual override, literal Copy Code, Enter newline, Tab/Shift-Tab indent/unindent,
+Escape finishes editing, Fit to Content, clipped-source PNG export guard, and
+canvas-shortcut isolation. Paste plain source only into an open snippet editor; no
+canvas-paste conversion and no code execution.
 
 The implemented [shared code-snippet contract](../shared/CODE_SNIPPETS.md) owns
 the v2 schema, language IDs, literal source, capacities, indentation,
@@ -368,16 +367,13 @@ The inventory is Auto, Plain text, Elixir, Erlang, JavaScript, TypeScript, JSON,
 HTML, CSS, Shell, Python, SQL, Swift and Rust, using the canonical IDs in the
 shared contract. The web implementation uses approved npm-managed Shiki 4.6
 fine-grained grammars/JavaScript engine and Highlight.js 11.12 detection, with
-conservative Auto fallback to plain text. The approved native candidate is
-HighlighterSwift, using Highlight.js through system JavaScriptCore without a
-webview. Auto results may differ without rewriting language. A temporary macOS 27
-app bundle loaded its resources and returned exact UTF-8 text and multiple colors
-for one sample per required language; whitespace, BOM, mixed line endings, empty
-and markup-like samples retained exact bytes. Auto returned the sample text, but
-detection accuracy, full safety, pinned version and editor/export behavior still
-require proof. No dependency has yet been added. HighlightSwift, a different
-package, failed to build with missing SwiftUI macro plugins and its source trims
-outer whitespace.
+conservative Auto fallback to plain text. The native implementation uses pinned `HighlighterSwift` (`3.1.0`), running Highlight.js
+through system `JavaScriptCore` without a webview, with lazy per-engine VM startup and
+cached conservative Auto detection. Auto results may differ from the web editor without
+rewriting stored language IDs. Highlighting preserves exact literal UTF-8 bytes (BOM,
+whitespace, mixed line endings, markup-like text) and falls back cleanly to plain text
+on any engine error. HighlightSwift, a different package, failed to build with missing
+SwiftUI macro plugins and trims outer whitespace.
 Do not fork the schema/inventory or use hidden shape metadata. Native delivery
 still requires shared v2 round-trip, v1 compatibility, editor/history/Fit/export
 behavior and actual native workflow proof; working web code is not native support.
@@ -492,9 +488,10 @@ byte-fingerprint conflict detection/pause, `NSDocument` draft autosaving plus
 private recovery envelopes, launch restoration, close/quit guards, compatibility
 fixture round-trips (`Native → Web → Native`), bundled Neo-Acid / Amatic SC
 font-role mappings, transparent Keynote PNG export (`File → Export PNG…`,
-`⇧⌘E`), and native v2 code-snippet authoring with `HighlighterSwift` (`3.1.0`)
-syntax highlighting are implemented and verified (2026-11-21); new attachment
-import remains outside the initial scope.
+`⇧⌘E`), native v2 code-snippet authoring with `HighlighterSwift` (`3.1.0`)
+syntax highlighting, and native UTF-8 text attachment import (`Insert → Attach
+Text File…`, single-file drag-and-drop, literal preview, Copy Source, and
+`Save Copy…`) are implemented and verified (2026-11-21).
 The shared v2 schema, new-v2/existing-v1 policy, explicit version-copy semantics,
 language inventory, and web dependencies are settled, not remaining native design
 questions. New native dependency/build-tool choices require separate approval.

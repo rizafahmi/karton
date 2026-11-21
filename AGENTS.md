@@ -66,8 +66,9 @@ New is blank v2; saving existing v1 in-place leaves its version unchanged, while
 semantics. Connector routes render `bezier`, rounded `smooth`, orthogonal `step`,
 `straight`, and rounded exterior self-loops; v2 `code` nodes support full
 native authoring, dedicated multiline editing, `HighlighterSwift` syntax
-highlighting, Copy Code, and Fit to Content, and new attachment import is
-outside initial scope. TASKS.md owns remaining gates.
+highlighting, Copy Code, and Fit to Content, and native text attachments
+support `Insert → Attach Text File…`, single-file drag-and-drop import,
+read-only literal preview, Copy Source, and Save Copy…. TASKS.md owns remaining gates.
 The local bundler must ad-hoc sign and verify the assembled `.app`; the standalone
 linker signature is not a valid substitute for the final bundle's seal.
 [`macos/SPEC.md`](macos/SPEC.md) distinguishes approved choices from proposals;

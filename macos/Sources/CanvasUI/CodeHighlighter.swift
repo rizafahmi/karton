@@ -34,33 +34,65 @@ public final class CanvasCodeHighlighter {
         let isDark: Bool
     }
 
-    private let lightHighlighter: Highlighter?
-    private let darkHighlighter: Highlighter?
-    private let lightBaseSRGB: NSColor?
-    private let darkBaseSRGB: NSColor?
-    private let detectorHLJS: JSValue?
+    private var lightHighlighter: Highlighter?
+    private var darkHighlighter: Highlighter?
+    private var lightBaseSRGB: NSColor?
+    private var darkBaseSRGB: NSColor?
+    private var detectorHLJS: JSValue?
+    private var didInitLight = false
+    private var didInitDark = false
+    private var didInitDetector = false
     private var cache: [CacheKey: CanvasHighlightedCode] = [:]
     private var cacheOrder: [CacheKey] = []
+    private var detectCache: [String: CanvasCodeLanguage?] = [:]
+    private var detectCacheOrder: [String] = []
     private let maxCacheEntries = 256
 
+    public var isLightEngineLoaded: Bool { didInitLight && lightHighlighter != nil }
+    public var isDarkEngineLoaded: Bool { didInitDark && darkHighlighter != nil }
+    public var isDetectorLoaded: Bool { didInitDetector && detectorHLJS != nil }
+
     public var isAvailable: Bool {
-        lightHighlighter != nil && darkHighlighter != nil
+        if didInitLight {
+            return lightHighlighter != nil
+        }
+        return Self.locateHighlightMinJS() != nil
     }
 
-    public init() {
-        let light = Highlighter()
-        light?.ignoreIllegals = true
-        _ = light?.setTheme("github")
+    /// Lightweight initializer: defers `HighlighterSwift`/`JavaScriptCore` VM startup
+    /// per engine (light, dark, auto-detector) until first actual code highlighting or detection.
+    public init() {}
 
-        let dark = Highlighter()
-        dark?.ignoreIllegals = true
-        _ = dark?.setTheme("github-dark")
+    private func ensureLightHighlighter() -> Highlighter? {
+        if !didInitLight {
+            didInitLight = true
+            let light = Highlighter()
+            light?.ignoreIllegals = true
+            _ = light?.setTheme("github")
+            lightHighlighter = light
+            lightBaseSRGB = Self.sampleBaseColor(light)
+        }
+        return lightHighlighter
+    }
 
-        self.lightHighlighter = light
-        self.darkHighlighter = dark
-        self.lightBaseSRGB = Self.sampleBaseColor(light)
-        self.darkBaseSRGB = Self.sampleBaseColor(dark)
-        self.detectorHLJS = Self.makeDetectorHLJS()
+    private func ensureDarkHighlighter() -> Highlighter? {
+        if !didInitDark {
+            didInitDark = true
+            let dark = Highlighter()
+            dark?.ignoreIllegals = true
+            _ = dark?.setTheme("github-dark")
+            darkHighlighter = dark
+            darkBaseSRGB = Self.sampleBaseColor(dark)
+        }
+        return darkHighlighter
+    }
+
+    private func ensureDetectorHLJS() -> JSValue? {
+        if !didInitDetector {
+            didInitDetector = true
+            detectorHLJS = Self.makeDetectorHLJS()
+        }
+        return detectorHLJS
     }
 
     private static func sampleBaseColor(_ engine: Highlighter?) -> NSColor? {
@@ -86,28 +118,43 @@ public final class CanvasCodeHighlighter {
     /// Requires `relevance >= 3` and `best >= 1.25 * secondBest`; otherwise returns `nil` (Plain text).
     public func detectLanguage(for source: String) -> CanvasCodeLanguage? {
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let hljs = detectorHLJS else { return nil }
+        guard !trimmed.isEmpty else { return nil }
+        if let cached = detectCache[source] {
+            return cached
+        }
+        guard let hljs = ensureDetectorHLJS() else { return nil }
         let result = hljs.invokeMethod(
             "highlightAuto",
             withArguments: [source, CanvasCodeLanguage.detectableHighlightJSNames]
         )
-        guard let result, !result.isUndefined, !result.isNull else { return nil }
-        guard let langVal = result.objectForKeyedSubscript("language"),
-              !langVal.isUndefined, !langVal.isNull,
-              let rawLang = langVal.toString(),
-              let canonical = CanvasCodeLanguage.fromHighlightJS(rawLang) else {
-            return nil
-        }
-        let relevance = result.objectForKeyedSubscript("relevance")?.toInt32() ?? 0
-        guard relevance >= 3 else { return nil }
-        if let secondBest = result.objectForKeyedSubscript("secondBest"),
-           !secondBest.isUndefined, !secondBest.isNull {
-            let secondRelevance = secondBest.objectForKeyedSubscript("relevance")?.toInt32() ?? 0
-            if secondRelevance > 0 && Double(relevance) < 1.25 * Double(secondRelevance) {
-                return nil
+        var detected: CanvasCodeLanguage? = nil
+        if let result, !result.isUndefined, !result.isNull,
+           let langVal = result.objectForKeyedSubscript("language"),
+           !langVal.isUndefined, !langVal.isNull,
+           let rawLang = langVal.toString(),
+           let canonical = CanvasCodeLanguage.fromHighlightJS(rawLang) {
+            let relevance = result.objectForKeyedSubscript("relevance")?.toInt32() ?? 0
+            if relevance >= 3 {
+                var passesMargin = true
+                if let secondBest = result.objectForKeyedSubscript("secondBest"),
+                   !secondBest.isUndefined, !secondBest.isNull {
+                    let secondRelevance = secondBest.objectForKeyedSubscript("relevance")?.toInt32() ?? 0
+                    if secondRelevance > 0 && Double(relevance) < 1.25 * Double(secondRelevance) {
+                        passesMargin = false
+                    }
+                }
+                if passesMargin {
+                    detected = canonical
+                }
             }
         }
-        return canonical
+        if detectCacheOrder.count >= maxCacheEntries, let oldest = detectCacheOrder.first {
+            detectCacheOrder.removeFirst()
+            detectCache.removeValue(forKey: oldest)
+        }
+        detectCache[source] = detected
+        detectCacheOrder.append(source)
+        return detected
     }
 
     /// Highlights `source` for the given stored `data.language` (`nil` or `"auto"` = Auto) and palette polarity.
@@ -220,6 +267,8 @@ public final class CanvasCodeHighlighter {
     public func clearCache() {
         cache.removeAll()
         cacheOrder.removeAll()
+        detectCache.removeAll()
+        detectCacheOrder.removeAll()
     }
 
     private func computeHighlight(
@@ -263,7 +312,7 @@ public final class CanvasCodeHighlighter {
             )
         }
 
-        guard let engine = isDark ? darkHighlighter : lightHighlighter,
+        guard let engine = isDark ? ensureDarkHighlighter() : ensureLightHighlighter(),
               let attributed = engine.highlight(source, as: hljsName, doFastRender: true),
               attributed.string == source else {
             return CanvasHighlightedCode(

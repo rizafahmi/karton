@@ -419,6 +419,7 @@ final class PNGExportSheet: NSObject, NSTextFieldDelegate {
             defer: false
         )
         panel.title = "Export Transparent PNG"
+        panel.appearance = NSAppearance(named: .aqua)
         super.init()
 
         let titleField = NSTextField(labelWithString: "Export PNG for Keynote")

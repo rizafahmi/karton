@@ -91,6 +91,7 @@ public enum CanvasStyleValue: Equatable, Sendable {
 public struct CanvasStyleChange {
     fileprivate enum Target {
         case node(id: String, beforeData: [String: Any], afterData: [String: Any])
+        case nodes([(id: String, beforeData: [String: Any], afterData: [String: Any])])
         case connection(id: String, beforeEdge: [String: Any], afterEdge: [String: Any])
         case document(key: String, beforeValue: Any?, afterValue: Any?)
     }
@@ -100,6 +101,10 @@ public struct CanvasStyleChange {
         switch target {
         case .node(let id, let before, let after):
             return CanvasStyleChange(target: .node(id: id, beforeData: after, afterData: before))
+        case .nodes(let entries):
+            return CanvasStyleChange(target: .nodes(entries.map {
+                (id: $0.id, beforeData: $0.afterData, afterData: $0.beforeData)
+            }))
         case .connection(let id, let before, let after):
             return CanvasStyleChange(target: .connection(id: id, beforeEdge: after, afterEdge: before))
         case .document(let key, let before, let after):
@@ -161,12 +166,99 @@ public struct CanvasConnectionUpdate {
 }
 
 public struct CanvasAttachment: Equatable, Sendable {
+    public static let fileByteLimit = 262_144
+    public static let totalByteLimit = 1_048_576
+    public static let filenameByteLimit = 255
+    public static let defaultWidth: Double = 240
+    public static let defaultHeight: Double = 112
+
+    private static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd"]
+
     public let filename: String
     public let mediaType: String
     public let encoding: String
     public let content: String
 
+    public init(filename: String, mediaType: String, encoding: String = "utf-8", content: String) {
+        self.filename = filename
+        self.mediaType = mediaType
+        self.encoding = encoding
+        self.content = content
+    }
+
     public var utf8ByteCount: Int { content.utf8.count }
+
+    public static func inferredMediaType(forFilename filename: String) -> String {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        return markdownExtensions.contains(ext) ? "text/markdown" : "text/plain"
+    }
+
+    public func validate() throws {
+        guard !filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              filename != ".", filename != "..",
+              filename.utf8.count <= Self.filenameByteLimit,
+              !filename.contains("/"), !filename.contains("\\"),
+              !filename.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
+            throw CanvasDocumentError(
+                "Attachment filename must be a nonempty basename of at most 255 UTF-8 bytes without paths or control characters."
+            )
+        }
+        guard mediaType == "text/plain" || mediaType == "text/markdown" else {
+            throw CanvasDocumentError("Attachment media type must be text/plain or text/markdown.")
+        }
+        guard encoding == "utf-8" else {
+            throw CanvasDocumentError("Attachment encoding must be utf-8.")
+        }
+        guard content.utf8.count <= Self.fileByteLimit else {
+            throw CanvasDocumentError("Attachment content exceeds the 262,144-byte (256 KiB) limit. No file was attached.")
+        }
+        for scalar in content.unicodeScalars {
+            let n = scalar.value
+            if (n < 32 && n != 9 && n != 10 && n != 13) || (n >= 127 && n <= 159) {
+                throw CanvasDocumentError(
+                    "Only UTF-8 text is supported; binary control characters are not allowed (tab, LF, and CR are allowed)."
+                )
+            }
+        }
+    }
+
+    /// Reads an ordinary local file as a literal UTF-8 snapshot without modifying, trimming,
+    /// normalizing line endings, or stripping BOM. Refuses directories, non-regular files,
+    /// >256 KiB files, invalid UTF-8, and binary control characters.
+    public static func load(from url: URL) throws -> CanvasAttachment {
+        guard url.isFileURL else {
+            throw CanvasDocumentError("Only local files can be attached.")
+        }
+        let resolvedURL = url.resolvingSymlinksInPath()
+        let values = try resolvedURL.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey, .fileSizeKey])
+        if values.isDirectory == true {
+            throw CanvasDocumentError("Folders cannot be attached; choose a single UTF-8 text file.")
+        }
+        guard values.isRegularFile == true else {
+            throw CanvasDocumentError("Only ordinary regular files can be attached.")
+        }
+        if let size = values.fileSize, size > fileByteLimit {
+            throw CanvasDocumentError("The file exceeds the 262,144-byte (256 KiB) attachment limit. No file was attached.")
+        }
+        let data = try Data(contentsOf: resolvedURL)
+        guard data.count <= fileByteLimit else {
+            throw CanvasDocumentError("The file exceeds the 262,144-byte (256 KiB) attachment limit. No file was attached.")
+        }
+        guard !data.contains(0), String(data: data, encoding: .utf8) != nil else {
+            throw CanvasDocumentError("Only valid UTF-8 text files can be attached.")
+        }
+        // Decode with Swift's native UTF8 codec so leading UTF-8 BOM (U+FEFF) is preserved verbatim.
+        let text = String(decoding: data, as: UTF8.self)
+        let filename = url.lastPathComponent
+        let attachment = CanvasAttachment(
+            filename: filename,
+            mediaType: inferredMediaType(forFilename: filename),
+            encoding: "utf-8",
+            content: text
+        )
+        try attachment.validate()
+        return attachment
+    }
 }
 
 public struct CanvasTextChange {
@@ -885,6 +977,57 @@ public final class CanvasSession {
             "id": id, "type": "shape", "x": position.x, "y": position.y,
             "width": width, "height": resolvedHeight,
             "data": data
+        ]
+        let insertion = CanvasShapeInsertion(
+            id: id, node: raw, index: (root["nodes"] as? [[String: Any]])?.count ?? 0
+        )
+        try restoreInsertion(insertion)
+        return insertion
+    }
+
+    /// Inserts a new rectangular shape card carrying an embedded UTF-8 text attachment snapshot.
+    /// Compatible with both v1 and v2 canvases; enforces 256 KiB per-file and 1 MiB aggregate limits.
+    public func insertAttachment(
+        _ attachment: CanvasAttachment,
+        at position: CanvasPosition,
+        width: Double = CanvasAttachment.defaultWidth,
+        height: Double = CanvasAttachment.defaultHeight
+    ) throws -> CanvasShapeInsertion {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard position.x.isFinite, position.y.isFinite,
+              abs(position.x) <= 1_000_000, abs(position.y) <= 1_000_000 else {
+            throw CanvasDocumentError("An attachment card needs finite coordinates within 1000000.")
+        }
+        guard width.isFinite, width > 0, width <= 1_000_000,
+              height.isFinite, height > 0, height <= 1_000_000 else {
+            throw CanvasDocumentError("An attachment card needs positive dimensions within 1000000.")
+        }
+        try attachment.validate()
+        let id = UUID().uuidString
+        let attachmentDict: [String: Any] = [
+            "filename": attachment.filename,
+            "media_type": attachment.mediaType,
+            "encoding": attachment.encoding,
+            "content": attachment.content,
+        ]
+        let data: [String: Any] = [
+            "kind": CanvasShapeKind.rectangle.rawValue,
+            "fill": "none",
+            "stroke": "ink",
+            "radius": 0,
+            "text": attachment.filename,
+            "attachment": attachmentDict,
+        ]
+        let raw: [String: Any] = [
+            "id": id,
+            "type": "shape",
+            "x": position.x,
+            "y": position.y,
+            "width": width,
+            "height": height,
+            "data": data,
         ]
         let insertion = CanvasShapeInsertion(
             id: id, node: raw, index: (root["nodes"] as? [[String: Any]])?.count ?? 0
@@ -1796,6 +1939,85 @@ public final class CanvasSession {
         }
     }
 
+    public func availableStyleProperties(forNodes ids: [String]) -> [CanvasStyleProperty] {
+        guard let first = ids.first else { return [] }
+        var shared = availableStyleProperties(forNode: first)
+        for id in ids.dropFirst() {
+            let props = Set(availableStyleProperties(forNode: id))
+            shared = shared.filter { props.contains($0) }
+            if shared.isEmpty { break }
+        }
+        return shared
+    }
+
+    /// Returns effective values across `ids` for every shared style property.
+    /// A `nil` inner value means the selected objects disagree (mixed).
+    public func effectiveMultiNodeStyle(of ids: [String]) -> [CanvasStyleProperty: CanvasStyleValue?] {
+        let shared = availableStyleProperties(forNodes: ids)
+        guard !shared.isEmpty else { return [:] }
+        var result: [CanvasStyleProperty: CanvasStyleValue?] = [:]
+        for property in shared {
+            var common: CanvasStyleValue?
+            var isMixed = false
+            for id in ids {
+                guard let value = effectiveNodeStyle(of: id)?[property] else { continue }
+                if let existing = common {
+                    if existing != value {
+                        isMixed = true
+                        break
+                    }
+                } else {
+                    common = value
+                }
+            }
+            result[property] = isMixed ? nil : common
+        }
+        return result
+    }
+
+    @discardableResult
+    public func setNodesStyle(
+        _ ids: [String], property: CanvasStyleProperty, to value: CanvasStyleValue
+    ) throws -> CanvasStyleChange? {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        let uniqueIDs = ids.filter { node($0) != nil }
+        guard !uniqueIDs.isEmpty else {
+            throw CanvasDocumentError("Select at least one object before changing styles.")
+        }
+        let unlockedIDs = uniqueIDs.filter { !isLocked($0) }
+        guard !unlockedIDs.isEmpty else {
+            throw CanvasDocumentError("Unlock at least one selected object before changing styles.")
+        }
+        let shared = availableStyleProperties(forNodes: uniqueIDs)
+        guard shared.contains(property) else {
+            throw CanvasDocumentError("This style is not shared by all selected objects; nothing was changed.")
+        }
+        let rawValue = try validatedStyleJSONValue(property: property, value: value)
+        guard var nodes = root["nodes"] as? [[String: Any]] else {
+            throw CanvasDocumentError("Invalid canvas nodes array.")
+        }
+        var entries: [(id: String, beforeData: [String: Any], afterData: [String: Any])] = []
+        let unlockedSet = Set(unlockedIDs)
+        for index in nodes.indices {
+            guard let id = nodes[index]["id"] as? String,
+                  unlockedSet.contains(id),
+                  let beforeData = nodes[index]["data"] as? [String: Any] else { continue }
+            guard effectiveNodeStyle(of: id)?[property] != value else { continue }
+            var afterData = beforeData
+            afterData[property.rawValue] = rawValue
+            nodes[index]["data"] = afterData
+            entries.append((id: id, beforeData: beforeData, afterData: afterData))
+        }
+        guard !entries.isEmpty else { return nil }
+        var candidate = root
+        candidate["nodes"] = nodes
+        try CanvasDocument.validate(candidate)
+        root = candidate
+        return CanvasStyleChange(target: .nodes(entries))
+    }
+
     public func availableStyleProperties(forConnection id: String) -> [CanvasStyleProperty] {
         hasConnection(id) ? [.stroke, .width, .dash, .path, .marker] : []
     }
@@ -1962,6 +2184,18 @@ public final class CanvasSession {
                 throw CanvasDocumentError("Cannot apply style change to missing or locked node.")
             }
             nodes[index]["data"] = afterData
+            candidate["nodes"] = nodes
+        case .nodes(let entries):
+            guard var nodes = candidate["nodes"] as? [[String: Any]] else {
+                throw CanvasDocumentError("Invalid canvas nodes array.")
+            }
+            for entry in entries {
+                guard let index = nodes.firstIndex(where: { $0["id"] as? String == entry.id }),
+                      !isLocked(entry.id) else {
+                    throw CanvasDocumentError("Cannot apply style change to missing or locked node.")
+                }
+                nodes[index]["data"] = entry.afterData
+            }
             candidate["nodes"] = nodes
         case .connection(let id, _, let afterEdge):
             guard var edges = candidate["edges"] as? [[String: Any]],

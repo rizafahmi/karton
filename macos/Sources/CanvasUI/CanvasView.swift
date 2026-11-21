@@ -186,13 +186,16 @@ public final class CanvasView: NSView {
     public let styleInspector = StyleInspectorView()
     public private(set) var isStyleInspectorOpen = false
     public let toolDock = CanvasToolDockView()
+    public let zoomControl = CanvasZoomControlView()
     public let alignBar = CanvasAlignBarView()
+    nonisolated(unsafe) private var clipBoundsObserver: NSObjectProtocol?
+    nonisolated(unsafe) private var frameChangeObserver: NSObjectProtocol?
     public var isToolDockVisible: Bool = false {
         didSet {
             toolDock.isHidden = !isToolDockVisible
+            zoomControl.isHidden = !isToolDockVisible
             refreshToolDock()
-            positionToolDock()
-            positionAlignBar()
+            positionAllOverlays()
             needsDisplay = true
         }
     }
@@ -200,6 +203,8 @@ public final class CanvasView: NSView {
     public private(set) var activeCreationTool: CanvasCreationTool = .select {
         didSet {
             refreshToolDock()
+            window?.invalidateCursorRects(for: self)
+            updateCursor()
             needsDisplay = true
         }
     }
@@ -212,6 +217,9 @@ public final class CanvasView: NSView {
     }
     private var pendingNewCodeBox: CanvasGeometry?
     public var codePasteboard: NSPasteboard = .general
+    public var attachmentImportURLProvider: (() -> URL?)?
+    public var attachmentSaveCopyURLProvider: ((String) -> URL?)?
+    private var isFileDropTargeted = false
     public var hasActiveCodeEditor: Bool { codeEditorView != nil }
     public var activeCodeEditor: CodeSnippetEditorView? { codeEditorView }
     public var isShortcutsSheetOpen: Bool { shortcutsSheet != nil }
@@ -492,6 +500,7 @@ public final class CanvasView: NSView {
         self.origin = bounds.origin
         let size = CGSize(width: max(800, bounds.width), height: max(600, bounds.height))
         super.init(frame: CGRect(origin: .zero, size: size))
+        registerForDraggedTypes([.fileURL])
         history.groupsByEvent = false
         thoughtScrollView.hasVerticalScroller = true
         thoughtScrollView.autohidesScrollers = true
@@ -553,13 +562,76 @@ public final class CanvasView: NSView {
             self?.beginShortcutsHelp()
         }
         addSubview(toolDock)
+        zoomControl.isHidden = true
+        zoomControl.onZoomOut = { [weak self] in
+            self?.zoomOut(nil)
+            self?.window?.makeFirstResponder(self)
+        }
+        zoomControl.onResetZoom = { [weak self] in
+            self?.resetZoom(nil)
+            self?.window?.makeFirstResponder(self)
+        }
+        zoomControl.onZoomIn = { [weak self] in
+            self?.zoomIn(nil)
+            self?.window?.makeFirstResponder(self)
+        }
+        addSubview(zoomControl)
         alignBar.isHidden = true
         alignBar.onAlign = { [weak self] alignment in
             self?.alignSelection(alignment)
         }
         addSubview(alignBar)
         statusBanner.isHidden = true
+        statusBanner.onDismiss = { [weak self] in
+            self?.statusBanner.configure(kind: nil)
+            self?.positionAllOverlays()
+            self?.needsDisplay = true
+        }
         addSubview(statusBanner)
+        postsFrameChangedNotifications = true
+    }
+
+    deinit {
+        if let clipBoundsObserver {
+            NotificationCenter.default.removeObserver(clipBoundsObserver)
+        }
+        if let frameChangeObserver {
+            NotificationCenter.default.removeObserver(frameChangeObserver)
+        }
+    }
+
+    public override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if let clipBoundsObserver {
+            NotificationCenter.default.removeObserver(clipBoundsObserver)
+            self.clipBoundsObserver = nil
+        }
+        if let frameChangeObserver {
+            NotificationCenter.default.removeObserver(frameChangeObserver)
+            self.frameChangeObserver = nil
+        }
+        if let clipView = enclosingScrollView?.contentView {
+            clipView.postsBoundsChangedNotifications = true
+            clipBoundsObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: clipView,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.positionAllOverlays()
+                }
+            }
+        }
+        frameChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification,
+            object: self,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.positionAllOverlays()
+            }
+        }
+        positionAllOverlays()
     }
 
     public required init?(coder: NSCoder) { fatalError("CanvasView requires a document") }
@@ -587,7 +659,7 @@ public final class CanvasView: NSView {
             reconnectingEdgeID = nil
         }
         for edge in edges where edge.id != reconnectingEdgeID {
-            Self.drawEdge(edge, role: fontRole, isSelected: edge.id == selectedEdgeID)
+            Self.drawEdge(edge, role: fontRole, isSelected: edge.id == selectedEdgeID, drawLabel: false)
         }
         for node in nodes {
             let isEditingCaption: Bool
@@ -597,6 +669,9 @@ public final class CanvasView: NSView {
                 isEditingCaption = false
             }
             Self.drawNode(node, role: fontRole, defaultAlign: defaultAlign, hideCaption: isEditingCaption)
+        }
+        for edge in edges where edge.id != reconnectingEdgeID {
+            Self.drawEdgeLabel(edge, role: fontRole, isSelected: edge.id == selectedEdgeID)
         }
         if selectedNodeIDs.count > 1 {
             for node in nodes where selectedNodeIDs.contains(node.id) {
@@ -633,19 +708,53 @@ public final class CanvasView: NSView {
             drawInlineTextPreview(inlineTextState)
         }
         context.restoreGState()
+        if nodes.isEmpty && inlineTextState == nil && codeEditorView == nil &&
+           creationDrag == nil && marqueeGesture == nil && isToolDockVisible {
+            drawEmptyCanvasHint()
+        }
         if let geometryGesture { drawGeometryHelp(geometryGesture.handle) }
         if let lineEndpointGesture { drawLineEndpointHelp(lineEndpointGesture.endpoint) }
-        if connectionDrag != nil {
+        if isFileDropTargeted {
+            let dropRect = (visibleRect.width > 0 ? visibleRect : bounds).insetBy(dx: 8, dy: 8)
+            let dropBorder = NSBezierPath(rect: dropRect)
+            CanvasTheme.selectionCobalt.setStroke()
+            dropBorder.lineWidth = 3
+            dropBorder.setLineDash([8, 6], count: 2, phase: 0)
+            dropBorder.stroke()
+            drawHelpBanner("Drop UTF-8 text file to embed as an attachment card")
+        } else if connectionDrag != nil {
             drawHelpBanner("Drag to an object or side port to connect · Release to commit · Escape: cancel")
         } else if activeCreationTool != .select {
             drawHelpBanner(activeCreationTool.helpBannerText)
         }
         if let inlineTextState { drawInlineTextHelp(inlineTextState) }
-        positionInlineTextEditor()
-        positionStyleInspector()
-        positionToolDock()
-        positionAlignBar()
-        positionStatusBanner()
+        positionAllOverlays()
+    }
+
+    private func drawEmptyCanvasHint() {
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        guard area.width >= 320, area.height >= 240 else { return }
+        let title = "Blank Canvas" as NSString
+        let subtitle = "Press R, O, T, or K — or pick a tool below to start thinking" as NSString
+        let titleAttrs: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.font("heading", "s", scale: 15.0 / 12.0),
+            .foregroundColor: CanvasTheme.mutedText.withAlphaComponent(0.75),
+        ]
+        let subAttrs: [NSAttributedString.Key: Any] = [
+            .font: CanvasTypography.font("sans", "s", scale: 12.5 / 14.0),
+            .foregroundColor: CanvasTheme.mutedText.withAlphaComponent(0.70),
+        ]
+        let titleSize = title.size(withAttributes: titleAttrs)
+        let subSize = subtitle.size(withAttributes: subAttrs)
+        let centerY = area.midY - (isToolDockVisible ? 20 : 0)
+        title.draw(
+            at: CGPoint(x: floor(area.midX - titleSize.width / 2), y: floor(centerY - titleSize.height - 4)),
+            withAttributes: titleAttrs
+        )
+        subtitle.draw(
+            at: CGPoint(x: floor(area.midX - subSize.width / 2), y: floor(centerY + 4)),
+            withAttributes: subAttrs
+        )
     }
 
     public override func updateTrackingAreas() {
@@ -655,19 +764,159 @@ public final class CanvasView: NSView {
         }
         let area = NSTrackingArea(
             rect: .zero,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            options: [.mouseMoved, .mouseEnteredAndExited, .cursorUpdate, .activeInKeyWindow, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
         addTrackingArea(area)
     }
 
+    public override func resetCursorRects() {
+        super.resetCursorRects()
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        addCursorRect(area, cursor: resolvedCursor(at: nil))
+    }
+
+    public override func cursorUpdate(with event: NSEvent) {
+        updateCursor(for: event)
+    }
+
+    private func isPointOverOverlay(_ viewPoint: CGPoint) -> Bool {
+        let overlays: [NSView] = [toolDock, zoomControl, alignBar, styleInspector, statusBanner]
+            + (codeEditorView.map { [$0] } ?? [])
+            + (thoughtScrollView.isHidden ? [] : [thoughtScrollView])
+        return overlays.contains { !$0.isHidden && $0.frame.contains(viewPoint) }
+    }
+
+    private func resizeCursor(for handle: CanvasGeometryHandle, rotationDegrees: CGFloat) -> NSCursor {
+        if handle == .rotation {
+            return .crosshair
+        }
+        let baseAngle: CGFloat
+        switch handle {
+        case .right: baseAngle = 0
+        case .bottomRight: baseAngle = 45
+        case .bottom: baseAngle = 90
+        case .bottomLeft: baseAngle = 135
+        case .left: baseAngle = 180
+        case .topLeft: baseAngle = 225
+        case .top: baseAngle = 270
+        case .topRight: baseAngle = 315
+        case .rotation: return .crosshair
+        }
+        var angle = (baseAngle + rotationDegrees).truncatingRemainder(dividingBy: 180)
+        if angle < 0 { angle += 180 }
+        let sector = Int(((angle + 22.5) / 45.0).rounded(.down)) % 4
+        switch sector {
+        case 0:
+            return .frameResize(position: .right, directions: .all)
+        case 1:
+            return .frameResize(position: .bottomRight, directions: .all)
+        case 2:
+            return .frameResize(position: .bottom, directions: .all)
+        default:
+            return .frameResize(position: .bottomLeft, directions: .all)
+        }
+    }
+
+    public func resolvedCursor(at viewPoint: CGPoint?) -> NSCursor {
+        if spacePanStart != nil {
+            return .closedHand
+        }
+        if isSpacePressed {
+            return .openHand
+        }
+        if let vp = viewPoint, isPointOverOverlay(vp) {
+            return .arrow
+        }
+        if activeCreationTool != .select {
+            return activeCreationTool == .shape(.text) ? .iBeam : .crosshair
+        }
+        if drag != nil {
+            return .closedHand
+        }
+        if connectionDrag != nil || creationDrag != nil || marqueeGesture != nil || lineEndpointGesture?.pointerStart != nil {
+            return .crosshair
+        }
+        if let gesture = geometryGesture, gesture.pointerStart != nil {
+            let rot = nodes.first(where: { $0.id == gesture.id })?.rotation ?? 0
+            return resizeCursor(for: gesture.handle, rotationDegrees: rot)
+        }
+        guard let vp = viewPoint,
+              !hasGeometryPreview,
+              inlineTextState == nil,
+              codeEditorView == nil else {
+            return .arrow
+        }
+        let worldPt = CGPoint(x: vp.x / zoomScale + origin.x, y: vp.y / zoomScale + origin.y)
+        if !isReadOnly, let edgeID = selectedEdgeID, let edge = edges.first(where: { $0.id == edgeID }) {
+            let startPt = edge.samples.first ?? edge.end
+            let endPt = edge.end
+            if hypot(worldPt.x - endPt.x, worldPt.y - endPt.y) < 12.0 ||
+               hypot(worldPt.x - startPt.x, worldPt.y - startPt.y) < 12.0 {
+                return .crosshair
+            }
+        }
+        if selectedNodeIDs.count <= 1, let id = selectedID, session.canTransform(id),
+           let node = nodes.first(where: { $0.id == id }),
+           let handle = geometryHandle(at: worldPt, node: node) {
+            return resizeCursor(for: handle, rotationDegrees: node.rotation)
+        }
+        if selectedNodeIDs.count <= 1, let id = selectedID, session.canEditLineEndpoints(id),
+           let node = nodes.first(where: { $0.id == id }),
+           let lineGeometry = node.lineGeometry,
+           lineEndpointHandle(at: worldPt, lineGeometry: lineGeometry) != nil {
+            return .crosshair
+        }
+        if !isReadOnly {
+            if selectedNodeIDs.count <= 1, let id = selectedID,
+               let node = nodes.first(where: { $0.id == id }),
+               connectionPort(at: worldPt, node: node) != nil {
+                return .crosshair
+            }
+            if let hid = hoveredNodeID,
+               let hoverNode = nodes.first(where: { $0.id == hid }),
+               connectionPort(at: worldPt, node: hoverNode) != nil {
+                return .crosshair
+            }
+            if let hitNode = nodes.reversed().first(where: { contains(worldPt, node: $0) }),
+               !session.isLocked(hitNode.id) {
+                return .openHand
+            }
+        }
+        return .arrow
+    }
+
+    private func updateCursor(for event: NSEvent? = nil) {
+        let viewPt: CGPoint?
+        if let event {
+            viewPt = convert(event.locationInWindow, from: nil)
+        } else if let window {
+            viewPt = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        } else {
+            viewPt = nil
+        }
+        if let viewPt, isPointOverOverlay(viewPt) {
+            return
+        }
+        resolvedCursor(at: viewPt).set()
+    }
+
     public override func mouseMoved(with event: NSEvent) {
+        let viewPt = convert(event.locationInWindow, from: nil)
+        if isPointOverOverlay(viewPt) {
+            if hoveredNodeID != nil {
+                hoveredNodeID = nil
+                needsDisplay = true
+            }
+            return
+        }
         guard !isReadOnly, !hasGeometryPreview, inlineTextState == nil, drag == nil, connectionDrag == nil else {
             if hoveredNodeID != nil {
                 hoveredNodeID = nil
                 needsDisplay = true
             }
+            updateCursor(for: event)
             return
         }
         let point = worldPoint(for: event)
@@ -679,6 +928,7 @@ public final class CanvasView: NSView {
             hoveredNodeID = hitID
             needsDisplay = true
         }
+        updateCursor(for: event)
     }
 
     public override func mouseExited(with event: NSEvent) {
@@ -686,6 +936,7 @@ public final class CanvasView: NSView {
             hoveredNodeID = nil
             needsDisplay = true
         }
+        NSCursor.arrow.set()
     }
 
     public override func mouseDown(with event: NSEvent) {
@@ -702,6 +953,7 @@ public final class CanvasView: NSView {
             let viewportPt = CGPoint(x: viewPt.x - clipOrigin.x, y: viewPt.y - clipOrigin.y)
             spacePanStart = (viewportPoint: viewportPt, worldOrigin: visibleWorldRect.origin)
             spacePanDragged = false
+            updateCursor(for: event)
             return
         }
         let point = worldPoint(for: event)
@@ -981,6 +1233,7 @@ public final class CanvasView: NSView {
     public override func mouseUp(with event: NSEvent) {
         if spacePanStart != nil {
             spacePanStart = nil
+            updateCursor(for: event)
             return
         }
         if let activeCreation = creationDrag {
@@ -1027,6 +1280,7 @@ public final class CanvasView: NSView {
         } else {
             syncFromSession()
         }
+        updateCursor(for: event)
     }
 
     public override func menu(for event: NSEvent) -> NSMenu? {
@@ -1137,6 +1391,7 @@ public final class CanvasView: NSView {
             isSpacePressed = false
             spacePanDragged = false
             spacePanStart = nil
+            updateCursor()
             if shouldToggle {
                 toggleFocusedSelection()
             }
@@ -1267,6 +1522,7 @@ public final class CanvasView: NSView {
                 if !event.isARepeat {
                     isSpacePressed = true
                     spacePanDragged = false
+                    updateCursor()
                 }
                 return
             }
@@ -2210,7 +2466,12 @@ public final class CanvasView: NSView {
               connectionEditor == nil, attachmentPreview == nil else {
             throw CanvasDocumentError("Finish the active edit before changing styles.")
         }
-        if let id = selectedID {
+        let selected = orderedSelectedNodeIDs
+        if selected.count >= 2 {
+            guard let change = try session.setNodesStyle(selected, property: property, to: value) else { return }
+            syncFromSession()
+            registerUndoStyleChange(change)
+        } else if let id = selectedID {
             guard let change = try session.setNodeStyle(id, property: property, to: value) else { return }
             syncFromSession()
             registerUndoStyleChange(change)
@@ -2247,7 +2508,7 @@ public final class CanvasView: NSView {
         styleInspector.update(
             session: session,
             selectedNodeID: selectedID,
-            selectedNodeCount: selected.count,
+            selectedNodeIDs: selected,
             selectedConnectionID: selectedEdgeID,
             hasGeometryPreview: hasGeometryPreview,
             canAlign: session.canAlignNodes(selected, alignment: .left),
@@ -2256,20 +2517,50 @@ public final class CanvasView: NSView {
         positionStyleInspector()
     }
 
+    public func positionAllOverlays() {
+        positionInlineTextEditor()
+        positionStatusBanner()
+        positionToolDock()
+        positionAlignBar()
+        positionStyleInspector()
+        positionCodeEditor()
+    }
+
+    private func setOverlayOriginIfChanged(_ view: NSView, to origin: CGPoint) {
+        let snapped = CGPoint(x: floor(origin.x), y: floor(origin.y))
+        if abs(view.frame.origin.x - snapped.x) > 0.25 || abs(view.frame.origin.y - snapped.y) > 0.25 {
+            view.setFrameOrigin(snapped)
+        }
+    }
+
     private func positionStyleInspector() {
         guard isStyleInspectorOpen else { return }
         let area = visibleRect.width > 0 ? visibleRect : bounds
         let size = styleInspector.frame.size
-        let bannerOffset: CGFloat = statusBanner.isHidden ? 0 : (statusBanner.frame.height + 12)
-        styleInspector.frame.origin = CGPoint(
-            x: max(12, area.maxX - size.width - 16),
-            y: area.minY + 16 + bannerOffset
-        )
+        let bannerOffset: CGFloat = statusBanner.isHidden ? 0 : (statusBanner.frame.height + 10)
+        let targetX = max(area.minX + 12, area.maxX - size.width - 16)
+        var targetY = area.minY + 14 + bannerOffset
+        let bottomLimit: CGFloat
+        if isToolDockVisible {
+            let dockTop = toolDock.frame.minY
+            let zoomTop = zoomControl.frame.minY
+            let overlapsBottomRight = (targetX + size.width > toolDock.frame.minX && targetX < toolDock.frame.maxX) ||
+                (!zoomControl.isHidden && targetX + size.width > zoomControl.frame.minX)
+            bottomLimit = overlapsBottomRight ? (min(dockTop, zoomTop) - 10) : (area.maxY - 12)
+        } else {
+            bottomLimit = area.maxY - 12
+        }
+        if targetY + size.height > bottomLimit {
+            targetY = max(area.minY + 12 + bannerOffset, bottomLimit - size.height)
+        }
+        setOverlayOriginIfChanged(styleInspector, to: CGPoint(x: targetX, y: targetY))
     }
 
     public func refreshToolDock() {
         refreshAlignBar()
         guard isToolDockVisible else { return }
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        zoomControl.update(zoomScale: zoomScale, compact: area.width < 840)
         toolDock.update(
             activeTool: activeCreationTool,
             isReadOnly: isReadOnly,
@@ -2281,14 +2572,20 @@ public final class CanvasView: NSView {
     }
 
     public func positionToolDock() {
-        positionCodeEditor()
         guard isToolDockVisible else { return }
         let area = visibleRect.width > 0 ? visibleRect : bounds
-        let size = toolDock.frame.size
-        toolDock.frame.origin = CGPoint(
-            x: max(area.minX + 12, floor(area.midX - size.width / 2)),
-            y: max(area.minY + 12, area.maxY - size.height - 14)
-        )
+        zoomControl.update(zoomScale: zoomScale, compact: area.width < 840)
+        let zoomSize = zoomControl.frame.size
+        let dockSize = toolDock.frame.size
+        let bottomY = max(area.minY + 12, area.maxY - dockSize.height - 14)
+
+        let zoomX = max(area.minX + 12, area.maxX - zoomSize.width - 12)
+        setOverlayOriginIfChanged(zoomControl, to: CGPoint(x: zoomX, y: bottomY))
+
+        let centeredDockX = floor(area.midX - dockSize.width / 2)
+        let maxDockX = zoomX - 8 - dockSize.width
+        let dockX = max(area.minX + 12, min(centeredDockX, maxDockX))
+        setOverlayOriginIfChanged(toolDock, to: CGPoint(x: dockX, y: bottomY))
     }
 
     public func refreshAlignBar() {
@@ -2309,21 +2606,23 @@ public final class CanvasView: NSView {
         let area = visibleRect.width > 0 ? visibleRect : bounds
         let size = alignBar.frame.size
         let bottomMargin: CGFloat = isToolDockVisible ? (toolDock.frame.height + 22) : 14
-        alignBar.frame.origin = CGPoint(
-            x: max(area.minX + 12, floor(area.midX - size.width / 2)),
-            y: max(area.minY + 12, area.maxY - size.height - bottomMargin)
-        )
+        let anchorMidX = isToolDockVisible ? toolDock.frame.midX : area.midX
+        let targetX = max(area.minX + 12, min(area.maxX - size.width - 12, floor(anchorMidX - size.width / 2)))
+        let targetY = max(area.minY + 12, area.maxY - size.height - bottomMargin)
+        setOverlayOriginIfChanged(alignBar, to: CGPoint(x: targetX, y: targetY))
     }
 
     public func positionStatusBanner() {
         guard !statusBanner.isHidden else { return }
         let area = visibleRect.width > 0 ? visibleRect : bounds
-        statusBanner.layoutControls(maxWidth: max(420, area.width - 32))
+        let targetMaxWidth = max(360, area.width - 32)
+        if abs(statusBanner.frame.width - min(760, targetMaxWidth)) > 1.0 {
+            statusBanner.layoutControls(maxWidth: targetMaxWidth)
+        }
         let size = statusBanner.frame.size
-        statusBanner.frame.origin = CGPoint(
-            x: max(area.minX + 12, floor(area.midX - size.width / 2)),
-            y: area.minY + 12
-        )
+        let targetX = max(area.minX + 12, floor(area.midX - size.width / 2))
+        let targetY = area.minY + 12
+        setOverlayOriginIfChanged(statusBanner, to: CGPoint(x: targetX, y: targetY))
     }
 
     private func selectSingleNode(_ id: String) {
@@ -2626,7 +2925,9 @@ public final class CanvasView: NSView {
             return
         }
         attachmentPreview = AttachmentPreviewSheet(
-            attachment: attachment, pasteboard: attachmentPasteboard,
+            attachment: attachment,
+            pasteboard: attachmentPasteboard,
+            saveDestinationProvider: attachmentSaveCopyURLProvider,
             completion: { [weak self, weak window] in
                 guard let self else { return }
                 self.attachmentPreview = nil
@@ -2915,10 +3216,13 @@ public final class CanvasView: NSView {
         cgContext.scaleBy(x: plan.scale, y: plan.scale)
         cgContext.translateBy(x: -plan.paddedWorldBounds.minX, y: -plan.paddedWorldBounds.minY)
         for edge in snapshotEdges {
-            Self.drawEdge(edge, role: snapshotRole, isSelected: false, theme: theme)
+            Self.drawEdge(edge, role: snapshotRole, isSelected: false, theme: theme, drawLabel: false)
         }
         for node in snapshotNodes {
             Self.drawNode(node, role: snapshotRole, defaultAlign: snapshotAlign, hideCaption: false, theme: theme, isExport: true)
+        }
+        for edge in snapshotEdges {
+            Self.drawEdgeLabel(edge, role: snapshotRole, isSelected: false, theme: theme)
         }
         cgContext.restoreGState()
         NSGraphicsContext.restoreGraphicsState()
@@ -3539,15 +3843,17 @@ public final class CanvasView: NSView {
         let padded = content.insetBy(dx: -48, dy: -48)
         let viewport = enclosingScrollView?.contentView.bounds.size
             ?? (visibleRect.width > 0 ? visibleRect.size : bounds.size)
+        let bottomChromeInset: CGFloat = isToolDockVisible ? 68 : 0
+        let usableHeight = max(80, viewport.height - bottomChromeInset)
         let scaleX = max(1, viewport.width) / padded.width
-        let scaleY = max(1, viewport.height) / padded.height
+        let scaleY = usableHeight / padded.height
         let targetScale = max(0.1, min(4.0, min(scaleX, scaleY)))
         zoomScale = targetScale
         let worldViewportWidth = viewport.width / zoomScale
-        let worldViewportHeight = viewport.height / zoomScale
+        let worldUsableHeight = usableHeight / zoomScale
         setVisibleWorldOrigin(CGPoint(
             x: padded.midX - worldViewportWidth / 2,
-            y: padded.midY - worldViewportHeight / 2
+            y: padded.midY - worldUsableHeight / 2
         ))
     }
 
@@ -3603,11 +3909,7 @@ public final class CanvasView: NSView {
         } else {
             origin = targetWorldOrigin
         }
-        positionInlineTextEditor()
-        positionStyleInspector()
-        positionToolDock()
-        positionAlignBar()
-        positionStatusBanner()
+        positionAllOverlays()
         needsDisplay = true
     }
 
@@ -4239,17 +4541,31 @@ public final class CanvasView: NSView {
     }
 
     private func drawHelpBanner(_ text: String) {
-        let width = max(1, min(560, visibleRect.width - 24))
-        let rect = CGRect(x: visibleRect.minX + 12, y: visibleRect.minY + 12, width: width, height: 54)
-        let pill = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        let bannerOffset: CGFloat = statusBanner.isHidden ? 0 : (statusBanner.frame.height + 10)
+        let rightLimit: CGFloat = isStyleInspectorOpen
+            ? max(area.minX + 200, styleInspector.frame.minX - 12)
+            : (area.maxX - 12)
+        let maxAvailWidth = max(160, min(560, rightLimit - (area.minX + 12)))
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12),
+            .foregroundColor: CanvasTheme.primaryText,
+        ]
+        let measured = (text as NSString).boundingRect(
+            with: CGSize(width: max(80, maxAvailWidth - 20), height: 80),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: attrs
+        )
+        let pillWidth = min(maxAvailWidth, max(160, ceil(measured.width) + 20))
+        let pillHeight = max(32, min(56, ceil(measured.height) + 14))
+        let rect = CGRect(x: area.minX + 12, y: area.minY + 12 + bannerOffset, width: pillWidth, height: pillHeight)
+        let pill = NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4)
         CanvasTheme.elevatedSurface.setFill()
         pill.fill()
-        CanvasTheme.borderSubtle.setStroke()
-        pill.lineWidth = 1
+        CanvasTheme.borderStrong.setStroke()
+        pill.lineWidth = 1.5
         pill.stroke()
-        (text as NSString).draw(in: rect.insetBy(dx: 8, dy: 6),
-                               withAttributes: [.font: NSFont.systemFont(ofSize: 12),
-                                                .foregroundColor: CanvasTheme.primaryText])
+        (text as NSString).draw(in: rect.insetBy(dx: 10, dy: 7), withAttributes: attrs)
     }
 
     private func drawPaper(_ dirty: CGRect) {
@@ -4538,7 +4854,8 @@ public final class CanvasView: NSView {
         _ edge: EdgeDrawing,
         role fontRole: String,
         isSelected: Bool,
-        theme: CanvasPNGExportTheme = .light
+        theme: CanvasPNGExportTheme = .light,
+        drawLabel: Bool = true
     ) {
         let color = isSelected ? CanvasTheme.selectionCobalt : palette(edge.style["stroke"] as? String ?? "ink", theme: theme)
         let width = edge.style["width"] as? NSNumber
@@ -4552,20 +4869,8 @@ public final class CanvasView: NSView {
         pathCopy.stroke()
         if edge.marker == "arrow" { drawArrow(at: edge.end, from: edge.previous, color: color) }
         if edge.marker == "dot" { color.setFill(); NSBezierPath(ovalIn: CGRect(x: edge.end.x - 4, y: edge.end.y - 4, width: 8, height: 8)).fill() }
-        if !edge.label.isEmpty {
-            let size = labelSize(edge.label, role: fontRole)
-            let rect = CGRect(x: edge.labelPoint.x - size.width / 2, y: edge.labelPoint.y - size.height / 2, width: size.width, height: size.height)
-            let pill = rect.insetBy(dx: -5, dy: -2)
-            CanvasTheme.edgeLabelFill(theme: theme).setFill()
-            pill.fill()
-            let pillBorder = NSBezierPath(rect: pill)
-            pillBorder.lineWidth = isSelected ? 1.5 : 1
-            (isSelected ? CanvasTheme.selectionCobalt : CanvasTheme.edgeLabelBorder(theme: theme)).setStroke()
-            pillBorder.stroke()
-            (edge.label as NSString).draw(
-                in: rect,
-                withAttributes: [.font: font(fontRole, "m"), .foregroundColor: CanvasTheme.edgeLabelText(theme: theme)]
-            )
+        if drawLabel {
+            drawEdgeLabel(edge, role: fontRole, isSelected: isSelected, theme: theme)
         }
         if isSelected {
             for endpoint in [edge.samples.first ?? edge.end, edge.end] {
@@ -4578,6 +4883,28 @@ public final class CanvasView: NSView {
                 handlePath.stroke()
             }
         }
+    }
+
+    private static func drawEdgeLabel(
+        _ edge: EdgeDrawing,
+        role fontRole: String,
+        isSelected: Bool,
+        theme: CanvasPNGExportTheme = .light
+    ) {
+        guard !edge.label.isEmpty else { return }
+        let size = labelSize(edge.label, role: fontRole)
+        let rect = CGRect(x: edge.labelPoint.x - size.width / 2, y: edge.labelPoint.y - size.height / 2, width: size.width, height: size.height)
+        let pill = rect.insetBy(dx: -5, dy: -2)
+        CanvasTheme.edgeLabelFill(theme: theme).setFill()
+        pill.fill()
+        let pillBorder = NSBezierPath(rect: pill)
+        pillBorder.lineWidth = isSelected ? 1.5 : 1
+        (isSelected ? CanvasTheme.selectionCobalt : CanvasTheme.edgeLabelBorder(theme: theme)).setStroke()
+        pillBorder.stroke()
+        (edge.label as NSString).draw(
+            in: rect,
+            withAttributes: [.font: font(fontRole, "m"), .foregroundColor: CanvasTheme.edgeLabelText(theme: theme)]
+        )
     }
 
     private static func nodeText(_ node: Node) -> String {
@@ -5439,6 +5766,7 @@ public final class CanvasView: NSView {
     }
 
     private func closeCodeEditor() {
+        codeEditorView?.cancelPendingTimers()
         codeEditorView?.removeFromSuperview()
         codeEditorView = nil
         pendingNewCodeBox = nil
@@ -5448,13 +5776,22 @@ public final class CanvasView: NSView {
     public func positionCodeEditor() {
         guard let editor = codeEditorView else { return }
         let area = visibleRect.width > 0 ? visibleRect : bounds
-        let maxW = max(340, min(580, area.width - 40))
-        let maxH = max(240, min(390, area.height - 96))
-        editor.setFrameSize(NSSize(width: maxW, height: maxH))
-        editor.frame.origin = CGPoint(
-            x: max(area.minX + 16, floor(area.midX - maxW / 2)),
-            y: max(area.minY + 24, floor(area.midY - maxH / 2))
-        )
+        let topSafe = area.minY + 14 + (statusBanner.isHidden ? 0 : (statusBanner.frame.height + 10))
+        let bottomSafe: CGFloat
+        if isToolDockVisible {
+            let bottomChromeTop = alignBar.isHidden ? toolDock.frame.minY : min(toolDock.frame.minY, alignBar.frame.minY)
+            bottomSafe = max(topSafe + 200, bottomChromeTop - 12)
+        } else {
+            bottomSafe = area.maxY - 14
+        }
+        let maxW = max(380, min(580, area.width - 32))
+        let maxH = max(200, min(390, bottomSafe - topSafe))
+        if abs(editor.frame.width - maxW) > 0.5 || abs(editor.frame.height - maxH) > 0.5 {
+            editor.setFrameSize(NSSize(width: maxW, height: maxH))
+        }
+        let targetX = max(area.minX + 16, floor(area.midX - maxW / 2))
+        let targetY = max(topSafe, floor(topSafe + (bottomSafe - topSafe - maxH) / 2))
+        setOverlayOriginIfChanged(editor, to: CGPoint(x: targetX, y: targetY))
     }
 
     @discardableResult
@@ -5520,6 +5857,123 @@ public final class CanvasView: NSView {
 
     @objc private func fitCodeFromMenu(_ sender: Any?) {
         _ = fitSelectedCodeToContent()
+    }
+
+    // MARK: - Text Attachment Import & Drag-and-Drop
+
+    public var canAttachTextFile: Bool {
+        !isReadOnly && !hasGeometryPreview && inlineTextState == nil && !hasActiveCodeEditor &&
+            drag == nil && connectionDrag == nil && creationDrag == nil &&
+            connectionEditor == nil && attachmentPreview == nil && pngExportSheet == nil && shortcutsSheet == nil
+    }
+
+    /// Imports a single local UTF-8 text file as an embedded attachment card in one undoable transaction.
+    /// Compatible with both v1 and v2 canvases without altering document version.
+    @discardableResult
+    public func importAttachment(from url: URL, centeredAt worldCenter: CGPoint? = nil) throws -> String {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard !hasGeometryPreview, inlineTextState == nil, !hasActiveCodeEditor,
+              drag == nil, connectionDrag == nil, creationDrag == nil,
+              connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil, shortcutsSheet == nil else {
+            throw CanvasDocumentError("Finish the active edit or sheet before attaching a file.")
+        }
+        let attachment = try CanvasAttachment.load(from: url)
+        let center = worldCenter ?? CGPoint(x: visibleWorldRect.midX, y: visibleWorldRect.midY)
+        let position = CanvasPosition(
+            x: Double(center.x) - CanvasAttachment.defaultWidth / 2,
+            y: Double(center.y) - CanvasAttachment.defaultHeight / 2
+        )
+        let insertion = try session.insertAttachment(attachment, at: position)
+        displayInsertion(insertion.id)
+        registerUndoInsertion(insertion, restoring: false, actionName: "Attach Text File")
+        return insertion.id
+    }
+
+    public func attachTextFile() {
+        guard canAttachTextFile else {
+            NSSound.beep()
+            return
+        }
+        let chosenURL: URL?
+        if let provider = attachmentImportURLProvider {
+            chosenURL = provider()
+        } else {
+            let panel = NSOpenPanel()
+            panel.title = "Attach Text File"
+            panel.prompt = "Attach"
+            panel.allowsMultipleSelection = false
+            panel.canChooseDirectories = false
+            panel.canChooseFiles = true
+            chosenURL = panel.runModal() == .OK ? panel.url : nil
+        }
+        guard let url = chosenURL else { return }
+        do {
+            _ = try importAttachment(from: url)
+        } catch {
+            statusBanner.configure(kind: .importError(error.localizedDescription))
+            positionStatusBanner()
+            NSSound.beep()
+            needsDisplay = true
+        }
+    }
+
+    private func droppedSingleFileURL(from sender: NSDraggingInfo) -> URL? {
+        guard canAttachTextFile else { return nil }
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
+              urls.count == 1 else {
+            return nil
+        }
+        return urls[0]
+    }
+
+    public override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard droppedSingleFileURL(from: sender) != nil else { return [] }
+        isFileDropTargeted = true
+        needsDisplay = true
+        return .copy
+    }
+
+    public override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        guard droppedSingleFileURL(from: sender) != nil else {
+            if isFileDropTargeted {
+                isFileDropTargeted = false
+                needsDisplay = true
+            }
+            return []
+        }
+        return .copy
+    }
+
+    public override func draggingExited(_ sender: NSDraggingInfo?) {
+        if isFileDropTargeted {
+            isFileDropTargeted = false
+            needsDisplay = true
+        }
+    }
+
+    public override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        isFileDropTargeted = false
+        needsDisplay = true
+        guard let url = droppedSingleFileURL(from: sender) else {
+            NSSound.beep()
+            return false
+        }
+        let viewPt = convert(sender.draggingLocation, from: nil)
+        let worldPt = CGPoint(x: viewPt.x / zoomScale + origin.x, y: viewPt.y / zoomScale + origin.y)
+        do {
+            _ = try importAttachment(from: url, centeredAt: worldPt)
+            window?.makeFirstResponder(self)
+            return true
+        } catch {
+            statusBanner.configure(kind: .importError(error.localizedDescription))
+            positionStatusBanner()
+            NSSound.beep()
+            needsDisplay = true
+            return false
+        }
     }
 
     @objc public func beginShortcutsHelp(_ sender: Any? = nil) {
@@ -5648,8 +6102,11 @@ public final class CanvasView: NSView {
 
     public override func accessibilityChildren() -> [Any]? {
         var children: [Any] = accessibilityCanvasElements()
-        for subview in [thoughtScrollView, styleInspector, alignBar, toolDock, statusBanner] where !subview.isHidden {
+        for subview in [thoughtScrollView, styleInspector, alignBar, toolDock, zoomControl, statusBanner] where !subview.isHidden {
             children.append(subview)
+        }
+        if let codeEditorView, !codeEditorView.isHidden {
+            children.append(codeEditorView)
         }
         return children
     }

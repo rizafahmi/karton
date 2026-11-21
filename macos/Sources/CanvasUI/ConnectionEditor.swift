@@ -51,6 +51,7 @@ final class ConnectionEditor: NSObject, NSTextFieldDelegate {
         self.completion = completion
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 580, height: 444),
                         styleMask: [.titled], backing: .buffered, defer: false)
+        panel.appearance = NSAppearance(named: .aqua)
         super.init()
         let isEditing = existingConnection != nil
         panel.title = isEditing ? "Edit Connection" : "Create Connection"

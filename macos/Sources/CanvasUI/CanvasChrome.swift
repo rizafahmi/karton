@@ -104,16 +104,68 @@ private final class NeoAcidDockButton: NSButton {
     var iconGlyph: CanvasDockIconGlyph? {
         didSet { needsDisplay = true }
     }
+    private var isHovered: Bool = false {
+        didSet {
+            if oldValue != isHovered {
+                needsDisplay = true
+            }
+        }
+    }
 
     override var isFlipped: Bool { true }
+    override var focusRingType: NSFocusRingType {
+        get { .none }
+        set {}
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if isEnabled {
+            addCursorRect(bounds, cursor: .pointingHand)
+        }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        needsDisplay = true
+        return ok
+    }
 
     override func draw(_ dirtyRect: NSRect) {
+        let isFocused = window?.firstResponder === self
         let fill: NSColor
         if !isEnabled {
             fill = CanvasTheme.surface.withAlphaComponent(0.6)
         } else if isActiveTool {
             fill = CanvasTheme.acid
         } else if isHighlighted {
+            fill = CanvasTheme.acid.withAlphaComponent(0.65)
+        } else if isHovered {
             fill = CanvasTheme.surface
         } else {
             fill = CanvasTheme.elevatedSurface
@@ -122,8 +174,16 @@ private final class NeoAcidDockButton: NSButton {
         bounds.fill()
 
         let border = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
-        border.lineWidth = isActiveTool ? 1.5 : 1.0
-        (isActiveTool ? CanvasTheme.borderStrong : CanvasTheme.borderSubtle).setStroke()
+        if isFocused {
+            border.lineWidth = 2.0
+            CanvasTheme.selectionCobalt.setStroke()
+        } else if isActiveTool || (isHovered && isEnabled) || isHighlighted {
+            border.lineWidth = isActiveTool ? 1.5 : 1.25
+            CanvasTheme.borderStrong.setStroke()
+        } else {
+            border.lineWidth = 1.0
+            CanvasTheme.borderSubtle.setStroke()
+        }
         border.stroke()
 
         let strokeColor = isEnabled ? CanvasTheme.highlighterInk : CanvasTheme.mutedText
@@ -581,8 +641,19 @@ extension CanvasAlignment {
 final class NeoAcidAlignButton: NSButton {
     let alignmentKind: CanvasAlignment
     var onEscape: (() -> Void)?
+    private var isHovered: Bool = false {
+        didSet {
+            if oldValue != isHovered {
+                needsDisplay = true
+            }
+        }
+    }
 
     override var isFlipped: Bool { true }
+    override var focusRingType: NSFocusRingType {
+        get { .none }
+        set {}
+    }
 
     init(alignment: CanvasAlignment, frame: NSRect) {
         self.alignmentKind = alignment
@@ -595,6 +666,44 @@ final class NeoAcidAlignButton: NSButton {
 
     required init?(coder: NSCoder) {
         fatalError("NeoAcidAlignButton does not support NSCoder")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if isEnabled {
+            addCursorRect(bounds, cursor: .pointingHand)
+        }
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        needsDisplay = true
+        return ok
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        needsDisplay = true
+        return ok
     }
 
     override func keyDown(with event: NSEvent) {
@@ -610,11 +719,14 @@ final class NeoAcidAlignButton: NSButton {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        let isFocused = window?.firstResponder === self
         let fill: NSColor
         if !isEnabled {
             fill = CanvasTheme.surface.withAlphaComponent(0.6)
         } else if isHighlighted {
             fill = CanvasTheme.acid
+        } else if isHovered {
+            fill = CanvasTheme.surface
         } else {
             fill = CanvasTheme.elevatedSurface
         }
@@ -622,8 +734,16 @@ final class NeoAcidAlignButton: NSButton {
         bounds.fill()
 
         let border = NSBezierPath(rect: bounds.insetBy(dx: 0.5, dy: 0.5))
-        border.lineWidth = isHighlighted ? 1.5 : 1.0
-        (isHighlighted ? CanvasTheme.borderStrong : CanvasTheme.borderSubtle).setStroke()
+        if isFocused {
+            border.lineWidth = 2.0
+            CanvasTheme.selectionCobalt.setStroke()
+        } else if isHighlighted || (isHovered && isEnabled) {
+            border.lineWidth = isHighlighted ? 1.5 : 1.25
+            CanvasTheme.borderStrong.setStroke()
+        } else {
+            border.lineWidth = 1.0
+            CanvasTheme.borderSubtle.setStroke()
+        }
         border.stroke()
 
         let color = isEnabled ? CanvasTheme.highlighterInk : CanvasTheme.mutedText
@@ -795,6 +915,116 @@ public final class CanvasAlignBarView: NSView {
 }
 
 @MainActor
+public final class CanvasZoomControlView: NSView {
+    public var onZoomOut: (() -> Void)?
+    public var onResetZoom: (() -> Void)?
+    public var onZoomIn: (() -> Void)?
+
+    private let zoomOutButton = NeoAcidDockButton(frame: .zero)
+    private let resetButton = NeoAcidDockButton(frame: .zero)
+    private let zoomInButton = NeoAcidDockButton(frame: .zero)
+    private var isCompact: Bool = false
+
+    public override var isFlipped: Bool { true }
+
+    public override init(frame frameRect: NSRect = .zero) {
+        super.init(frame: frameRect)
+        identifier = NSUserInterfaceItemIdentifier("canvas-zoom-control")
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Canvas zoom controls")
+        buildControls()
+    }
+
+    public required init?(coder: NSCoder) {
+        fatalError("CanvasZoomControlView does not support NSCoder")
+    }
+
+    public override func mouseDown(with event: NSEvent) {}
+    public override func mouseDragged(with event: NSEvent) {}
+    public override func mouseUp(with event: NSEvent) {}
+
+    private func buildControls() {
+        zoomOutButton.identifier = NSUserInterfaceItemIdentifier("zoom-control-out")
+        zoomOutButton.title = "−"
+        zoomOutButton.toolTip = "Zoom Out (−)"
+        zoomOutButton.target = self
+        zoomOutButton.action = #selector(handleZoomOut(_:))
+        zoomOutButton.isBordered = false
+        zoomOutButton.setAccessibilityLabel("Zoom out")
+        addSubview(zoomOutButton)
+
+        resetButton.identifier = NSUserInterfaceItemIdentifier("zoom-control-reset")
+        resetButton.title = "100%"
+        resetButton.toolTip = "Actual Size (⌘0) · Press ⇧1 to Zoom to Fit"
+        resetButton.target = self
+        resetButton.action = #selector(handleResetZoom(_:))
+        resetButton.isBordered = false
+        resetButton.setAccessibilityLabel("Zoom level 100 percent, click for actual size")
+        addSubview(resetButton)
+
+        zoomInButton.identifier = NSUserInterfaceItemIdentifier("zoom-control-in")
+        zoomInButton.title = "+"
+        zoomInButton.toolTip = "Zoom In (+)"
+        zoomInButton.target = self
+        zoomInButton.action = #selector(handleZoomIn(_:))
+        zoomInButton.isBordered = false
+        zoomInButton.setAccessibilityLabel("Zoom in")
+        addSubview(zoomInButton)
+
+        layoutControls(compact: false)
+    }
+
+    public func update(zoomScale: CGFloat, compact: Bool) {
+        let percent = max(10, Int((zoomScale * 100).rounded()))
+        let label = "\(percent)%"
+        if resetButton.title != label {
+            resetButton.title = label
+            resetButton.setAccessibilityLabel("Zoom level \(percent) percent, click for actual size")
+            resetButton.needsDisplay = true
+        }
+        resetButton.isActiveTool = (percent != 100)
+        zoomOutButton.isEnabled = zoomScale > 0.105
+        zoomInButton.isEnabled = zoomScale < 3.995
+        if compact != isCompact {
+            layoutControls(compact: compact)
+        }
+    }
+
+    private func layoutControls(compact: Bool) {
+        isCompact = compact
+        let h: CGFloat = 34
+        let y: CGFloat = 6
+        if compact {
+            zoomOutButton.isHidden = true
+            zoomInButton.isHidden = true
+            resetButton.frame = NSRect(x: 6, y: y, width: 48, height: h)
+            setFrameSize(NSSize(width: 60, height: 46))
+        } else {
+            zoomOutButton.isHidden = false
+            zoomInButton.isHidden = false
+            zoomOutButton.frame = NSRect(x: 6, y: y, width: 28, height: h)
+            resetButton.frame = NSRect(x: 38, y: y, width: 52, height: h)
+            zoomInButton.frame = NSRect(x: 94, y: y, width: 28, height: h)
+            setFrameSize(NSSize(width: 128, height: 46))
+        }
+        needsDisplay = true
+    }
+
+    public override func draw(_ dirtyRect: NSRect) {
+        CanvasTheme.surface.setFill()
+        bounds.fill()
+        let border = NSBezierPath(rect: bounds.insetBy(dx: 1, dy: 1))
+        border.lineWidth = 2
+        CanvasTheme.borderStrong.setStroke()
+        border.stroke()
+    }
+
+    @objc private func handleZoomOut(_ sender: Any?) { onZoomOut?() }
+    @objc private func handleResetZoom(_ sender: Any?) { onResetZoom?() }
+    @objc private func handleZoomIn(_ sender: Any?) { onZoomIn?() }
+}
+
+@MainActor
 public final class CanvasStatusBannerView: NSView {
     public enum BannerKind: Equatable {
         case conflict(CanvasConflictReason)
@@ -802,6 +1032,7 @@ public final class CanvasStatusBannerView: NSView {
         case saveError(String, canRetry: Bool)
         case recoveryError(String)
         case v1CodeNotice(String)
+        case importError(String)
     }
 
     public private(set) var activeKind: BannerKind?
@@ -907,9 +1138,17 @@ public final class CanvasStatusBannerView: NSView {
             saveAsButton.identifier = NSUserInterfaceItemIdentifier("banner-save-v2-copy")
             dismissButton.title = "Dismiss"
             dismissButton.identifier = NSUserInterfaceItemIdentifier("banner-dismiss")
+        case .importError(let message):
+            titleLabel.stringValue = "CANNOT ATTACH FILE"
+            detailLabel.stringValue = message
+            saveAsButton.isHidden = true
+            dismissButton.title = "Dismiss"
+            dismissButton.identifier = NSUserInterfaceItemIdentifier("banner-dismiss")
         }
         if case .v1CodeNotice = kind {
             // saveAsButton already titled "Save v2 Copy…"
+        } else if case .importError = kind {
+            // saveAsButton stays hidden
         } else {
             saveAsButton.title = "Save As…"
             saveAsButton.identifier = NSUserInterfaceItemIdentifier("banner-save-as")
@@ -919,7 +1158,7 @@ public final class CanvasStatusBannerView: NSView {
     }
 
     public func layoutControls(maxWidth: CGFloat = 760) {
-        let width = max(420, min(maxWidth, 760))
+        let width = max(360, min(maxWidth, 760))
         let height: CGFloat = 52
         setFrameSize(NSSize(width: width, height: height))
 
@@ -928,9 +1167,9 @@ public final class CanvasStatusBannerView: NSView {
         let buttonH: CGFloat = 28
 
         for button in [dismissButton, reloadButton, saveAsButton, retryButton] where !button.isHidden {
-            let btnWidth = max(72, ceil((button.title as NSString).size(withAttributes: [
+            let btnWidth = max(68, ceil((button.title as NSString).size(withAttributes: [
                 .font: CanvasTypography.font("sans", "s", scale: 11.5 / 14.0)
-            ]).width) + 16)
+            ]).width) + 14)
             rightX -= btnWidth
             button.frame = NSRect(x: rightX, y: buttonY, width: btnWidth, height: buttonH)
             rightX -= 6
@@ -949,7 +1188,7 @@ public final class CanvasStatusBannerView: NSView {
             bg = CanvasTheme.yellow
         case .readOnly:
             bg = CanvasTheme.sky
-        case .saveError, .recoveryError:
+        case .saveError, .recoveryError, .importError:
             bg = CanvasTheme.red
         case .v1CodeNotice:
             bg = CanvasTheme.acid
@@ -996,11 +1235,12 @@ public final class CanvasShortcutsSheet: NSObject {
     public init(completion: @escaping () -> Void) {
         self.completion = completion
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 452),
+            contentRect: NSRect(x: 0, y: 0, width: 740, height: 504),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
+        panel.appearance = NSAppearance(named: .aqua)
         panel.title = "Keyboard & Pointer Shortcuts"
         panel.identifier = NSUserInterfaceItemIdentifier("shortcuts-sheet")
         panel.isReleasedWhenClosed = false
@@ -1010,7 +1250,9 @@ public final class CanvasShortcutsSheet: NSObject {
     }
 
     private func buildContent() {
-        let content = NSView(frame: NSRect(x: 0, y: 0, width: 580, height: 452))
+        let sheetWidth: CGFloat = 740
+        let sheetHeight: CGFloat = 504
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: sheetWidth, height: sheetHeight))
         content.wantsLayer = true
         content.layer?.backgroundColor = CanvasTheme.canvasBackground.cgColor
 
@@ -1018,39 +1260,41 @@ public final class CanvasShortcutsSheet: NSObject {
         header.identifier = NSUserInterfaceItemIdentifier("shortcuts-header")
         header.font = CanvasTypography.font("heading", "m", scale: 18.0 / 16.0)
         header.textColor = CanvasTheme.primaryText
-        header.frame = NSRect(x: 24, y: 406, width: 532, height: 26)
+        header.frame = NSRect(x: 24, y: sheetHeight - 48, width: sheetWidth - 48, height: 26)
         content.addSubview(header)
 
-        let subtitle = NSTextField(labelWithString: "Single-key shortcuts apply when the canvas is focused outside an active text editor.")
+        let subtitle = NSTextField(labelWithString: "Single-key shortcuts apply when the canvas is focused outside an active text or code editor.")
         subtitle.font = CanvasTypography.font("sans", "s", scale: 12.0 / 14.0)
         subtitle.textColor = CanvasTheme.secondaryText
-        subtitle.frame = NSRect(x: 24, y: 382, width: 532, height: 18)
+        subtitle.frame = NSRect(x: 24, y: sheetHeight - 72, width: sheetWidth - 48, height: 18)
         content.addSubview(subtitle)
 
         let sections: [(String, [(String, String)])] = [
             ("CREATE & CONNECT", [
                 ("V / Esc", "Select tool / cancel active mode"),
-                ("R / O / D / I / T", "Insert Rectangle, Ellipse, Diamond, Triangle, Text"),
-                ("L / A / K", "Insert standalone Line, Arrow, or v2 Code Block"),
-                ("N then ↑ → ↓ ←", "Grow adjacent thought along cardinal ray"),
+                ("R O D I T", "Rect, Ellipse, Diamond, Triangle, Text"),
+                ("L / A / K", "Line, Arrow, or v2 Code Block"),
+                ("N → Arrows", "Adjacent thought along cardinal ray"),
                 ("C / Port drag", "Create or edit bound connection"),
+                ("Drop file", "Attach UTF-8 text file card"),
             ]),
             ("SELECT & VIEWPORT", [
                 ("Tab / ⇧Tab", "Traverse objects and connections"),
-                ("Space (tap / drag)", "Toggle focused item / pan canvas"),
-                ("Arrows / ⇧Arrows", "Move selection by 1 / 10 world units"),
-                ("+ / - / ⇧1 / ⌘0", "Zoom in, zoom out, fit, actual size"),
-                ("⌘A / Marquee", "Select all or box-select objects"),
+                ("Space", "Tap to toggle focus · Hold+drag to pan"),
+                ("Arrows", "Move by 1 unit (⇧Arrows: 10 units)"),
+                ("+ − ⇧1 ⌘0", "Zoom in, zoom out, fit, actual size"),
+                ("⌘A / Drag", "Select all or marquee box-select"),
             ]),
             ("EDIT & GEOMETRY", [
-                ("Return / Double-click", "Edit text, connection label, or preview attachment"),
-                ("G then Tab / Arrows", "Edit resize/rotation handles or line endpoints"),
-                ("S", "Open/close floating Style inspector"),
-                ("⌘L / ⇧⌘] / ⇧⌘[", "Lock/unlock or Bring to Front / Send to Back"),
-                ("⌥⌘Arrows / ⌃⌘H·V", "Align edges/centers (⇧⌃⌘H·V distribute)"),
-                ("⌘C / ⌘X / ⌘V / ⌘D", "Copy, Cut, Paste, Duplicate"),
+                ("Return / 2×Click", "Edit text, code, edge, or preview file"),
+                ("G → Tab/Arrows", "Resize, rotate, or move line ends"),
+                ("S", "Toggle floating Style inspector"),
+                ("⌘L · ⇧⌘] / [", "Lock/unlock · Bring Front / Send Back"),
+                ("⌥⌘Arrows", "Align edges (⌃⌘H·V center, ⇧ dist.)"),
+                ("⌘C ⌘X ⌘V ⌘D", "Copy, Cut, Paste, Duplicate"),
             ]),
             ("DOCUMENT & EXPORT", [
+                ("⌘N / ⌘O", "New v2 canvas / Open JSON"),
                 ("⌘S / ⇧⌘S", "Save JSON / Save As"),
                 ("⇧⌘E", "Export transparent Keynote PNG"),
                 ("⌘Z / ⇧⌘Z", "Undo / Redo"),
@@ -1058,13 +1302,14 @@ public final class CanvasShortcutsSheet: NSObject {
             ]),
         ]
 
-        let colWidth: CGFloat = 258
-        let rowHeight: CGFloat = 156
+        let colWidth: CGFloat = 338
+        let rowHeight: CGFloat = 180
+        let keyColWidth: CGFloat = 108
         for (idx, section) in sections.enumerated() {
             let col = idx % 2
             let row = idx / 2
             let cardX: CGFloat = 24 + CGFloat(col) * (colWidth + 16)
-            let cardY: CGFloat = row == 0 ? 216 : 48
+            let cardY: CGFloat = row == 0 ? 240 : 48
             let card = NSView(frame: NSRect(x: cardX, y: cardY, width: colWidth, height: rowHeight))
             card.wantsLayer = true
             card.layer?.backgroundColor = CanvasTheme.elevatedSurface.cgColor
@@ -1074,18 +1319,26 @@ public final class CanvasShortcutsSheet: NSObject {
             let sectionTitle = NSTextField(labelWithString: section.0)
             sectionTitle.font = CanvasTypography.font("mono", "s", scale: 10.5 / 14.0)
             sectionTitle.textColor = CanvasTheme.mutedText
-            sectionTitle.frame = NSRect(x: 10, y: rowHeight - 24, width: colWidth - 20, height: 16)
+            sectionTitle.frame = NSRect(x: 12, y: rowHeight - 25, width: colWidth - 24, height: 16)
             card.addSubview(sectionTitle)
 
-            var itemY = rowHeight - 44
+            var itemY = rowHeight - 48
             for (keys, desc) in section.1 {
-                let line = NSTextField(labelWithString: "\(keys) — \(desc)")
-                line.font = CanvasTypography.font("sans", "s", scale: 11.0 / 14.0)
-                line.textColor = CanvasTheme.primaryText
-                line.lineBreakMode = .byTruncatingTail
-                line.frame = NSRect(x: 10, y: itemY, width: colWidth - 20, height: 16)
-                card.addSubview(line)
-                itemY -= 21
+                let keyLabel = NSTextField(labelWithString: keys)
+                keyLabel.font = CanvasTypography.font("mono", "s", scale: 10.5 / 14.0)
+                keyLabel.textColor = CanvasTheme.primaryText
+                keyLabel.lineBreakMode = .byTruncatingTail
+                keyLabel.frame = NSRect(x: 12, y: itemY, width: keyColWidth, height: 16)
+                card.addSubview(keyLabel)
+
+                let descLabel = NSTextField(labelWithString: desc)
+                descLabel.font = CanvasTypography.font("sans", "s", scale: 11.0 / 14.0)
+                descLabel.textColor = CanvasTheme.secondaryText
+                descLabel.lineBreakMode = .byTruncatingTail
+                descLabel.frame = NSRect(x: 12 + keyColWidth + 6, y: itemY, width: colWidth - 30 - keyColWidth, height: 16)
+                card.addSubview(descLabel)
+
+                itemY -= 22
             }
             content.addSubview(card)
         }
@@ -1093,7 +1346,7 @@ public final class CanvasShortcutsSheet: NSObject {
         let closeButton = NSButton(title: "Done", target: self, action: #selector(closeSheet(_:)))
         closeButton.identifier = NSUserInterfaceItemIdentifier("shortcuts-close")
         closeButton.keyEquivalent = "\r"
-        closeButton.frame = NSRect(x: 476, y: 12, width: 80, height: 28)
+        closeButton.frame = NSRect(x: sheetWidth - 24 - 80, y: 12, width: 80, height: 28)
         content.addSubview(closeButton)
 
         let cancelButton = NSButton(title: "Close", target: self, action: #selector(closeSheet(_:)))

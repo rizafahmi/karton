@@ -229,9 +229,10 @@ journey.
 
 ### Embedded text attachments
 
-- **Status:** implemented as explicitly requested text-based embeds. Native work
-  remains the final milestone; no new dependencies, external assets or live-file
-  linking are introduced.
+- **Status:** implemented on both web and native macOS (native import verified
+  2026-11-21 via `Insert → Attach Text File…`, single-file drag-and-drop, literal
+  BOM/CRLF preview, Copy Source, and `Save Copy…`); no new dependencies, external
+  assets or live-file linking are introduced.
 - **Contract:** [Text attachments](README.md#text-attachments) import one UTF-8
   file into a normal connectable card via one native add/history action.
   [Optional shape metadata](README.md#embedded-attachment-metadata) preserves exact

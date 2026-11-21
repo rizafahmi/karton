@@ -22,13 +22,21 @@ final class AttachmentPreviewSheet: NSObject {
     private let contentView: PreviewTextView
     private let statusLabel: NSTextField
     private let completion: () -> Void
+    var saveDestinationProvider: ((String) -> URL?)?
 
-    init(attachment: CanvasAttachment, pasteboard: NSPasteboard = .general, completion: @escaping () -> Void) {
+    init(
+        attachment: CanvasAttachment,
+        pasteboard: NSPasteboard = .general,
+        saveDestinationProvider: ((String) -> URL?)? = nil,
+        completion: @escaping () -> Void
+    ) {
         self.attachment = attachment
         self.pasteboard = pasteboard
+        self.saveDestinationProvider = saveDestinationProvider
         self.completion = completion
         panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 580, height: 400),
                         styleMask: [.titled], backing: .buffered, defer: false)
+        panel.appearance = NSAppearance(named: .aqua)
         panel.title = attachment.filename
         contentView = PreviewTextView(frame: NSRect(x: 0, y: 0, width: 532, height: 224))
         statusLabel = NSTextField(wrappingLabelWithString:
@@ -71,6 +79,12 @@ final class AttachmentPreviewSheet: NSObject {
         statusLabel.frame = NSRect(x: 24, y: 58, width: 532, height: 28)
         statusLabel.isHidden = statusLabel.stringValue.isEmpty
 
+        let saveCopyButton = NSButton(title: "Save Copy…", target: self, action: #selector(saveCopy))
+        saveCopyButton.identifier = NSUserInterfaceItemIdentifier("attachment-preview-save-copy")
+        saveCopyButton.frame = NSRect(x: 24, y: 18, width: 112, height: 32)
+        saveCopyButton.toolTip = "Save an exact literal UTF-8 copy of this attachment"
+        saveCopyButton.setAccessibilityLabel("Save literal attachment copy")
+
         let copyButton = NSButton(title: "Copy Source", target: self, action: #selector(copySource))
         copyButton.identifier = NSUserInterfaceItemIdentifier("attachment-preview-copy")
         copyButton.frame = NSRect(x: 344, y: 18, width: 112, height: 32)
@@ -84,6 +98,7 @@ final class AttachmentPreviewSheet: NSObject {
         panel.contentView?.addSubview(metaLabel)
         panel.contentView?.addSubview(scroll)
         panel.contentView?.addSubview(statusLabel)
+        panel.contentView?.addSubview(saveCopyButton)
         panel.contentView?.addSubview(copyButton)
         panel.contentView?.addSubview(closeButton)
     }
@@ -91,6 +106,27 @@ final class AttachmentPreviewSheet: NSObject {
     func present(on window: NSWindow) {
         window.beginSheet(panel)
         panel.makeFirstResponder(contentView)
+    }
+
+    @objc private func saveCopy() {
+        let destination: URL?
+        if let provider = saveDestinationProvider {
+            destination = provider(attachment.filename)
+        } else {
+            let savePanel = NSSavePanel()
+            savePanel.nameFieldStringValue = attachment.filename
+            savePanel.canCreateDirectories = true
+            destination = savePanel.runModal() == .OK ? savePanel.url : nil
+        }
+        guard let destination else { return }
+        do {
+            try Data(attachment.content.utf8).write(to: destination, options: .atomic)
+            statusLabel.stringValue = "Saved literal copy to \(destination.lastPathComponent)."
+            statusLabel.isHidden = false
+        } catch {
+            statusLabel.stringValue = "Could not save copy: \(error.localizedDescription)"
+            statusLabel.isHidden = false
+        }
     }
 
     @objc private func copySource() {

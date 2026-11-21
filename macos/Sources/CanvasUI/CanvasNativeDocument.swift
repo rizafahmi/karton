@@ -441,7 +441,7 @@ public final class CanvasNativeDocument: NSDocument {
             acknowledgedRecoveryErrorSeq = recoveryErrorSeq
         case .readOnly(let reason):
             acknowledgedReadOnlyReason = reason
-        case .v1CodeNotice:
+        case .v1CodeNotice, .importError:
             canvasView.statusBanner.configure(kind: nil)
         case nil:
             break

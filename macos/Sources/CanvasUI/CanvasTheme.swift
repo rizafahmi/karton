@@ -287,32 +287,35 @@ public final class WelcomeContentView: NSView {
             ]
         )
 
-        let headline = NSMutableAttributedString(
-            string: "Canvas ",
-            attributes: [
+        let title = "Canvas" as NSString
+        title.draw(
+            in: CGRect(x: 32, y: 78, width: bounds.width - 64, height: 30),
+            withAttributes: [
                 .font: CanvasTypography.font("heading", "m", scale: 22.0 / 16.0),
                 .foregroundColor: CanvasTheme.primaryText,
             ]
         )
-        headline.append(
-            NSAttributedString(
-                string: "Local spatial thinking.",
-                attributes: [
-                    .font: CanvasTypography.font("heading", "m", scale: 22.0 / 16.0),
-                    .foregroundColor: CanvasTheme.mutedText,
-                ]
-            )
-        )
-        headline.draw(at: CGPoint(x: 32, y: 84))
 
+        let subtitle = "Local spatial thinking." as NSString
+        subtitle.draw(
+            in: CGRect(x: 32, y: 110, width: bounds.width - 64, height: 22),
+            withAttributes: [
+                .font: CanvasTypography.font("sans", "l", scale: 15.0 / 24.0),
+                .foregroundColor: CanvasTheme.mutedText,
+            ]
+        )
+
+        let summaryStyle = NSMutableParagraphStyle()
+        summaryStyle.lineSpacing = 2.5
         let summary =
-            "Create a blank version-2 canvas or open an existing JSON document.\nConnected files autosave safely; untitled work is recoverable across launches."
+            "Create a blank version-2 canvas or open an existing JSON document.\nConnected files autosave safely; untitled work recovers across launches."
             as NSString
         summary.draw(
-            in: CGRect(x: 32, y: 122, width: bounds.width - 64, height: 52),
+            in: CGRect(x: 32, y: 138, width: bounds.width - 64, height: 54),
             withAttributes: [
                 .font: CanvasTypography.font("sans", "m", scale: 13.0 / 16.0),
                 .foregroundColor: CanvasTheme.secondaryText,
+                .paragraphStyle: summaryStyle,
             ]
         )
 

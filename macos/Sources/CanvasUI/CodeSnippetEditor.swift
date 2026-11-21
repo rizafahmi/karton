@@ -135,6 +135,8 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
     private var languageOptionIDs: [String] = []
     private let pasteboard: NSPasteboard
     private let draftUndoManager = UndoManager()
+    private var autoDetectTimer: Timer?
+    private var lastAutoDetectedLanguage: CanvasCodeLanguage?
 
     public var validateDraft: ((String) -> String?)?
     public var onCommit: ((DraftResult) -> String?)?
@@ -250,7 +252,7 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
             self.window?.makeFirstResponder(self.languagePopUp)
         }
         sourceTextView.onSourceDidChange = { [weak self] in
-            self?.refreshMetadataAndValidation()
+            self?.refreshMetadataAndValidation(deferAutoDetect: true)
             self?.onDraftDidChange?()
         }
         scrollView.documentView = sourceTextView
@@ -389,15 +391,35 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
         }
     }
 
-    private func refreshMetadataAndValidation() {
+    public func cancelPendingTimers() {
+        autoDetectTimer?.invalidate()
+        autoDetectTimer = nil
+    }
+
+    private func refreshMetadataAndValidation(deferAutoDetect: Bool = false) {
         let source = sourceTextView.string
         let byteCount = source.utf8.count
         let langID = selectedLanguageID
+        autoDetectTimer?.invalidate()
+        autoDetectTimer = nil
+
         if langID == CanvasCodeLanguage.auto.rawValue {
-            if let detected = CanvasCodeHighlighter.shared.detectLanguage(for: source) {
-                metaLabel.stringValue = "Auto: \(detected.displayName) · \(byteCount) B"
+            if deferAutoDetect && !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let prefix = lastAutoDetectedLanguage.map { "Auto: \($0.displayName)" } ?? "Auto"
+                metaLabel.stringValue = "\(prefix) · \(byteCount) B"
+                autoDetectTimer = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: false) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.runDeferredAutoDetection()
+                    }
+                }
             } else {
-                metaLabel.stringValue = "Auto: Plain text · \(byteCount) B"
+                let detected = CanvasCodeHighlighter.shared.detectLanguage(for: source)
+                lastAutoDetectedLanguage = detected
+                if let detected {
+                    metaLabel.stringValue = "Auto: \(detected.displayName) · \(byteCount) B"
+                } else {
+                    metaLabel.stringValue = "Auto: Plain text · \(byteCount) B"
+                }
             }
         } else {
             metaLabel.stringValue = "\(CanvasCodeLanguage.displayLabel(for: langID)) · \(byteCount) B"
@@ -414,12 +436,26 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
         needsDisplay = true
     }
 
+    private func runDeferredAutoDetection() {
+        autoDetectTimer = nil
+        guard selectedLanguageID == CanvasCodeLanguage.auto.rawValue else { return }
+        let source = sourceTextView.string
+        let byteCount = source.utf8.count
+        let detected = CanvasCodeHighlighter.shared.detectLanguage(for: source)
+        lastAutoDetectedLanguage = detected
+        if let detected {
+            metaLabel.stringValue = "Auto: \(detected.displayName) · \(byteCount) B"
+        } else {
+            metaLabel.stringValue = "Auto: Plain text · \(byteCount) B"
+        }
+    }
+
     public func undoManager(for view: NSTextView) -> UndoManager? {
         draftUndoManager
     }
 
     public func textDidChange(_ notification: Notification) {
-        refreshMetadataAndValidation()
+        refreshMetadataAndValidation(deferAutoDetect: true)
         onDraftDidChange?()
     }
 
@@ -446,32 +482,46 @@ public final class CodeSnippetEditorView: NSView, NSTextViewDelegate {
     private func layoutSubviews() {
         let pad: CGFloat = 14
         let width = bounds.width
-        titleLabel.frame = NSRect(x: pad, y: 12, width: 140, height: 20)
-        languageLabel.frame = NSRect(x: 158, y: 14, width: 62, height: 18)
-        languagePopUp.frame = NSRect(x: 222, y: 9, width: 138, height: 24)
-        metaLabel.frame = NSRect(x: 366, y: 14, width: max(60, width - 366 - pad), height: 18)
+        let isNarrow = width < 480
+
+        titleLabel.frame = NSRect(x: pad, y: 12, width: isNarrow ? 120 : 140, height: 20)
+        languageLabel.isHidden = isNarrow
+        let popUpWidth: CGFloat = isNarrow ? 118 : 138
+        let popUpX: CGFloat = isNarrow ? (pad + 124) : 222
+        if !isNarrow {
+            languageLabel.frame = NSRect(x: 158, y: 14, width: 62, height: 18)
+        }
+        languagePopUp.frame = NSRect(x: popUpX, y: 9, width: popUpWidth, height: 24)
+        let metaX = popUpX + popUpWidth + 8
+        let metaWidth = max(48, width - metaX - pad)
+        metaLabel.lineBreakMode = .byTruncatingHead
+        metaLabel.frame = NSRect(x: metaX, y: 14, width: metaWidth, height: 18)
 
         let bottomBarHeight: CGFloat = 42
         let errorHeight: CGFloat = errorLabel.isHidden ? 0 : 28
         let editorTop: CGFloat = 50
         let editorHeight = max(120, bounds.height - editorTop - bottomBarHeight - errorHeight - 8)
-        scrollView.frame = NSRect(x: pad, y: editorTop, width: width - pad * 2, height: editorHeight)
+        scrollView.frame = NSRect(x: pad, y: editorTop, width: max(120, width - pad * 2), height: editorHeight)
         sourceTextView.minSize = NSSize(width: max(200, scrollView.contentSize.width), height: scrollView.contentSize.height)
 
         if !errorLabel.isHidden {
             errorLabel.frame = NSRect(
                 x: pad,
                 y: editorTop + editorHeight + 4,
-                width: width - pad * 2,
+                width: max(120, width - pad * 2),
                 height: errorHeight - 2
             )
         }
 
         let barY = bounds.height - bottomBarHeight + 6
-        copyButton.frame = NSRect(x: pad, y: barY, width: 92, height: 28)
-        fitCheckbox.frame = NSRect(x: pad + 104, y: barY + 5, width: 120, height: 18)
-        finishButton.frame = NSRect(x: width - pad - 76, y: barY, width: 76, height: 28)
-        cancelButton.frame = NSRect(x: width - pad - 76 - 8 - 76, y: barY, width: 76, height: 28)
+        let btnW: CGFloat = isNarrow ? 68 : 76
+        let copyW: CGFloat = isNarrow ? 82 : 92
+        finishButton.frame = NSRect(x: width - pad - btnW, y: barY, width: btnW, height: 28)
+        cancelButton.frame = NSRect(x: finishButton.frame.minX - 8 - btnW, y: barY, width: btnW, height: 28)
+        copyButton.frame = NSRect(x: pad, y: barY, width: copyW, height: 28)
+        let fitX = copyButton.frame.maxX + 10
+        let fitW = max(72, cancelButton.frame.minX - fitX - 8)
+        fitCheckbox.frame = NSRect(x: fitX, y: barY + 5, width: min(124, fitW), height: 18)
     }
 
     public override func setFrameSize(_ newSize: NSSize) {

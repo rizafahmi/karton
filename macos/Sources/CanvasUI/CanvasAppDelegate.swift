@@ -4,12 +4,17 @@ import UniformTypeIdentifiers
 
 @MainActor
 public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
+    public static let minimumDocumentContentSize = NSSize(width: 640, height: 440)
+    public static let defaultDocumentContentSize = NSSize(width: 1000, height: 700)
+    private static let preferredWindowSizeKey = "local.elixircanvas.native.preferredDocumentContentSize"
+
     private var windows: [NSWindowController] = []
     private var documentsByWindow: [ObjectIdentifier: CanvasNativeDocument] = [:]
     private weak var currentWindow: NSWindow?
     private var welcome: NSWindowController?
     private var untitledCount = 0
     private let openRecentMenu = NSMenu(title: "Open Recent")
+    public var persistsWindowFrameSize: Bool = true
 
     private var sigtermSource: DispatchSourceSignal?
     public var recoveryStore: CanvasRecoveryStore
@@ -75,6 +80,20 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     public func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
         false
     }
+
+    public func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag {
+            if let existing = windows.last?.window {
+                existing.deminiaturize(nil)
+                existing.makeKeyAndOrderFront(nil)
+                currentWindow = existing
+            } else {
+                showWelcome()
+            }
+        }
+        return true
+    }
+
     public func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls { openDocument(url) }
     }
@@ -89,9 +108,18 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         }
     }
 
+    public var isWelcomeWindowOpen: Bool {
+        welcome?.window != nil
+    }
+
     public func showWelcome() {
+        if let existing = welcome?.window {
+            existing.deminiaturize(nil)
+            existing.makeKeyAndOrderFront(nil)
+            return
+        }
         let recents = Array(recentDocumentsStore.recentURLs.prefix(3))
-        let windowHeight: CGFloat = recents.isEmpty ? 264 : 308
+        let windowHeight: CGFloat = recents.isEmpty ? 276 : 322
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: windowHeight),
             styleMask: [.titled, .closable, .miniaturizable],
@@ -99,6 +127,9 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             defer: false
         )
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.delegate = self
         window.title = "Canvas"
         window.backgroundColor = CanvasTheme.canvasBackground
         window.center()
@@ -107,17 +138,18 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             let recentLabel = NSTextField(labelWithString: "RECENT:")
             recentLabel.font = CanvasTypography.font("mono", "s", scale: 10.5 / 14.0)
             recentLabel.textColor = CanvasTheme.mutedText
-            recentLabel.frame = NSRect(x: 32, y: 178, width: 64, height: 18)
+            recentLabel.frame = NSRect(x: 32, y: 199, width: 64, height: 18)
             content.addSubview(recentLabel)
             var rx: CGFloat = 98
             for (idx, url) in recents.enumerated() {
                 let btn = NSButton(title: url.lastPathComponent, target: self, action: #selector(openRecentFromWelcome(_:)))
                 btn.identifier = NSUserInterfaceItemIdentifier("welcome-recent-\(idx)")
                 btn.toolTip = url.path
+                btn.setAccessibilityLabel("Open recent canvas \(url.lastPathComponent)")
                 let w = min(130, max(76, ceil((url.lastPathComponent as NSString).size(withAttributes: [
                     .font: NSFont.systemFont(ofSize: 12)
-                ]).width) + 20))
-                btn.frame = NSRect(x: rx, y: 173, width: w, height: 24)
+                ]).width) + 22))
+                btn.frame = NSRect(x: rx, y: 194, width: w, height: 24)
                 content.addSubview(btn)
                 rx += w + 8
                 if rx > 460 { break }
@@ -191,11 +223,38 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         }
     }
 
+    private func preferredDocumentContentSize() -> NSSize {
+        let minSize = Self.minimumDocumentContentSize
+        var size = Self.defaultDocumentContentSize
+        if persistsWindowFrameSize,
+           let saved = UserDefaults.standard.array(forKey: Self.preferredWindowSizeKey) as? [Double],
+           saved.count == 2,
+           saved[0].isFinite, saved[1].isFinite {
+            size = NSSize(width: max(minSize.width, saved[0]), height: max(minSize.height, saved[1]))
+        }
+        if let screenFrame = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
+            size.width = min(size.width, max(minSize.width, screenFrame.width - 40))
+            size.height = min(size.height, max(minSize.height, screenFrame.height - 60))
+        }
+        return size
+    }
+
+    private func positionNewDocumentWindow(_ window: NSWindow) {
+        if let anchor = currentWindow ?? windows.last?.window {
+            let topLeft = NSPoint(x: anchor.frame.minX, y: anchor.frame.maxY)
+            let cascaded = window.cascadeTopLeft(from: topLeft)
+            window.setFrameTopLeftPoint(cascaded)
+        } else {
+            window.center()
+        }
+    }
+
     @discardableResult
     public func showNativeDocument(_ nativeDocument: CanvasNativeDocument) -> CanvasView {
         let canvas = nativeDocument.canvasView
         canvas.isToolDockVisible = true
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
+        let initialSize = preferredDocumentContentSize()
+        let scroll = NSScrollView(frame: NSRect(origin: .zero, size: initialSize))
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
@@ -209,11 +268,14 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             defer: false
         )
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentMinSize = Self.minimumDocumentContentSize
         window.delegate = self
         window.acceptsMouseMovedEvents = true
         window.backgroundColor = CanvasTheme.canvasBackground
         window.contentView = scroll
-        window.center()
+        positionNewDocumentWindow(window)
         let controller = NSWindowController(window: window)
         nativeDocument.addWindowController(controller)
         windows.append(controller)
@@ -339,7 +401,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     public func showSession(_ session: CanvasSession, name: String) -> CanvasView {
         let canvas = CanvasView(session: session)
         canvas.isToolDockVisible = true
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 1000, height: 700))
+        let scroll = NSScrollView(frame: NSRect(origin: .zero, size: Self.defaultDocumentContentSize))
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.autohidesScrollers = true
@@ -353,6 +415,9 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             defer: false
         )
         window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentMinSize = Self.minimumDocumentContentSize
         window.delegate = self
         window.acceptsMouseMovedEvents = true
         window.title = "\(name) — Session changes not saved"
@@ -384,6 +449,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
 
     @objc public func insertCodeBlock(_ sender: Any?) {
         activeCanvas()?.beginNewCodeBlock()
+    }
+
+    @objc public func attachTextFile(_ sender: Any?) {
+        activeCanvas()?.attachTextFile()
     }
 
     @objc public func copyCode(_ sender: Any?) {
@@ -699,6 +768,7 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
                  #selector(previewAttachment(_:)), #selector(editConnection(_:)),
                  #selector(insertConnection(_:)), #selector(insertAdjacentThought(_:)),
                  #selector(insertShape(_:)), #selector(insertLine(_:)), #selector(insertCodeBlock(_:)),
+                 #selector(attachTextFile(_:)),
                  #selector(duplicateSelection(_:)), #selector(deleteSelection(_:)),
                  #selector(bringToFront(_:)), #selector(sendToBack(_:)),
                  #selector(alignSelection(_:)),
@@ -771,6 +841,9 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         if menuItem.action == #selector(insertCodeBlock(_:)) {
             return !canvas.isReadOnly && !canvas.hasGeometryPreview && !sheetOpen
         }
+        if menuItem.action == #selector(attachTextFile(_:)) {
+            return canvas.canAttachTextFile && !sheetOpen
+        }
         if menuItem.action == #selector(previewAttachment(_:)) {
             return canvas.canPreviewAttachment && !sheetOpen
         }
@@ -807,9 +880,21 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         return true
     }
 
+    public func windowDidEndLiveResize(_ notification: Notification) {
+        guard persistsWindowFrameSize,
+              let window = notification.object as? NSWindow,
+              documentsByWindow[ObjectIdentifier(window)] != nil,
+              let contentSize = window.contentView?.frame.size,
+              contentSize.width >= Self.minimumDocumentContentSize.width,
+              contentSize.height >= Self.minimumDocumentContentSize.height else { return }
+        UserDefaults.standard.set([Double(contentSize.width), Double(contentSize.height)], forKey: Self.preferredWindowSizeKey)
+    }
+
     public func windowDidBecomeKey(_ notification: Notification) {
         if let window = notification.object as? NSWindow {
-            currentWindow = window
+            if documentsByWindow[ObjectIdentifier(window)] != nil || windows.contains(where: { $0.window === window }) {
+                currentWindow = window
+            }
             documentsByWindow[ObjectIdentifier(window)]?.checkExternalSourceStatus()
         }
     }
@@ -841,11 +926,39 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         return .terminateNow
     }
 
-    public func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
-        if let doc = documentsByWindow.removeValue(forKey: ObjectIdentifier(window)) {
+    public func applicationWillTerminate(_ notification: Notification) {
+        for doc in documentsByWindow.values {
             doc.cancelScheduledTimers()
         }
+    }
+
+    /// Detaches the `NSWindowController` <-> `NSDocument` unsafe-unretained back-reference
+    /// before releasing `CanvasNativeDocument`, preventing `NSWindow._finishClosingWindow` /
+    /// `_persistentStateTerminationGeneration` from retaining a dangling document pointer.
+    private func detachWindowController(for window: NSWindow, document: CanvasNativeDocument?) {
+        if let document {
+            document.cancelScheduledTimers()
+            for controller in Array(document.windowControllers) {
+                controller.document = nil
+                document.removeWindowController(controller)
+            }
+        }
+        if let wc = window.windowController {
+            wc.document = nil
+        }
+        window.windowController = nil
+        window.delegate = nil
+    }
+
+    public func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        if window === welcome?.window {
+            window.delegate = nil
+            welcome = nil
+            return
+        }
+        let doc = documentsByWindow.removeValue(forKey: ObjectIdentifier(window))
+        detachWindowController(for: window, document: doc)
         windows.removeAll { $0.window === window }
         if currentWindow === window {
             currentWindow = windows.last?.window
@@ -892,18 +1005,34 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     }
 
     public func closeAllWindows() {
-        for doc in documentsByWindow.values {
-            doc.cancelScheduledTimers()
-        }
+        let controllers = windows
+        let docsSnapshot = documentsByWindow
         documentsByWindow.removeAll()
-        for controller in windows {
-            controller.window?.orderOut(nil)
-            controller.close()
-        }
         windows.removeAll()
         currentWindow = nil
-        welcome?.window?.orderOut(nil)
-        welcome?.close()
+        for controller in controllers {
+            if let window = controller.window {
+                let doc = docsSnapshot[ObjectIdentifier(window)]
+                detachWindowController(for: window, document: doc)
+                window.orderOut(nil)
+                window.close()
+            } else {
+                controller.document = nil
+                controller.close()
+            }
+        }
+        for doc in docsSnapshot.values {
+            doc.cancelScheduledTimers()
+            for wc in Array(doc.windowControllers) {
+                wc.document = nil
+                doc.removeWindowController(wc)
+            }
+        }
+        if let welcomeWin = welcome?.window {
+            welcomeWin.delegate = nil
+            welcomeWin.orderOut(nil)
+            welcomeWin.close()
+        }
         welcome = nil
     }
 
@@ -916,11 +1045,24 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         activeCanvas()?.beginShortcutsHelp(sender)
     }
 
+    public static func aboutVersionTitle(for bundle: Bundle = .main) -> String {
+        let info = bundle.infoDictionary
+        let shortVersion = (info?["CFBundleShortVersionString"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let buildVersion = (info?["CFBundleVersion"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let version = (shortVersion?.isEmpty == false) ? shortVersion! : "1.0"
+        if let buildVersion, !buildVersion.isEmpty {
+            return "Canvas \(version) (\(buildVersion))"
+        }
+        return "Canvas \(version)"
+    }
+
     @objc public func showAboutPanel(_ sender: Any?) {
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Canvas 1.0"
-        alert.informativeText = "Local-first spatial thinking canvas for macOS.\nSupports portable v1 and v2 JSON canvases, coalesced safe autosave with crash recovery, and transparent Keynote PNG export."
+        alert.messageText = Self.aboutVersionTitle()
+        alert.informativeText = "Local-first spatial thinking canvas for macOS.\nSupports portable v1 and v2 JSON documents, syntax-highlighted code blocks, embedded UTF-8 text attachments, safe coalesced autosave with crash recovery, and transparent Keynote PNG export."
         if let icon = NSApplication.shared.applicationIconImage {
             alert.icon = icon
         }
@@ -1135,6 +1277,9 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         let codeBlock = NSMenuItem(title: "Code Block…", action: #selector(insertCodeBlock(_:)), keyEquivalent: "")
         codeBlock.target = self
         insertMenu.addItem(codeBlock)
+        let attachFile = NSMenuItem(title: "Attach Text File…", action: #selector(attachTextFile(_:)), keyEquivalent: "")
+        attachFile.target = self
+        insertMenu.addItem(attachFile)
         insertMenu.addItem(.separator())
         let connection = NSMenuItem(title: "Connection…", action: #selector(insertConnection(_:)), keyEquivalent: "")
         connection.target = self

@@ -375,6 +375,8 @@ func runChecks() throws {
     try checkReleaseSlices(repository: repository)
     try MainActor.assumeIsolated {
         try runCodeSnippetChecks()
+        try runAttachmentImportChecks()
+        try runPolishChecks(repository: repository)
     }
 }
 
@@ -952,6 +954,16 @@ do {
         CanvasTypography.customFontDirectoryURL = repoFonts
         try MainActor.assumeIsolated {
             try runChildCrashRestorer(recoveryDirPath: args[1], outputPath: args[2])
+        }
+    } else if args.count == 2 && args[0] == "--render-showcase" {
+        CanvasTypography.customFontDirectoryURL = repoFonts
+        let repository = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        try MainActor.assumeIsolated {
+            try renderShowcaseArtifacts(
+                repository: repository,
+                outputDir: URL(fileURLWithPath: args[1], isDirectory: true)
+            )
         }
     } else if args.count == 2 && args[0] == "--verify-standalone-workflow" {
         // Do NOT set customFontDirectoryURL: must resolve fonts strictly from inside the .app bundle!

@@ -19,7 +19,9 @@ resize/rotation and line endpoint editing, Cut/Copy/Paste (**⌘X** / **⌘C** /
 duplication (**⌘D**), deletion, front/back stacking, item alignment & distribution, lock/unlock,
 object/connection/canvas style editing, caption editing
 with automatic box growth (using bundled Neo-Acid and Amatic SC typography with
-CoreText system glyph fallback), read-only attachment source preview/copy, canvas
+CoreText system glyph fallback), native UTF-8 text attachment import (**Insert →
+Attach Text File…** or single-file drag-and-drop) with read-only literal source
+preview, Copy Source, and **Save Copy…**, canvas
 zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent PNG export (**File → Export PNG…**,
 **⇧⌘E**), Undo/Redo, and full v2 code-snippet authoring (`K`, floating dock Code
 tool, **Insert → Code Block…**, dedicated multiline editor with `Tab`/`Shift-Tab`
@@ -186,9 +188,12 @@ top anchor fixed on rotated shapes, measured with the bundled Neo-Acid and Amati
 faces plus CoreText system cascade fallback); cancelling restores the original text and height.
 Double-click or press **Return** on a shape with an embedded text attachment (or
 choose **Edit → Preview Attachment…**), including locked cards, to open a read-only
-literal UTF-8 source preview sheet with **Copy Source**; previewing and copying
-never modify the document or undo history. Code and standalone-line text editing
-are not implemented.
+literal UTF-8 source preview sheet with **Copy Source** and **Save Copy…**; previewing,
+copying, and saving a copy never modify the document or undo history. Double-click or
+press **Return** on an unlocked v2 code block (or press **K** / **Insert → Code Block…**)
+to open the dedicated multiline code editor (`Tab`/`Shift-Tab` indentation, manual or
+conservative Auto language detection, literal **Copy Code**, and ephemeral **Fit to
+content**). Standalone lines and arrows remain label-free by design.
 
 Use **File → Export PNG…** (**⇧⌘E**) to export the canvas as a transparent sRGB
 PNG suitable for Keynote. Choose **Longest side (proportional)** (default `2048` px)
@@ -225,8 +230,8 @@ content limits and supported rendering semantics before opening; unsupported
 documents are refused with a message. Some valid web canvases may be refused,
 including self-loops without two distinct named side handles and geometry outside
 the native app's bounds. The canvas uses the light-first Neo-Acid color palette and
-bundled Neo-Acid/Amatic SC fonts while connector routes remain native approximations;
-code is plain text.
+bundled Neo-Acid/Amatic SC fonts with `HighlighterSwift` syntax highlighting for v2
+code blocks while connector routes remain native approximations.
 Run the standalone native contract and round-trip checks from the repository root:
 
 ```sh
@@ -273,11 +278,10 @@ warnings on the development machine even when the build succeeds.
 - The Phoenix web app stays at the repository root with its existing Mix commands.
 - The native app must run without Phoenix, BEAM, a webview, or the web asset bundle.
 - The editors share JSON contracts and fixtures, not a runtime. Preserve the
-  [version-1 contract](../README.md#document-format-version-1) and the
-  [version-2 contract](../README.md#document-format-version-2), using both
-  [`shared/fixtures/`](../shared/fixtures/) versions. The native app renders code
-  as plain text; the full native [code contract](../shared/CODE_SNIPPETS.md)
-  remains pending.
+  [version-1 contract](../README.md#document-format-version-1), the
+  [version-2 contract](../README.md#document-format-version-2), and the shared
+  [code-snippet contract](../shared/CODE_SNIPPETS.md), using both
+  [`shared/fixtures/`](../shared/fixtures/) versions.
 - Shared fixtures are checked-in compatibility inputs. Copy them to temporary
   locations before editing or saving; do not maintain native-only copies of the
   same contract fixtures.
@@ -293,9 +297,9 @@ The intended native editor is for personal use. It will support creating and edi
 canvases, not just opening boards authored in the web app: New → shapes/text →
 connect/rearrange → autosave JSON → export for Keynote. It must be useful without
 launching the web app. Initial content includes shapes/text, standalone lines/
-arrows, connections and v2 code. Existing attachments can be preserved, previewed,
-exported, duplicated and removed; importing new attachments is outside the initial
-scope. This is not full web parity.
+arrows, connections, v2 syntax-highlighted code blocks, and embedded UTF-8 text
+attachments (**Insert → Attach Text File…**, single-file drag-and-drop, read-only
+literal preview, Copy Source, and **Save Copy…**). This is not full web parity.
 
 Local build/launch comes first. Public distribution, Developer ID signing,
 notarization, updates, and an app store are not first-release requirements.

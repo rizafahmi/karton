@@ -42,3 +42,6 @@ npm-debug.log
 # Native Swift build products and bundled app.
 /macos/.build/
 /macos/.swiftpm/
+
+# macOS Finder metadata
+.DS_Store

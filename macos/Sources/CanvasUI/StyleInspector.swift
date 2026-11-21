@@ -35,7 +35,7 @@ public final class StyleInspectorView: NSView {
 
     private struct Option {
         let label: String
-        let value: CanvasStyleValue
+        let value: CanvasStyleValue?
     }
 
     private let titleLabel: NSTextField
@@ -131,8 +131,8 @@ public final class StyleInspectorView: NSView {
         CanvasTheme.borderStrong.setStroke()
         border.stroke()
         let headerDivider = NSBezierPath()
-        headerDivider.move(to: CGPoint(x: 0, y: 40))
-        headerDivider.line(to: CGPoint(x: bounds.width, y: 40))
+        headerDivider.move(to: CGPoint(x: 0, y: 36))
+        headerDivider.line(to: CGPoint(x: bounds.width, y: 36))
         headerDivider.lineWidth = 1
         CanvasTheme.borderSubtle.setStroke()
         headerDivider.stroke()
@@ -190,15 +190,16 @@ public final class StyleInspectorView: NSView {
     func update(
         session: CanvasSession,
         selectedNodeID: String?,
-        selectedNodeCount: Int = 1,
+        selectedNodeIDs: [String] = [],
         selectedConnectionID: String?,
         hasGeometryPreview: Bool,
         canAlign: Bool = false,
         canDistribute: Bool = false
     ) {
+        let selectedNodeCount = selectedNodeIDs.isEmpty ? (selectedNodeID == nil ? 0 : 1) : selectedNodeIDs.count
         let isMultiSelection = selectedNodeID != nil && selectedNodeCount >= 2
         let targetKey = isMultiSelection
-            ? "multi:\(selectedNodeCount)"
+            ? "multi:\(selectedNodeIDs.joined(separator: ","))"
             : "\(selectedNodeID ?? "")|\(selectedConnectionID ?? "")"
         let targetChanged = targetKey != currentTargetKey
         currentTargetKey = targetKey
@@ -210,7 +211,7 @@ public final class StyleInspectorView: NSView {
         let isConnection = !isMultiSelection && selectedNodeID == nil && selectedConnectionID != nil
         let isDocument = !isMultiSelection && selectedNodeID == nil && selectedConnectionID == nil
         let schema: [CanvasStyleProperty]
-        let effective: [CanvasStyleProperty: CanvasStyleValue]
+        let effective: [CanvasStyleProperty: CanvasStyleValue?]
         let title: String
         var blocked = ""
 
@@ -226,14 +227,15 @@ public final class StyleInspectorView: NSView {
 
         if isMultiSelection {
             title = "\(selectedNodeCount) Objects"
-            schema = []
-            effective = [:]
+            schema = session.availableStyleProperties(forNodes: selectedNodeIDs)
+            effective = session.effectiveMultiNodeStyle(of: selectedNodeIDs)
+            let hasUnlocked = selectedNodeIDs.contains { !session.isLocked($0) }
             if hasGeometryPreview {
-                blocked = "Finish the active geometry preview to align objects."
+                blocked = "Finish the active geometry preview to edit objects."
             } else if session.isReadOnly {
                 blocked = "This canvas is read-only; use Save As to edit."
-            } else if !canAlign {
-                blocked = "Unlock at least one selected object to align."
+            } else if !hasUnlocked {
+                blocked = "Unlock at least one selected object to align or style."
             }
         } else if let nodeID = selectedNodeID,
                   let raw = (session.root["nodes"] as? [[String: Any]])?.first(where: { $0["id"] as? String == nodeID }) {
@@ -255,25 +257,31 @@ public final class StyleInspectorView: NSView {
                 title = "Object"
             }
             schema = session.availableStyleProperties(forNode: nodeID)
-            effective = session.effectiveNodeStyle(of: nodeID) ?? [:]
+            effective = (session.effectiveNodeStyle(of: nodeID) ?? [:]).mapValues { Optional($0) }
             if hasGeometryPreview {
                 blocked = "Finish the active geometry preview to change styles."
+            } else if session.isReadOnly {
+                blocked = "This canvas is read-only; use Save As to edit."
             } else if session.isLocked(nodeID) {
                 blocked = "Unlock the selected object before changing styles."
             }
         } else if let edgeID = selectedConnectionID, session.hasConnection(edgeID) {
             title = "Connection"
             schema = session.availableStyleProperties(forConnection: edgeID)
-            effective = session.effectiveConnectionStyle(of: edgeID) ?? [:]
+            effective = (session.effectiveConnectionStyle(of: edgeID) ?? [:]).mapValues { Optional($0) }
             if hasGeometryPreview {
                 blocked = "Finish the active geometry preview to change styles."
+            } else if session.isReadOnly {
+                blocked = "This canvas is read-only; use Save As to edit."
             }
         } else {
             title = "Canvas"
             schema = session.availableDocumentStyleProperties()
-            effective = session.effectiveDocumentStyle()
+            effective = session.effectiveDocumentStyle().mapValues { Optional($0) }
             if hasGeometryPreview {
                 blocked = "Finish the active geometry preview to change styles."
+            } else if session.isReadOnly {
+                blocked = "This canvas is read-only; use Save As to edit."
             }
         }
 
@@ -339,19 +347,24 @@ public final class StyleInspectorView: NSView {
     }
 
     private func syncControlValues(
-        effective: [CanvasStyleProperty: CanvasStyleValue],
+        effective: [CanvasStyleProperty: CanvasStyleValue?],
         enabled: Bool,
         isConnection: Bool
     ) {
         for property in currentSchema {
             guard let popup = controlsByProperty[property] else { continue }
-            let value = effective[property]
-            let options = Self.options(
+            let entry = effective[property]
+            let isMixed = (entry != nil && entry! == nil)
+            let value = entry ?? nil
+            var options = Self.options(
                 for: property,
                 isConnection: isConnection,
                 includeOmittedStroke: value == .omitted,
                 currentValue: value
             )
+            if isMixed {
+                options.insert(Option(label: "Mixed", value: nil), at: 0)
+            }
             let existingTitles = popup.itemTitles
             let desiredTitles = options.map(\.label)
             if existingTitles != desiredTitles {
@@ -359,7 +372,9 @@ public final class StyleInspectorView: NSView {
                 popup.addItems(withTitles: desiredTitles)
             }
             optionsByProperty[property] = options
-            if let value, let index = options.firstIndex(where: { $0.value == value }) {
+            if isMixed {
+                popup.selectItem(at: 0)
+            } else if let value, let index = options.firstIndex(where: { $0.value == value }) {
                 popup.selectItem(at: index)
             }
             popup.isEnabled = enabled
@@ -370,20 +385,20 @@ public final class StyleInspectorView: NSView {
     private func layoutContents() {
         let width: CGFloat = 268
         let padding: CGFloat = 12
-        titleLabel.frame = NSRect(x: padding, y: 11, width: 170, height: 18)
-        closeButton.frame = NSRect(x: width - padding - 60, y: 7, width: 60, height: 26)
+        titleLabel.frame = NSRect(x: padding, y: 9, width: 170, height: 18)
+        closeButton.frame = NSRect(x: width - padding - 60, y: 5, width: 60, height: 26)
 
-        var y: CGFloat = 48
+        var y: CGFloat = 44
         if !messageLabel.isHidden {
             let size = messageLabel.sizeThatFits(NSSize(width: width - padding * 2, height: 200))
             messageLabel.frame = NSRect(x: padding, y: y, width: width - padding * 2, height: ceil(size.height))
-            y += ceil(size.height) + 8
+            y += ceil(size.height) + 6
         }
         if showAlignSection {
             alignSectionLabel.frame = NSRect(x: padding, y: y + 2, width: width - padding * 2, height: 14)
-            y += 20
+            y += 18
             let buttonW: CGFloat = 36
-            let buttonH: CGFloat = 30
+            let buttonH: CGFloat = 28
             var x = padding
             let firstRow: [CanvasAlignment] = [.left, .centerHorizontal, .right, .top, .centerVertical, .bottom]
             for (idx, alignment) in firstRow.enumerated() {
@@ -391,30 +406,31 @@ public final class StyleInspectorView: NSView {
                 alignButtons[alignment]?.frame = NSRect(x: x, y: y, width: buttonW, height: buttonH)
                 x += buttonW + 4
             }
-            y += buttonH + 6
+            y += buttonH + 5
             let distRow: [CanvasAlignment] = [.distributeHorizontally, .distributeVertically]
             var dx = padding
             for alignment in distRow {
                 alignButtons[alignment]?.frame = NSRect(x: dx, y: y, width: buttonW, height: buttonH)
                 dx += buttonW + 4
             }
-            distributeHintLabel.frame = NSRect(x: dx + 4, y: y + 7, width: width - padding - dx - 4, height: 16)
+            distributeHintLabel.frame = NSRect(x: dx + 4, y: y + 6, width: width - padding - dx - 4, height: 16)
             y += buttonH + 8
         }
+        let rowStep: CGFloat = (currentSchema.count >= 7 || showAlignSection) ? 28 : 30
         var index = 0
         while index < rowViews.count {
             let view = rowViews[index]
             if let field = view as? NSTextField,
                field.stringValue == "APPEARANCE" || field.stringValue == "TEXT" {
-                field.frame = NSRect(x: padding, y: y + 2, width: width - padding * 2, height: 14)
-                y += 20
+                field.frame = NSRect(x: padding, y: y + 1, width: width - padding * 2, height: 14)
+                y += 18
                 index += 1
             } else if index + 1 < rowViews.count {
                 let label = rowViews[index]
                 let control = rowViews[index + 1]
-                label.frame = NSRect(x: padding, y: y + 4, width: 108, height: 18)
-                control.frame = NSRect(x: padding + 112, y: y, width: width - padding * 2 - 112, height: 26)
-                y += 32
+                label.frame = NSRect(x: padding, y: y + 3, width: 108, height: 18)
+                control.frame = NSRect(x: padding + 112, y: y, width: width - padding * 2 - 112, height: 24)
+                y += rowStep
                 index += 2
             } else {
                 index += 1
@@ -423,9 +439,9 @@ public final class StyleInspectorView: NSView {
         if !errorLabel.isHidden {
             let size = errorLabel.sizeThatFits(NSSize(width: width - padding * 2, height: 200))
             errorLabel.frame = NSRect(x: padding, y: y + 2, width: width - padding * 2, height: ceil(size.height))
-            y += ceil(size.height) + 8
+            y += ceil(size.height) + 6
         }
-        setFrameSize(NSSize(width: width, height: max(84, y + 8)))
+        setFrameSize(NSSize(width: width, height: max(84, y + 6)))
     }
 
     @objc private func alignButtonClicked(_ sender: NSButton) {
@@ -441,8 +457,7 @@ public final class StyleInspectorView: NSView {
               let options = optionsByProperty[property] else { return }
         let selectedIndex = sender.indexOfSelectedItem
         guard (0..<options.count).contains(selectedIndex) else { return }
-        let choice = options[selectedIndex].value
-        guard choice != .omitted else { return }
+        guard let choice = options[selectedIndex].value, choice != .omitted else { return }
         do {
             clearError()
             try onSelectStyle?(property, choice)
