@@ -1051,6 +1051,15 @@ func runStandaloneWorkflowVerification(in workspaceURL: URL) throws {
             && NSImage(contentsOf: bundledIconURL)?.representations.count == 10,
         "Bundled Canvas.app is missing AppIcon.icns or CFBundleIconFile in Info.plist"
     )
+    let hlRes = CanvasCodeHighlighter.shared.highlight(
+        source: "defmodule Bundled do\n  def ok, do: :ok\nend\n",
+        language: "elixir",
+        isDark: false
+    )
+    try require(
+        CanvasCodeHighlighter.shared.isAvailable && !hlRes.usedFallback && !hlRes.runs.isEmpty,
+        "Bundled Canvas.app failed to load HighlighterSwift resources from .app bundle"
+    )
 
     appDelegate.newDocument(nil)
     guard let doc = appDelegate.activeNativeDocument(),

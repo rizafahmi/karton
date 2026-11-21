@@ -224,6 +224,11 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             self.currentWindow = window
             self.saveDocumentAs(nil)
         }
+        canvas.statusBanner.onSaveVersion2Copy = { [weak self, weak window] in
+            guard let self, let window else { return }
+            self.currentWindow = window
+            self.saveVersion2Copy(nil)
+        }
         canvas.statusBanner.onReloadFromDisk = { [weak self, weak window] in
             guard let self, let window else { return }
             self.currentWindow = window
@@ -377,6 +382,18 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         activeCanvas()?.insertLine(kind)
     }
 
+    @objc public func insertCodeBlock(_ sender: Any?) {
+        activeCanvas()?.beginNewCodeBlock()
+    }
+
+    @objc public func copyCode(_ sender: Any?) {
+        _ = activeCanvas()?.copySelectedCode()
+    }
+
+    @objc public func fitCodeToContent(_ sender: Any?) {
+        _ = activeCanvas()?.fitSelectedCodeToContent()
+    }
+
     @objc public func insertConnection(_ sender: Any?) {
         activeCanvas()?.beginConnection()
     }
@@ -406,7 +423,12 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
     }
 
     @objc public func editText(_ sender: Any?) {
-        activeCanvas()?.beginTextEditing()
+        guard let canvas = activeCanvas() else { return }
+        if canvas.canEditCodeSelection {
+            canvas.beginCodeEditing()
+        } else {
+            canvas.beginTextEditing()
+        }
     }
 
     @objc public func previewAttachment(_ sender: Any?) {
@@ -673,9 +695,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         guard let canvas = activeCanvas() else {
             switch menuItem.action {
             case #selector(editGeometry(_:)), #selector(editText(_:)),
+                 #selector(copyCode(_:)), #selector(fitCodeToContent(_:)),
                  #selector(previewAttachment(_:)), #selector(editConnection(_:)),
                  #selector(insertConnection(_:)), #selector(insertAdjacentThought(_:)),
-                 #selector(insertShape(_:)), #selector(insertLine(_:)),
+                 #selector(insertShape(_:)), #selector(insertLine(_:)), #selector(insertCodeBlock(_:)),
                  #selector(duplicateSelection(_:)), #selector(deleteSelection(_:)),
                  #selector(bringToFront(_:)), #selector(sendToBack(_:)),
                  #selector(alignSelection(_:)),
@@ -732,7 +755,21 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             return canvas.canEditGeometry && !canvas.hasGeometryPreview && !sheetOpen
         }
         if menuItem.action == #selector(editText(_:)) {
+            if canvas.canEditCodeSelection {
+                menuItem.title = "Edit Code Source…"
+                return !sheetOpen
+            }
+            menuItem.title = "Edit Text…"
             return canvas.canEditTextSelection && !sheetOpen
+        }
+        if menuItem.action == #selector(copyCode(_:)) {
+            return canvas.canCopyCodeSelection && !sheetOpen
+        }
+        if menuItem.action == #selector(fitCodeToContent(_:)) {
+            return canvas.canFitCodeSelection && !sheetOpen
+        }
+        if menuItem.action == #selector(insertCodeBlock(_:)) {
+            return !canvas.isReadOnly && !canvas.hasGeometryPreview && !sheetOpen
         }
         if menuItem.action == #selector(previewAttachment(_:)) {
             return canvas.canPreviewAttachment && !sheetOpen
@@ -1055,6 +1092,12 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
         let editTextItem = NSMenuItem(title: "Edit Text…", action: #selector(editText(_:)), keyEquivalent: "")
         editTextItem.target = self
         editMenu.addItem(editTextItem)
+        let copyCodeItem = NSMenuItem(title: "Copy Code", action: #selector(copyCode(_:)), keyEquivalent: "")
+        copyCodeItem.target = self
+        editMenu.addItem(copyCodeItem)
+        let fitCodeItem = NSMenuItem(title: "Fit Code to Content", action: #selector(fitCodeToContent(_:)), keyEquivalent: "")
+        fitCodeItem.target = self
+        editMenu.addItem(fitCodeItem)
         let previewAttachmentItem = NSMenuItem(title: "Preview Attachment…", action: #selector(previewAttachment(_:)), keyEquivalent: "")
         previewAttachmentItem.target = self
         editMenu.addItem(previewAttachmentItem)
@@ -1088,6 +1131,10 @@ public final class CanvasAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
             item.representedObject = kind.rawValue
             insertMenu.addItem(item)
         }
+        insertMenu.addItem(.separator())
+        let codeBlock = NSMenuItem(title: "Code Block…", action: #selector(insertCodeBlock(_:)), keyEquivalent: "")
+        codeBlock.target = self
+        insertMenu.addItem(codeBlock)
         insertMenu.addItem(.separator())
         let connection = NSMenuItem(title: "Connection…", action: #selector(insertConnection(_:)), keyEquivalent: "")
         connection.target = self

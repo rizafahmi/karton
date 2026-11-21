@@ -491,10 +491,10 @@ Foundation, deployment target, initial content and PNG defaults were approved on
 byte-fingerprint conflict detection/pause, `NSDocument` draft autosaving plus
 private recovery envelopes, launch restoration, close/quit guards, compatibility
 fixture round-trips (`Native → Web → Native`), bundled Neo-Acid / Amatic SC
-font-role mappings, and transparent Keynote PNG export (`File → Export PNG…`,
-`⇧⌘E`) are implemented and verified (2026-11-10). Native v2 code-snippet
-authoring/editing and `HighlighterSwift` integration are deferred to the next
-phase of development (2026-11-10); new attachment import is outside the initial scope.
+font-role mappings, transparent Keynote PNG export (`File → Export PNG…`,
+`⇧⌘E`), and native v2 code-snippet authoring with `HighlighterSwift` (`3.1.0`)
+syntax highlighting are implemented and verified (2026-11-21); new attachment
+import remains outside the initial scope.
 The shared v2 schema, new-v2/existing-v1 policy, explicit version-copy semantics,
 language inventory, and web dependencies are settled, not remaining native design
 questions. New native dependency/build-tool choices require separate approval.

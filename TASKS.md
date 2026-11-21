@@ -2,10 +2,9 @@
 
 Unchecked work is not implemented behavior. Current web editing and the native
 macOS canvas editor (including `NSDocument` JSON persistence, coalesced autosave,
-conflict handling, crash/draft recovery, and Keynote PNG export) are implemented;
-on 2026-11-10, native v2 code-snippet authoring/highlighting was explicitly
-deferred to the next phase of development (existing v2 `code` nodes remain
-preserved, rendered as plain text, and round-tripped losslessly).
+conflict handling, crash/draft recovery, transparent Keynote PNG export, and
+native v2 code-snippet authoring with `HighlighterSwift` syntax highlighting)
+are implemented.
 The separately approved adjacent-thought task is implemented. Connected-arrow
 styling's additive v1 metadata scope is now approved (details below); the native
 editor remains last. Save a copy preservation is separately approved and
@@ -447,17 +446,32 @@ approval. Any adopted non-native additions precede the final native milestone.
       and overflow-y). Improve compactness, keyboard access, and short-window
       reachability; do not merely hide the scrollbar. Promotion into readiness
       is not yet approved.
-- [ ] **Code snippets — web implemented; native authoring/highlighting deferred to next phase (2026-11-10):**
-      dedicated code blocks, not only shape Mono typography. The web editor now
-      implements the [shared v2 contract](shared/CODE_SNIPPETS.md), dedicated source
-      editor, literal Copy code, language control, highlighting, Fit, keyboard
-      isolation, clipboard/history, and save integration. On 2026-11-10, native
-      code-snippet authoring/source editing and `HighlighterSwift` syntax
-      highlighting were deferred to the next phase of development; the current
-      native editor preserves existing v2 `type: "code"` nodes losslessly,
-      renders them in `Monaspace Neon`, enforces the 256 KiB / 1 MiB quotas, and
-      supports selection, movement, resize/rotation, style inspection,
-      connections, duplication, deletion, and PNG export.
+- [x] **Code snippets — web & native macOS implemented (native v0.2 verified 2026-11-21):**
+      dedicated code blocks, not only shape Mono typography. Both the web editor
+      and the native macOS editor now implement the [shared v2 contract](shared/CODE_SNIPPETS.md),
+      dedicated source editor, literal Copy code, language control, highlighting,
+      Fit, keyboard isolation, clipboard/history, and save/export integration.
+      On macOS (`v0.2`), `HighlighterSwift` (`3.1.0`, Highlight.js via system
+      `JavaScriptCore`, bundled in `Canvas.app/Contents/Resources/Highlighter_Highlighter.bundle`)
+      provides light (`github`) and dark (`github-dark`, aligned with light/dark
+      Keynote slide polarity) syntax highlighting across all 12 curated languages
+      plus conservative curated-subset Auto detection (`relevance >= 3`,
+      `best >= 1.25 * secondBest`) with plain-text fallback. Creating code blocks
+      (`K`, floating dock Code tool click/drag, or **Insert → Code Block…**) on
+      v1 canvases stays in Select mode and displays an actionable **Save v2 Copy…**
+      banner without silently upgrading. The dedicated floating `CodeSnippetEditorView`
+      uses its own draft `UndoManager`, preserves literal UTF-8/BOM/CRLF/CR/LF
+      source, maps Enter to newline, Tab/Shift-Tab to 2-space indent/unindent
+      (skipping col-0 trailing lines), `⌘↩` to control focus exit, and Escape/Finish
+      to atomic source + optional language + ephemeral Fit commits. PNG export
+      refuses clipped code blocks until fitted or resized.
+      **Native verification (2026-11-21):** `CanvasChecks` (`CodeSnippetChecks.swift`)
+      verifies all 12 curated languages (light/dark token runs and literal byte
+      retention), BOM/whitespace/mixed line endings, conservative Auto detection,
+      unknown-language and omitted-language preservation, v1 refusal banner,
+      dedicated editor draft isolation/Tab/Copy/Fit/invalid-draft Save flush
+      refusal, atomic Undo/Redo, clipped-source PNG export refusal, light/dark
+      highlighted PNG export, and v2 JSON round-trips.
       Enter inserts a newline; Tab/Shift-Tab indent/unindent; Escape finishes.
       Plain-source paste creates no block outside an open snippet editor.
       Code is neither an attachment nor a caption and is never executed.

@@ -21,10 +21,11 @@ object/connection/canvas style editing, caption editing
 with automatic box growth (using bundled Neo-Acid and Amatic SC typography with
 CoreText system glyph fallback), read-only attachment source preview/copy, canvas
 zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent PNG export (**File → Export PNG…**,
-**⇧⌘E**) and Undo/Redo. Existing v2 `code` blocks are preserved, rendered as plain
-text in `Monaspace Neon`, transformed, styled, connected, duplicated/deleted (with
-1 MiB quota enforcement) and exported to PNG; native code-snippet authoring and
-syntax highlighting are deferred to the next phase of development.
+**⇧⌘E**), Undo/Redo, and full v2 code-snippet authoring (`K`, floating dock Code
+tool, **Insert → Code Block…**, dedicated multiline editor with `Tab`/`Shift-Tab`
+indent, literal **Copy Code**, ephemeral **Fit to Content**, clipped-source PNG
+export guard, and `HighlighterSwift` syntax highlighting with conservative Auto
+detection across all 12 curated languages).
 
 ## Build and run
 
@@ -330,9 +331,8 @@ PNG defaults to a 2,048-pixel longest side with configurable dimensions, 32-unit
 padding and caps of 8,192 pixels per side / 16,777,216 pixels total (implemented
 and verified with bundled Neo-Acid typography and Keynote slides), and
 `NSDocument`-backed JSON persistence, coalesced autosave, external conflict
-handling, recovery, and editable `Native → Web → Native` round-trips are
-implemented and verified. Native v2 code-snippet authoring and `HighlighterSwift`
-syntax highlighting are deferred to the next phase of development (2026-11-10).
-Web verification
+handling, recovery, editable `Native → Web → Native` round-trips, and native
+v2 code-snippet authoring with `HighlighterSwift` syntax highlighting are
+implemented and verified. Web verification
 still runs with `mix check` from the repository root; it does not build or verify
 the native app.

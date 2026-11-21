@@ -207,6 +207,13 @@ public final class CanvasView: NSView {
         didSet { onDraftStateDidChange?() }
     }
     private var shortcutsSheet: CanvasShortcutsSheet?
+    private var codeEditorView: CodeSnippetEditorView? {
+        didSet { onDraftStateDidChange?() }
+    }
+    private var pendingNewCodeBox: CanvasGeometry?
+    public var codePasteboard: NSPasteboard = .general
+    public var hasActiveCodeEditor: Bool { codeEditorView != nil }
+    public var activeCodeEditor: CodeSnippetEditorView? { codeEditorView }
     public var isShortcutsSheetOpen: Bool { shortcutsSheet != nil }
     public var activeShortcutsPanel: NSPanel? { shortcutsSheet?.panel }
     public var selectedNodeID: String? { selectedID }
@@ -226,7 +233,7 @@ public final class CanvasView: NSView {
     public var hasActiveConnectionDrag: Bool { connectionDrag != nil }
     public var hasActiveCreationDrag: Bool { creationDrag != nil }
     public var hasPendingDraftOrPreview: Bool {
-        hasActiveInlineTextEditor || isChoosingAdjacentThoughtDirection || hasGeometryPreview || hasActivePointerDrag || hasActiveConnectionDrag || hasActiveCreationDrag
+        hasActiveInlineTextEditor || hasActiveCodeEditor || isChoosingAdjacentThoughtDirection || hasGeometryPreview || hasActivePointerDrag || hasActiveConnectionDrag || hasActiveCreationDrag
     }
     public var recoverableTextDraft: CanvasRecoverableTextDraft? {
         guard !thoughtInputView.hasMarkedText() else { return nil }
@@ -318,21 +325,32 @@ public final class CanvasView: NSView {
         !isReadOnly && nodes.contains { $0.type != "shape-line" }
     }
     public var canEditTextSelection: Bool {
-        !hasGeometryPreview && inlineTextState == nil && drag == nil &&
+        !hasGeometryPreview && inlineTextState == nil && !hasActiveCodeEditor && drag == nil &&
             selectedNodeIDs.count <= 1 && (selectedID.map { session.canEditText($0) } ?? false)
     }
+    public var canEditCodeSelection: Bool {
+        !hasGeometryPreview && inlineTextState == nil && !hasActiveCodeEditor && drag == nil &&
+            selectedNodeIDs.count <= 1 && (selectedID.map { session.canEditCode($0) } ?? false)
+    }
+    public var canCopyCodeSelection: Bool {
+        !hasGeometryPreview && inlineTextState == nil && !hasActiveCodeEditor && drag == nil &&
+            selectedNodeIDs.count <= 1 && (selectedID.map { session.isCodeNode($0) } ?? false)
+    }
+    public var canFitCodeSelection: Bool {
+        canEditCodeSelection
+    }
     public var canPreviewAttachment: Bool {
-        !hasGeometryPreview && inlineTextState == nil && drag == nil &&
+        !hasGeometryPreview && inlineTextState == nil && !hasActiveCodeEditor && drag == nil &&
             selectedNodeIDs.count <= 1 && (selectedID.map { session.attachment(of: $0) != nil } ?? false)
     }
     public var canEditConnectionSelection: Bool {
-        !hasGeometryPreview && inlineTextState == nil && drag == nil && canInsertConnection &&
+        !hasGeometryPreview && inlineTextState == nil && !hasActiveCodeEditor && drag == nil && canInsertConnection &&
             (selectedEdgeID.map { session.hasConnection($0) } ?? false)
     }
     public var canExportPNG: Bool {
         drag == nil && connectionDrag == nil && creationDrag == nil &&
             connectionEditor == nil && attachmentPreview == nil && pngExportSheet == nil && shortcutsSheet == nil &&
-            (!nodes.isEmpty || hasActiveInlineTextEditor)
+            (!nodes.isEmpty || hasActiveInlineTextEditor || hasActiveCodeEditor)
     }
     public var isPNGExportSheetOpen: Bool { pngExportSheet != nil }
     public var activePNGExportPanel: NSPanel? { pngExportSheet?.panel }
@@ -674,6 +692,9 @@ public final class CanvasView: NSView {
         if inlineTextState != nil {
             guard finishInlineTextBeforeCanvasAction() else { return }
         }
+        if codeEditorView != nil {
+            guard finishCodeEditorBeforeCanvasAction() else { return }
+        }
         window?.makeFirstResponder(self)
         if isSpacePressed {
             let clipOrigin = enclosingScrollView?.contentView.bounds.origin ?? .zero
@@ -1009,7 +1030,7 @@ public final class CanvasView: NSView {
     }
 
     public override func menu(for event: NSEvent) -> NSMenu? {
-        guard inlineTextState == nil, !hasGeometryPreview, window?.attachedSheet == nil,
+        guard inlineTextState == nil, !hasActiveCodeEditor, !hasGeometryPreview, window?.attachedSheet == nil,
               connectionEditor == nil, attachmentPreview == nil, pngExportSheet == nil else {
             return nil
         }
@@ -1024,6 +1045,22 @@ public final class CanvasView: NSView {
         }
         let menu = NSMenu(title: "Canvas")
         menu.autoenablesItems = false
+        if canCopyCodeSelection {
+            if canEditCodeSelection {
+                let editItem = NSMenuItem(title: "Edit Code Source…", action: #selector(editCodeFromMenu(_:)), keyEquivalent: "")
+                editItem.target = self
+                menu.addItem(editItem)
+            }
+            let copyCodeItem = NSMenuItem(title: "Copy Code", action: #selector(copyCodeFromMenu(_:)), keyEquivalent: "")
+            copyCodeItem.target = self
+            menu.addItem(copyCodeItem)
+            if canFitCodeSelection {
+                let fitItem = NSMenuItem(title: "Fit Code to Content", action: #selector(fitCodeFromMenu(_:)), keyEquivalent: "")
+                fitItem.target = self
+                menu.addItem(fitItem)
+            }
+            menu.addItem(.separator())
+        }
         if orderedSelectedNodeIDs.count >= 2 {
             let alignItem = NSMenuItem(title: "Align", action: nil, keyEquivalent: "")
             let alignMenu = NSMenu(title: "Align")
@@ -1116,6 +1153,9 @@ public final class CanvasView: NSView {
     public override func keyDown(with event: NSEvent) {
         if inlineTextState != nil {
             inlineTextKeyDown(event)
+            return
+        }
+        if codeEditorView != nil {
             return
         }
         if geometryGesture != nil {
@@ -1344,6 +1384,15 @@ public final class CanvasView: NSView {
                 insertLine(lineKind)
                 return
             }
+            if event.charactersIgnoringModifiers == "k" || event.charactersIgnoringModifiers == "K" {
+                activeCreationTool = .select
+                beginNewCodeBlock()
+                return
+            }
+            if event.keyCode == 120 { // F2
+                activatePrimaryEditor()
+                return
+            }
             if event.keyCode == 36 {
                 if activeCreationTool != .select {
                     let tool = activeCreationTool
@@ -1352,6 +1401,7 @@ public final class CanvasView: NSView {
                     switch tool {
                     case .shape(let k): insertShape(k)
                     case .line(let k): insertLine(k)
+                    case .code: beginNewCodeBlock()
                     case .select: break
                     }
                     return
@@ -2231,6 +2281,7 @@ public final class CanvasView: NSView {
     }
 
     public func positionToolDock() {
+        positionCodeEditor()
         guard isToolDockVisible else { return }
         let area = visibleRect.width > 0 ? visibleRect : bounds
         let size = toolDock.frame.size
@@ -2551,6 +2602,12 @@ public final class CanvasView: NSView {
     public func activatePrimaryEditor() {
         if let edgeID = selectedEdgeID, session.hasConnection(edgeID) {
             beginConnection(focusLabel: true)
+        } else if let id = selectedID, session.isCodeNode(id) {
+            if session.canEditCode(id) {
+                beginCodeEditing(nodeID: id)
+            } else {
+                NSSound.beep()
+            }
         } else if let id = selectedID, session.attachment(of: id) != nil {
             beginAttachmentPreview()
         } else if let id = selectedID, session.canEditText(id) {
@@ -2738,6 +2795,14 @@ public final class CanvasView: NSView {
                 }
             }
         }
+        if let editor = codeEditorView {
+            if editor.hasMarkedText {
+                throw CanvasDocumentError("Finish active text input before \(actionVerb).")
+            }
+            if !editor.attemptFinish() || codeEditorView != nil {
+                throw CanvasDocumentError("Finish valid code editing before \(actionVerb).")
+            }
+        }
         if geometryGesture != nil {
             commitGeometry()
             if geometryGesture != nil {
@@ -2770,6 +2835,7 @@ public final class CanvasView: NSView {
         _ = CanvasTypography.ensureRegistered()
         let filter = try resolvePNGExportFilter(for: scope)
         let (filteredNodes, filteredEdges) = Self.filterSnapshot(nodes: nodes, edges: edges, with: filter)
+        try Self.validateNoClippedCodeOverflow(in: filteredNodes)
         let bounds = Self.contentWorldBounds(nodes: filteredNodes, edges: filteredEdges, role: fontRole)
         return try CanvasPNGExportPlan.resolve(contentWorldBounds: bounds, sizing: sizing, padding: padding)
     }
@@ -2823,6 +2889,7 @@ public final class CanvasView: NSView {
             return Self.makeEdge(raw, source, target, role: snapshotRole)
         }
         let (snapshotNodes, snapshotEdges) = Self.filterSnapshot(nodes: allNodes, edges: allEdges, with: filter)
+        try Self.validateNoClippedCodeOverflow(in: snapshotNodes)
         let bounds = Self.contentWorldBounds(nodes: snapshotNodes, edges: snapshotEdges, role: snapshotRole)
         let plan = try CanvasPNGExportPlan.resolve(contentWorldBounds: bounds, sizing: sizing, padding: padding)
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
@@ -2851,7 +2918,7 @@ public final class CanvasView: NSView {
             Self.drawEdge(edge, role: snapshotRole, isSelected: false, theme: theme)
         }
         for node in snapshotNodes {
-            Self.drawNode(node, role: snapshotRole, defaultAlign: snapshotAlign, hideCaption: false, theme: theme)
+            Self.drawNode(node, role: snapshotRole, defaultAlign: snapshotAlign, hideCaption: false, theme: theme, isExport: true)
         }
         cgContext.restoreGState()
         NSGraphicsContext.restoreGraphicsState()
@@ -4355,7 +4422,8 @@ public final class CanvasView: NSView {
         role fontRole: String,
         defaultAlign: String? = nil,
         hideCaption: Bool,
-        theme: CanvasPNGExportTheme = .light
+        theme: CanvasPNGExportTheme = .light,
+        isExport: Bool = false
     ) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
@@ -4384,17 +4452,83 @@ public final class CanvasView: NSView {
             configure(path, data); path.stroke()
             if !hideCaption {
                 let text = nodeText(node)
-                let role = node.type == "code" ? "mono" : (data["font"] as? String ?? fontRole)
-                let rect = textRect(node, role: fontRole)
-                let style = NSMutableParagraphStyle()
-                style.alignment = node.type == "code" ? .left : alignment(effectiveAlignment(data: data, kind: kind, defaultAlign: defaultAlign))
-                style.lineBreakMode = .byWordWrapping
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: font(role, data["size"] as? String ?? "m"),
-                    .foregroundColor: textColor(on: fill, theme: theme),
-                    .paragraphStyle: style,
-                ]
-                (text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attrs)
+                let size = data["size"] as? String ?? "m"
+                if node.type == "code" {
+                    let storedLang = data["language"] as? String
+                    let (attributed, hlResult) = CanvasCodeHighlighter.shared.attributedString(
+                        source: text,
+                        language: storedLang,
+                        size: size,
+                        fill: fill,
+                        theme: theme
+                    )
+                    let clipRect = node.box.insetBy(dx: 10, dy: 10)
+                    if clipRect.width > 0 && clipRect.height > 0 {
+                        context.saveGState()
+                        context.clip(to: clipRect)
+                        let drawRect = CGRect(
+                            x: clipRect.minX,
+                            y: clipRect.minY,
+                            width: clipRect.width,
+                            height: max(clipRect.height, textRect(node, role: fontRole).height)
+                        )
+                        attributed.draw(with: drawRect, options: [.usesLineFragmentOrigin, .usesFontLeading])
+                        context.restoreGState()
+                    }
+                    if !isExport {
+                        if CanvasCodeHighlighter.hasClippedOverflow(source: text, box: node.box, size: size) {
+                            let stripHeight: CGFloat = 18
+                            let stripRect = CGRect(
+                                x: node.box.minX + 2,
+                                y: node.box.maxY - stripHeight - 2,
+                                width: max(0, node.box.width - 4),
+                                height: stripHeight
+                            )
+                            CanvasTheme.yellow.withAlphaComponent(0.92).setFill()
+                            stripRect.fill()
+                            let badge = "⋯ OVERFLOW · FIT TO EXPORT" as NSString
+                            let badgeAttrs: [NSAttributedString.Key: Any] = [
+                                .font: CanvasTypography.font("mono", "s", scale: 9.0 / 12.0),
+                                .foregroundColor: CanvasTheme.highlighterInk,
+                            ]
+                            badge.draw(at: CGPoint(x: stripRect.minX + 6, y: stripRect.minY + 3), withAttributes: badgeAttrs)
+                        } else if node.box.width >= 140 && node.box.height >= 44 {
+                            let langLabel: String
+                            if storedLang == nil || storedLang == CanvasCodeLanguage.auto.rawValue {
+                                langLabel = hlResult.detectedLanguage?.displayName ?? "Auto"
+                            } else {
+                                langLabel = CanvasCodeLanguage.displayLabel(for: storedLang)
+                            }
+                            let badge = langLabel.uppercased() as NSString
+                            let badgeAttrs: [NSAttributedString.Key: Any] = [
+                                .font: CanvasTypography.font("mono", "s", scale: 9.0 / 12.0),
+                                .foregroundColor: CanvasCodeHighlighter.usesDarkTokenPalette(fill: fill, theme: theme)
+                                    ? CanvasTheme.darkPrimaryText.withAlphaComponent(0.6)
+                                    : CanvasTheme.mutedText,
+                            ]
+                            let badgeSize = badge.size(withAttributes: badgeAttrs)
+                            badge.draw(
+                                at: CGPoint(
+                                    x: node.box.maxX - badgeSize.width - 8,
+                                    y: node.box.minY + 4
+                                ),
+                                withAttributes: badgeAttrs
+                            )
+                        }
+                    }
+                } else {
+                    let role = data["font"] as? String ?? fontRole
+                    let rect = textRect(node, role: fontRole)
+                    let style = NSMutableParagraphStyle()
+                    style.alignment = alignment(effectiveAlignment(data: data, kind: kind, defaultAlign: defaultAlign))
+                    style.lineBreakMode = .byWordWrapping
+                    let attrs: [NSAttributedString.Key: Any] = [
+                        .font: font(role, size),
+                        .foregroundColor: textColor(on: fill, theme: theme),
+                        .paragraphStyle: style,
+                    ]
+                    (text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attrs)
+                }
             }
         }
         context.restoreGState()
@@ -4888,8 +5022,15 @@ public final class CanvasView: NSView {
             NSSound.beep()
             return
         }
+        if tool == .code && !session.supportsCodeNodes {
+            showV1CodeNotice()
+            return
+        }
         if inlineTextState != nil {
             guard finishInlineTextBeforeCanvasAction() else { return }
+        }
+        if codeEditorView != nil {
+            guard finishCodeEditorBeforeCanvasAction() else { return }
         }
         guard window?.attachedSheet == nil,
               connectionEditor == nil,
@@ -4912,6 +5053,10 @@ public final class CanvasView: NSView {
             armCreationTool(.select)
             return
         }
+        if tool == .code && !session.supportsCodeNodes {
+            showV1CodeNotice()
+            return
+        }
         if activeCreationTool == tool {
             activeCreationTool = .select
             switch tool {
@@ -4919,6 +5064,8 @@ public final class CanvasView: NSView {
                 insertShape(kind)
             case .line(let kind):
                 insertLine(kind)
+            case .code:
+                beginNewCodeBlock()
             case .select:
                 break
             }
@@ -4962,6 +5109,24 @@ public final class CanvasView: NSView {
                 }
             }
             window?.makeFirstResponder(self)
+        case .code:
+            let box: CanvasGeometry
+            if dragged {
+                let minX = Double(min(start.x, end.x))
+                let minY = Double(min(start.y, end.y))
+                let width = max(CanvasCodeSnippet.minWidth, Double(abs(end.x - start.x)))
+                let height = max(CanvasCodeSnippet.minHeight, Double(abs(end.y - start.y)))
+                box = CanvasGeometry(x: minX, y: minY, width: width, height: height, rotation: nil)
+            } else {
+                box = CanvasGeometry(
+                    x: Double(end.x) - CanvasCodeSnippet.defaultWidth / 2,
+                    y: Double(end.y) - CanvasCodeSnippet.defaultHeight / 2,
+                    width: CanvasCodeSnippet.defaultWidth,
+                    height: CanvasCodeSnippet.defaultHeight,
+                    rotation: nil
+                )
+            }
+            beginNewCodeBlock(at: box)
         case .line(let kind):
             if dragged {
                 let fromPos = CanvasPosition(x: Double(start.x), y: Double(start.y))
@@ -5016,6 +5181,20 @@ public final class CanvasView: NSView {
             path.lineWidth = 2 / zoomScale
             path.setLineDash([6 / zoomScale, 4 / zoomScale], count: 2, phase: 0)
             path.stroke()
+        case .code:
+            let rect = CGRect(
+                x: min(start.x, end.x),
+                y: min(start.y, end.y),
+                width: max(CGFloat(CanvasCodeSnippet.minWidth), abs(end.x - start.x)),
+                height: max(CGFloat(CanvasCodeSnippet.minHeight), abs(end.y - start.y))
+            )
+            let path = outline("rect", rect, 0)
+            CanvasTheme.selectionCobalt.withAlphaComponent(0.08).setFill()
+            path.fill()
+            CanvasTheme.selectionCobalt.setStroke()
+            path.lineWidth = 2 / zoomScale
+            path.setLineDash([6 / zoomScale, 4 / zoomScale], count: 2, phase: 0)
+            path.stroke()
         case .line(let kind):
             let path = NSBezierPath()
             path.move(to: start)
@@ -5028,6 +5207,319 @@ public final class CanvasView: NSView {
                 drawArrow(at: end, from: start, color: CanvasTheme.selectionCobalt)
             }
         }
+    }
+
+    // MARK: - Code Snippets (v2 Authoring, Editor, Copy & Fit)
+
+    private static func validateNoClippedCodeOverflow(in nodes: [Node]) throws {
+        for node in nodes where node.type == "code" {
+            let content = node.data["content"] as? String ?? ""
+            let size = node.data["size"] as? String ?? "m"
+            if CanvasCodeHighlighter.hasClippedOverflow(source: content, box: node.box, size: size) {
+                throw CanvasDocumentError(
+                    "Code block “\(node.id)” has clipped source. Use Fit Code to Content or resize it before exporting PNG."
+                )
+            }
+        }
+    }
+
+    public func showV1CodeNotice() {
+        activeCreationTool = .select
+        creationDrag = nil
+        statusBanner.configure(
+            kind: .v1CodeNotice("Code blocks require canvas version 2. Use File → Save Version 2 Copy… or New Canvas.")
+        )
+        positionStatusBanner()
+        NSSound.beep()
+        needsDisplay = true
+    }
+
+    public func beginNewCodeBlock(at explicitBox: CanvasGeometry? = nil) {
+        guard !isReadOnly else {
+            NSSound.beep()
+            return
+        }
+        guard session.supportsCodeNodes else {
+            showV1CodeNotice()
+            return
+        }
+        if inlineTextState != nil {
+            guard finishInlineTextBeforeCanvasAction() else { return }
+        }
+        if codeEditorView != nil {
+            guard finishCodeEditorBeforeCanvasAction() else { return }
+        }
+        guard window?.attachedSheet == nil,
+              connectionEditor == nil,
+              attachmentPreview == nil,
+              pngExportSheet == nil,
+              shortcutsSheet == nil,
+              drag == nil,
+              connectionDrag == nil else {
+            NSSound.beep()
+            return
+        }
+        cancelGeometry()
+        creationDrag = nil
+        activeCreationTool = .select
+
+        let box: CanvasGeometry
+        if let explicitBox {
+            box = explicitBox
+        } else {
+            let vis = visibleWorldRect
+            let w = CanvasCodeSnippet.defaultWidth
+            let h = CanvasCodeSnippet.defaultHeight
+            box = CanvasGeometry(
+                x: Double(vis.midX) - w / 2,
+                y: Double(vis.midY) - h / 2,
+                width: w,
+                height: h,
+                rotation: nil
+            )
+        }
+        pendingNewCodeBox = box
+        openCodeEditor(targetNodeID: nil, initialSource: "", initialStoredLanguage: CanvasCodeLanguage.auto.rawValue)
+    }
+
+    public func beginCodeEditing(nodeID explicitID: String? = nil) {
+        let targetID = explicitID ?? selectedID
+        guard let id = targetID, session.canEditCode(id) else {
+            NSSound.beep()
+            return
+        }
+        if inlineTextState != nil {
+            guard finishInlineTextBeforeCanvasAction() else { return }
+        }
+        if codeEditorView != nil {
+            guard finishCodeEditorBeforeCanvasAction() else { return }
+        }
+        guard window?.attachedSheet == nil,
+              connectionEditor == nil,
+              attachmentPreview == nil,
+              pngExportSheet == nil,
+              shortcutsSheet == nil,
+              drag == nil,
+              connectionDrag == nil else {
+            NSSound.beep()
+            return
+        }
+        cancelGeometry()
+        selectSingleNode(id)
+        pendingNewCodeBox = nil
+        let source = session.codeContent(of: id) ?? ""
+        let storedLang = session.codeLanguage(of: id)
+        openCodeEditor(targetNodeID: id, initialSource: source, initialStoredLanguage: storedLang)
+    }
+
+    private func openCodeEditor(targetNodeID: String?, initialSource: String, initialStoredLanguage: String?) {
+        let editor = CodeSnippetEditorView(
+            targetNodeID: targetNodeID,
+            initialSource: initialSource,
+            initialStoredLanguage: initialStoredLanguage,
+            pasteboard: codePasteboard
+        )
+        editor.validateDraft = { [weak self] candidateSource in
+            guard let self else { return nil }
+            do {
+                try CanvasCodeSnippet.validateSource(candidateSource)
+                // Also validate aggregate 1 MiB canvas code quota
+                let existingTotal = (self.session.root["nodes"] as? [[String: Any]] ?? []).reduce(0) { sum, raw in
+                    guard raw["type"] as? String == "code" else { return sum }
+                    if let targetNodeID, raw["id"] as? String == targetNodeID { return sum }
+                    let content = (raw["data"] as? [String: Any])?["content"] as? String ?? ""
+                    return sum + content.utf8.count
+                }
+                if existingTotal + candidateSource.utf8.count > CanvasCodeSnippet.canvasByteLimit {
+                    return "Code sources exceed the 1048576-byte canvas limit."
+                }
+                return nil
+            } catch {
+                return error.localizedDescription
+            }
+        }
+        editor.onCommit = { [weak self] draft in
+            guard let self else { return nil }
+            return self.commitCodeEditor(targetNodeID: targetNodeID, draft: draft)
+        }
+        editor.onCancel = { [weak self] in
+            self?.cancelCodeEditor()
+        }
+        editor.onDraftDidChange = { [weak self] in
+            self?.onDraftStateDidChange?()
+        }
+        addSubview(editor)
+        codeEditorView = editor
+        positionCodeEditor()
+        editor.focusSourceEditor()
+        refreshToolDock()
+        needsDisplay = true
+    }
+
+    private func commitCodeEditor(targetNodeID: String?, draft: CodeSnippetEditorView.DraftResult) -> String? {
+        do {
+            if let nodeID = targetNodeID {
+                let targetGeometry: CanvasGeometry?
+                if draft.fitToContent, let current = session.geometry(of: nodeID) {
+                    let size = (session.root["nodes"] as? [[String: Any]])?
+                        .first(where: { $0["id"] as? String == nodeID })
+                        .flatMap { ($0["data"] as? [String: Any])?["size"] as? String } ?? "m"
+                    let fitted = CanvasCodeHighlighter.fittedBoxSize(for: draft.source, size: size)
+                    targetGeometry = CanvasGeometry(
+                        x: current.x,
+                        y: current.y,
+                        width: Double(fitted.width),
+                        height: Double(fitted.height),
+                        rotation: current.rotation
+                    )
+                } else {
+                    targetGeometry = nil
+                }
+                if let change = try session.setCodeSourceAndGeometry(
+                    nodeID,
+                    content: draft.source,
+                    language: draft.language,
+                    updateLanguage: draft.languageWasChanged,
+                    geometry: targetGeometry
+                ) {
+                    syncFromSession()
+                    registerUndoTextChange(change)
+                }
+                closeCodeEditor()
+                selectSingleNode(nodeID)
+                refreshStyleInspector()
+                refreshToolDock()
+                return nil
+            } else {
+                var box = pendingNewCodeBox ?? CanvasGeometry(
+                    x: Double(visibleWorldRect.midX) - CanvasCodeSnippet.defaultWidth / 2,
+                    y: Double(visibleWorldRect.midY) - CanvasCodeSnippet.defaultHeight / 2,
+                    width: CanvasCodeSnippet.defaultWidth,
+                    height: CanvasCodeSnippet.defaultHeight,
+                    rotation: nil
+                )
+                if draft.fitToContent {
+                    let fitted = CanvasCodeHighlighter.fittedBoxSize(for: draft.source, size: "m")
+                    box = CanvasGeometry(
+                        x: box.x,
+                        y: box.y,
+                        width: Double(fitted.width),
+                        height: Double(fitted.height),
+                        rotation: nil
+                    )
+                }
+                let language = draft.language ?? CanvasCodeLanguage.auto.rawValue
+                let insertion = try session.insertCodeBlock(
+                    at: CanvasPosition(x: box.x, y: box.y),
+                    content: draft.source,
+                    language: language,
+                    width: box.width,
+                    height: box.height
+                )
+                closeCodeEditor()
+                displayInsertion(insertion.id)
+                registerUndoInsertion(insertion, restoring: false, actionName: "Insert Code Block")
+                return nil
+            }
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    @discardableResult
+    private func finishCodeEditorBeforeCanvasAction() -> Bool {
+        guard let editor = codeEditorView else { return true }
+        return editor.attemptFinish()
+    }
+
+    public func cancelCodeEditor() {
+        closeCodeEditor()
+        refreshToolDock()
+        needsDisplay = true
+    }
+
+    private func closeCodeEditor() {
+        codeEditorView?.removeFromSuperview()
+        codeEditorView = nil
+        pendingNewCodeBox = nil
+        window?.makeFirstResponder(self)
+    }
+
+    public func positionCodeEditor() {
+        guard let editor = codeEditorView else { return }
+        let area = visibleRect.width > 0 ? visibleRect : bounds
+        let maxW = max(340, min(580, area.width - 40))
+        let maxH = max(240, min(390, area.height - 96))
+        editor.setFrameSize(NSSize(width: maxW, height: maxH))
+        editor.frame.origin = CGPoint(
+            x: max(area.minX + 16, floor(area.midX - maxW / 2)),
+            y: max(area.minY + 24, floor(area.midY - maxH / 2))
+        )
+    }
+
+    @discardableResult
+    public func copySelectedCode(to pasteboard: NSPasteboard? = nil) -> Bool {
+        guard let id = selectedID, let content = session.codeContent(of: id) else {
+            NSSound.beep()
+            return false
+        }
+        let targetPB = pasteboard ?? codePasteboard
+        targetPB.clearContents()
+        let ok = targetPB.setData(Data(content.utf8), forType: .string)
+        if !ok { NSSound.beep() }
+        return ok
+    }
+
+    @discardableResult
+    public func fitSelectedCodeToContent() -> Bool {
+        guard let id = selectedID,
+              session.canEditCode(id),
+              let content = session.codeContent(of: id),
+              let current = session.geometry(of: id) else {
+            NSSound.beep()
+            return false
+        }
+        let size = (session.root["nodes"] as? [[String: Any]])?
+            .first(where: { $0["id"] as? String == id })
+            .flatMap { ($0["data"] as? [String: Any])?["size"] as? String } ?? "m"
+        let fitted = CanvasCodeHighlighter.fittedBoxSize(for: content, size: size)
+        let target = CanvasGeometry(
+            x: current.x,
+            y: current.y,
+            width: Double(fitted.width),
+            height: Double(fitted.height),
+            rotation: current.rotation
+        )
+        do {
+            if let change = try session.setCodeSourceAndGeometry(
+                id,
+                content: content,
+                language: nil,
+                updateLanguage: false,
+                geometry: target
+            ) {
+                syncFromSession()
+                registerUndoTextChange(change)
+                refreshStyleInspector()
+                return true
+            }
+            return false
+        } catch {
+            NSSound.beep()
+            return false
+        }
+    }
+
+    @objc private func editCodeFromMenu(_ sender: Any?) {
+        beginCodeEditing()
+    }
+
+    @objc private func copyCodeFromMenu(_ sender: Any?) {
+        _ = copySelectedCode()
+    }
+
+    @objc private func fitCodeFromMenu(_ sender: Any?) {
+        _ = fitSelectedCodeToContent()
     }
 
     @objc public func beginShortcutsHelp(_ sender: Any? = nil) {

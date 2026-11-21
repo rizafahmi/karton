@@ -10,9 +10,18 @@ let package = Package(
         .executable(name: "CanvasApp", targets: ["CanvasApp"]),
         .executable(name: "CanvasChecks", targets: ["CanvasChecks"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/smittytone/HighlighterSwift.git", exact: "3.1.0"),
+    ],
     targets: [
         .target(name: "CanvasCore"),
-        .target(name: "CanvasUI", dependencies: ["CanvasCore"]),
+        .target(
+            name: "CanvasUI",
+            dependencies: [
+                "CanvasCore",
+                .product(name: "Highlighter", package: "HighlighterSwift"),
+            ]
+        ),
         .executableTarget(name: "CanvasApp", dependencies: ["CanvasCore", "CanvasUI"]),
         .executableTarget(name: "CanvasChecks", dependencies: ["CanvasCore", "CanvasUI"]),
     ]

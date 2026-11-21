@@ -373,6 +373,9 @@ func runChecks() throws {
     try checkPNGExport(repository: repository)
     try checkPersistenceAndRecovery(repository: repository)
     try checkReleaseSlices(repository: repository)
+    try MainActor.assumeIsolated {
+        try runCodeSnippetChecks()
+    }
 }
 
 @MainActor

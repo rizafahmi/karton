@@ -5,6 +5,7 @@ public enum CanvasCreationTool: Equatable, Sendable {
     case select
     case shape(CanvasShapeKind)
     case line(CanvasLineKind)
+    case code
 
     public var identifier: String {
         switch self {
@@ -16,6 +17,7 @@ public enum CanvasCreationTool: Equatable, Sendable {
         case .shape(.text): return "dock-tool-text"
         case .line(.line): return "dock-tool-line"
         case .line(.arrow): return "dock-tool-arrow"
+        case .code: return "dock-tool-code"
         }
     }
 
@@ -29,6 +31,7 @@ public enum CanvasCreationTool: Equatable, Sendable {
         case .shape(.text): return "Text"
         case .line(.line): return "Line"
         case .line(.arrow): return "Arrow"
+        case .code: return "Code"
         }
     }
 
@@ -42,6 +45,7 @@ public enum CanvasCreationTool: Equatable, Sendable {
         case .shape(.text): return "T"
         case .line(.line): return "L"
         case .line(.arrow): return "A"
+        case .code: return "K"
         }
     }
 
@@ -57,6 +61,8 @@ public enum CanvasCreationTool: Equatable, Sendable {
         case .line(let kind):
             let label = kind == .arrow ? "Arrow" : "Line"
             return "\(label) tool armed · Click or drag endpoints on canvas · Return: center · V / Escape: Select"
+        case .code:
+            return "Code tool armed · Click or drag on canvas to place code block · Return: center · V / Escape: Select"
         }
     }
 
@@ -69,6 +75,7 @@ public enum CanvasCreationTool: Equatable, Sendable {
         .shape(.text),
         .line(.line),
         .line(.arrow),
+        .code,
     ]
 }
 
@@ -81,6 +88,7 @@ public enum CanvasDockIconGlyph: String, Equatable, Sendable {
     case text
     case line
     case arrow
+    case code
     case connect
     case thought
     case style
@@ -224,6 +232,19 @@ private final class NeoAcidDockButton: NSButton {
             path.lineWidth = 1.8
             path.stroke()
 
+        case .code:
+            let path = NSBezierPath()
+            path.move(to: CGPoint(x: cx - 4.5, y: cy - 5))
+            path.line(to: CGPoint(x: cx - 9, y: cy))
+            path.line(to: CGPoint(x: cx - 4.5, y: cy + 5))
+            path.move(to: CGPoint(x: cx + 4.5, y: cy - 5))
+            path.line(to: CGPoint(x: cx + 9, y: cy))
+            path.line(to: CGPoint(x: cx + 4.5, y: cy + 5))
+            path.move(to: CGPoint(x: cx + 2, y: cy - 6.5))
+            path.line(to: CGPoint(x: cx - 2, y: cy + 6.5))
+            path.lineWidth = 1.7
+            path.stroke()
+
         case .connect:
             let n1 = NSBezierPath(rect: CGRect(x: cx - 8, y: cy - 7, width: 6, height: 6))
             let n2 = NSBezierPath(rect: CGRect(x: cx + 2, y: cy + 1, width: 6, height: 6))
@@ -341,6 +362,7 @@ public final class CanvasToolDockView: NSView {
         case .shape(.text): return .text
         case .line(.line): return .line
         case .line(.arrow): return .arrow
+        case .code: return .code
         }
     }
 
@@ -779,10 +801,12 @@ public final class CanvasStatusBannerView: NSView {
         case readOnly(String)
         case saveError(String, canRetry: Bool)
         case recoveryError(String)
+        case v1CodeNotice(String)
     }
 
     public private(set) var activeKind: BannerKind?
     public var onSaveAs: (() -> Void)?
+    public var onSaveVersion2Copy: (() -> Void)?
     public var onReloadFromDisk: (() -> Void)?
     public var onKeepEditing: (() -> Void)?
     public var onRetrySave: (() -> Void)?
@@ -872,8 +896,23 @@ public final class CanvasStatusBannerView: NSView {
         case .recoveryError(let message):
             titleLabel.stringValue = "RECOVERY WRITE WARNING"
             detailLabel.stringValue = message
+            saveAsButton.title = "Save As…"
+            saveAsButton.identifier = NSUserInterfaceItemIdentifier("banner-save-as")
             dismissButton.title = "Dismiss"
             dismissButton.identifier = NSUserInterfaceItemIdentifier("banner-dismiss")
+        case .v1CodeNotice(let message):
+            titleLabel.stringValue = "VERSION 1 CANVAS · CODE REQUIRES VERSION 2"
+            detailLabel.stringValue = message
+            saveAsButton.title = "Save v2 Copy…"
+            saveAsButton.identifier = NSUserInterfaceItemIdentifier("banner-save-v2-copy")
+            dismissButton.title = "Dismiss"
+            dismissButton.identifier = NSUserInterfaceItemIdentifier("banner-dismiss")
+        }
+        if case .v1CodeNotice = kind {
+            // saveAsButton already titled "Save v2 Copy…"
+        } else {
+            saveAsButton.title = "Save As…"
+            saveAsButton.identifier = NSUserInterfaceItemIdentifier("banner-save-as")
         }
         layoutControls()
         needsDisplay = true
@@ -912,6 +951,8 @@ public final class CanvasStatusBannerView: NSView {
             bg = CanvasTheme.sky
         case .saveError, .recoveryError:
             bg = CanvasTheme.red
+        case .v1CodeNotice:
+            bg = CanvasTheme.acid
         }
         bg.setFill()
         bounds.fill()
@@ -922,7 +963,11 @@ public final class CanvasStatusBannerView: NSView {
     }
 
     @objc private func handleSaveAs(_ sender: Any?) {
-        onSaveAs?()
+        if case .v1CodeNotice = activeKind {
+            onSaveVersion2Copy?()
+        } else {
+            onSaveAs?()
+        }
     }
 
     @objc private func handleReload(_ sender: Any?) {
@@ -986,7 +1031,7 @@ public final class CanvasShortcutsSheet: NSObject {
             ("CREATE & CONNECT", [
                 ("V / Esc", "Select tool / cancel active mode"),
                 ("R / O / D / I / T", "Insert Rectangle, Ellipse, Diamond, Triangle, Text"),
-                ("L / A", "Insert standalone Line or Arrow"),
+                ("L / A / K", "Insert standalone Line, Arrow, or v2 Code Block"),
                 ("N then ↑ → ↓ ←", "Grow adjacent thought along cardinal ray"),
                 ("C / Port drag", "Create or edit bound connection"),
             ]),

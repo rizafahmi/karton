@@ -36,11 +36,11 @@ style inspection and editing,
 captions with box growth (measured with bundled Neo-Acid and Amatic SC faces
 plus CoreText system cascade fallback), read-only attachment preview/copy,
 canvas zoom/fit (`+`/`-`, `⇧1`, `⇧0`/`⌘0`), transparent Keynote PNG export
-(`File → Export PNG…`, `⇧⌘E`) and Undo/Redo; native v2 code-snippet authoring
-and syntax highlighting are deferred to the next phase of development (existing
-v2 `code` nodes are preserved, rendered as plain text in `Monaspace Neon`,
-transformed/styled/connected/duplicated with 1 MiB quota enforcement, and
-exported to PNG).
+(`File → Export PNG…`, `⇧⌘E`), Undo/Redo, and native v2 code-snippet authoring
+with `HighlighterSwift` (`3.1.0`) syntax highlighting (`CodeHighlighter.swift`,
+`CodeSnippetEditor.swift`, `CanvasCodeSnippet.swift`) covering all 12 curated
+languages, conservative Auto detection, literal BOM/CRLF/Tab editing, Copy Code,
+Fit to Content, v1 refusal banner, and clipped-source PNG export refusal.
 [TASKS.md](TASKS.md) owns milestones, scope, acceptance proof, and unresolved
 native decisions. The web app supports v1 and v2; new web documents use v2 with
 an explicit code-node type.
@@ -64,8 +64,10 @@ coalesced autosave, external-conflict pause, and draft/crash recovery through
 New is blank v2; saving existing v1 in-place leaves its version unchanged, while
 `Save Version 2 Copy…` writes a separate v2 file. The app refuses unsupported
 semantics. Connector routes render `bezier`, rounded `smooth`, orthogonal `step`,
-`straight`, and rounded exterior self-loops; code is currently rendered as plain text,
-and new attachment import is outside initial scope. TASKS.md owns remaining gates.
+`straight`, and rounded exterior self-loops; v2 `code` nodes support full
+native authoring, dedicated multiline editing, `HighlighterSwift` syntax
+highlighting, Copy Code, and Fit to Content, and new attachment import is
+outside initial scope. TASKS.md owns remaining gates.
 The local bundler must ad-hoc sign and verify the assembled `.app`; the standalone
 linker signature is not a valid substitute for the final bundle's seal.
 [`macos/SPEC.md`](macos/SPEC.md) distinguishes approved choices from proposals;

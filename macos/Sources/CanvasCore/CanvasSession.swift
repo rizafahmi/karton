@@ -643,6 +643,157 @@ public final class CanvasSession {
         !isReadOnly && node(id)?["type"] as? String == "shape" && !isLocked(id)
     }
 
+    public var version: Int {
+        intValue(root["version"]) ?? 1
+    }
+
+    public var supportsCodeNodes: Bool {
+        version == 2
+    }
+
+    public func isCodeNode(_ id: String) -> Bool {
+        node(id)?["type"] as? String == "code"
+    }
+
+    public func canEditCode(_ id: String) -> Bool {
+        !isReadOnly && isCodeNode(id) && !isLocked(id)
+    }
+
+    public func codeContent(of id: String) -> String? {
+        guard isCodeNode(id) else { return nil }
+        return (node(id)?["data"] as? [String: Any])?["content"] as? String
+    }
+
+    /// Returns the raw stored `data.language` string, or `nil` when omitted (Auto).
+    /// Never materializes `"auto"` on observation.
+    public func codeLanguage(of id: String) -> String? {
+        guard isCodeNode(id) else { return nil }
+        return (node(id)?["data"] as? [String: Any])?["language"] as? String
+    }
+
+    /// Atomically updates code source, optional language (only when `updateLanguage` is true),
+    /// and optional geometry (e.g. Fit to content) in one validated transaction.
+    /// Preserves omitted/explicit language on source-only edits and retains all unknown metadata.
+    @discardableResult
+    public func setCodeSourceAndGeometry(
+        _ id: String,
+        content: String,
+        language: String? = nil,
+        updateLanguage: Bool = false,
+        geometry: CanvasGeometry? = nil
+    ) throws -> CanvasTextChange? {
+        guard canEditCode(id),
+              var nodes = root["nodes"] as? [[String: Any]],
+              let index = nodes.firstIndex(where: { $0["id"] as? String == id }),
+              var data = nodes[index]["data"] as? [String: Any] else {
+            throw CanvasDocumentError("Select an unlocked code block to edit its source.")
+        }
+        try CanvasCodeSnippet.validateSource(content)
+        if updateLanguage {
+            guard let language, !language.isEmpty else {
+                throw CanvasDocumentError("Code language must be a nonempty string.")
+            }
+        }
+        if let geometry {
+            try geometry.validate()
+        }
+        let existingContent = data["content"] as? String
+        let existingLanguage = data["language"] as? String
+        let contentChanged = existingContent != content
+        let languageChanged = updateLanguage && existingLanguage != language
+        let geometryChanged = geometry != nil && self.geometry(of: id) != geometry
+        guard contentChanged || languageChanged || geometryChanged else { return nil }
+
+        let beforeNode = nodes[index]
+        var afterNode = beforeNode
+        data["content"] = content
+        if updateLanguage, let language {
+            data["language"] = language
+        }
+        if let geometry {
+            afterNode["x"] = geometry.x
+            afterNode["y"] = geometry.y
+            afterNode["width"] = geometry.width
+            afterNode["height"] = geometry.height
+            data["rotation"] = geometry.rotation
+        }
+        afterNode["data"] = data
+        nodes[index] = afterNode
+        var candidate = root
+        candidate["nodes"] = nodes
+        try CanvasDocument.validate(candidate)
+        root = candidate
+        return CanvasTextChange(id: id, beforeNode: beforeNode, afterNode: afterNode)
+    }
+
+    /// Convenience helper for language-only edits on an unlocked code block.
+    @discardableResult
+    public func setCodeLanguage(_ id: String, to language: String) throws -> CanvasTextChange? {
+        guard let currentContent = codeContent(of: id) else {
+            throw CanvasDocumentError("Select an unlocked code block to change its language.")
+        }
+        return try setCodeSourceAndGeometry(
+            id,
+            content: currentContent,
+            language: language,
+            updateLanguage: true,
+            geometry: nil
+        )
+    }
+
+    /// Inserts a new v2 `type: "code"` node at `position`.
+    /// Refuses read-only documents and version-1 canvases without silently upgrading.
+    public func insertCodeBlock(
+        at position: CanvasPosition,
+        content: String = "",
+        language: String = "auto",
+        width: Double = CanvasCodeSnippet.defaultWidth,
+        height: Double = CanvasCodeSnippet.defaultHeight
+    ) throws -> CanvasShapeInsertion {
+        guard !isReadOnly else {
+            throw CanvasDocumentError("This canvas is read-only; use Save As to create an editable copy.")
+        }
+        guard supportsCodeNodes else {
+            throw CanvasDocumentError("Code blocks require a version-2 canvas. Use File → Save Version 2 Copy… or New Canvas.")
+        }
+        guard position.x.isFinite, position.y.isFinite,
+              abs(position.x) <= 1_000_000, abs(position.y) <= 1_000_000 else {
+            throw CanvasDocumentError("A code block needs finite coordinates within 1000000.")
+        }
+        guard width.isFinite, width > 0, width <= 1_000_000,
+              height.isFinite, height > 0, height <= 1_000_000 else {
+            throw CanvasDocumentError("A code block needs positive dimensions within 1000000.")
+        }
+        guard !language.isEmpty else {
+            throw CanvasDocumentError("Code language must be a nonempty string.")
+        }
+        try CanvasCodeSnippet.validateSource(content)
+        let id = UUID().uuidString
+        let data: [String: Any] = [
+            "content": content,
+            "language": language,
+            "fill": "none",
+            "stroke": "ink",
+            "width": 2,
+            "radius": 0,
+            "size": "m",
+        ]
+        let raw: [String: Any] = [
+            "id": id,
+            "type": "code",
+            "x": position.x,
+            "y": position.y,
+            "width": width,
+            "height": height,
+            "data": data,
+        ]
+        let insertion = CanvasShapeInsertion(
+            id: id, node: raw, index: (root["nodes"] as? [[String: Any]])?.count ?? 0
+        )
+        try restoreInsertion(insertion)
+        return insertion
+    }
+
     /// Changes only the caption; nil restores an originally absent text field.
     @discardableResult
     public func setText(_ id: String, to text: String?) throws -> Bool {
